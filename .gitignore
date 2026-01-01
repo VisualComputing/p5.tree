@@ -1,0 +1,28 @@
+# Node dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+p5.platonic.js
+p5.platonic.js.map
+
+# Local testing
+testing/
+
+# Editor/IDE folders
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# OS metadata files
+.DS_Store
+
+# REPL / temp files
+.node_repl_history
