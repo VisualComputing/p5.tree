@@ -455,34 +455,25 @@ p5.registerAddon((p5, fn, lifecycles) => {
     cam && this._renderer instanceof p5.RendererGL && this._renderer.endHUD();
     return this;
   };
-  
+    
   p5.RendererGL.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
     const p = this._pInst;
     const gl = this.drawingContext;
     const states = this.states;
     if (p === undefined || gl === undefined || states === undefined) return;
-    p.push(); // calls: this._rendererState = this.push()
-    this._hudDidPush = true;
-    // Save current (active) camera in p5-v2
+    p.push(); // calls: this._rendererState = this.push();
+    // --- HUD setup ---
     this._hudPrevCam = states.curCamera;
-    // Save depth-test enable state
     this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
-    // Save renderer matrices that cameras touch in p5-v2
-    this._hudPrevP = states.uPMatrix.clone();
-    this._hudPrevV = states.uViewMatrix.clone();
-    // Lazily create HUD camera
-    if (this._hudCam === undefined) {
-      this._hudCam = p.createCamera();
-    }
     gl.flush();
     gl.disable(gl.DEPTH_TEST);
-    // Configure HUD camera as fixed screen-space ortho
+    if (this._hudCam === undefined) this._hudCam = p.createCamera();
     const z = 1e6;
     this._hudCam.ortho(-p.width / 2, p.width / 2, -p.height / 2, p.height / 2, -z, z);
     this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
-    // Activate HUD camera (this sets states.curCamera internally)
     p.setCamera(this._hudCam);
+    p.resetShader();
     this._hudActive = true;
   };
   
@@ -492,22 +483,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const gl = this.drawingContext;
     const states = this.states;
     if (p === undefined || gl === undefined || states === undefined) return;
-    // Restore previous camera FIRST (critical)
-    this._hudPrevCam !== undefined && p.setCamera(this._hudPrevCam);
-    // Restore matrices (prevents 1-frame sticky camera / wrong projection)
-    this._hudPrevP !== undefined && states.uPMatrix.set(this._hudPrevP);
-    this._hudPrevV !== undefined && states.uViewMatrix.set(this._hudPrevV);
-    // Restore depth-test state
     gl.flush();
-    this._hudDepthWasEnabled === true ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
-    // Restore p5-v2 state stack
-    this._hudDidPush === true && p.pop(); // calls: this.pop(this._rendererState)
-    // Clear HUD state (keep hudCam cached)
+    this._hudDepthWasEnabled ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+    p.pop(); // calls: this.pop(this._rendererState);
+    this._hudPrevCam !== undefined && p.setCamera(this._hudPrevCam);
     this._hudPrevCam = undefined;
-    this._hudPrevP = undefined;
-    this._hudPrevV = undefined;
     this._hudDepthWasEnabled = undefined;
-    this._hudDidPush = undefined;
     this._hudActive = false;
   };
 });
