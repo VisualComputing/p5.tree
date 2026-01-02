@@ -462,6 +462,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const gl = this.drawingContext;
     const states = this.states;
     if (p === undefined || gl === undefined || states === undefined) return;
+    p.push(); // calls: this._rendererState = this.push()
+    this._hudDidPush = true;
     // Save current (active) camera in p5-v2
     this._hudPrevCam = states.curCamera;
     // Save depth-test enable state
@@ -498,11 +500,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
     // Restore depth-test state
     gl.flush();
     this._hudDepthWasEnabled === true ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+    // Restore p5-v2 state stack
+    this._hudDidPush === true && p.pop(); // calls: this.pop(this._rendererState)
     // Clear HUD state (keep hudCam cached)
     this._hudPrevCam = undefined;
     this._hudPrevP = undefined;
     this._hudPrevV = undefined;
     this._hudDepthWasEnabled = undefined;
+    this._hudDidPush = undefined;
     this._hudActive = false;
   };
 });
