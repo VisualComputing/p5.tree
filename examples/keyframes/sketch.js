@@ -109,7 +109,8 @@ function draw() {
   push();
   translate(-250, 0, 0);
   normalMaterial();
-  torus(70, 22);
+  //torus(70, 22);
+  box(140);
   pop();
 
   // --- HUD ---------------------------------------------------
