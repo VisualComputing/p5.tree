@@ -55,6 +55,31 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return typeof x === 'number' && Number.isFinite(x);
   };
 
+  // Keyframe equality helper (used to avoid consecutive identical snapshots).
+  // Prefer matrix comparisons (cameraMatrix / projMatrix). Fallback to scalar camera params if needed.
+  const sameKeyframe = function (a, b) {
+    if (!a || !b) return false;
+
+    const aCM = a.cameraMatrix && a.cameraMatrix.mat4;
+    const bCM = b.cameraMatrix && b.cameraMatrix.mat4;
+    if (aCM && bCM) {
+      for (let i = 0; i < 16; i++) if (aCM[i] !== bCM[i]) return false;
+    } else {
+      if (a.eyeX !== b.eyeX || a.eyeY !== b.eyeY || a.eyeZ !== b.eyeZ) return false;
+      if (a.centerX !== b.centerX || a.centerY !== b.centerY || a.centerZ !== b.centerZ) return false;
+      if (a.upX !== b.upX || a.upY !== b.upY || a.upZ !== b.upZ) return false;
+    }
+
+    const aPM = a.projMatrix && a.projMatrix.mat4;
+    const bPM = b.projMatrix && b.projMatrix.mat4;
+    if (aPM && bPM) {
+      for (let i = 0; i < 16; i++) if (aPM[i] !== bPM[i]) return false;
+    }
+
+    return true;
+  };
+
+
   const warn = function (msg) {
     console.warn('[tree.camera.path] ' + msg);
   };
@@ -72,11 +97,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
     cam[STATE_KEY] || (cam[STATE_KEY] = {
       playing: false,
       loop: false,
+      pingPong: false,
+      onEnd: undefined,
       rate: 1,
       duration: 30, // frames per segment
       seg: 0,
       f: 0,
-      projSig: null
+      projSig: undefined
     });
     return cam[STATE_KEY];
   };
@@ -88,17 +115,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   const getActiveCamera = function (pInst) {
     const r = pInst && pInst._renderer;
-    return (r && (r._curCamera || r.curCamera || r.camera)) || null;
+    return (r && (r._curCamera || r.curCamera || r.camera)) || undefined;
   };
 
   /**
    * Build a stable projection signature from camera.projMatrix.mat4.
-   * Returns null if unavailable (in which case we warn and do not reject).
+   * Returns undefined if unavailable (in which case we warn and do not reject).
    */
   const projSig = function (cam) {
     const pm = cam && cam.projMatrix;
     const m = pm && pm.mat4;
-    if (!m || m.length !== 16) return null;
+    if (!m || m.length !== 16) return undefined;
 
     let s = '';
     for (let i = 0; i < 16; i++) {
@@ -148,13 +175,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
 
   /**
-   * Advance one tick. Playback runs in "frames per segment" (duration),
-   * and rate is interpreted as a simple speed multiplier:
-   * - rate > 0 : forward
-   * - rate < 0 : reverse
+   * Playback tick.
+   *
+   * Playback runs in "frames per segment" (`duration`), and `rate` is interpreted
+   * as a speed multiplier applied per frame.
+   *
+   * Rate semantics:
+   * - rate > 0 : forward playback
+   * - rate < 0 : reverse playback
    * - rate === 0 : stopped
    *
-   * The absolute value of rate is used as an integer step (>=1).
+   * The absolute value of `rate` is used as a per-frame advance amount.
+   * Fractional rates are supported (e.g. 0.5 plays at half speed).
+   *
+   * Segment boundaries are handled according to playback mode:
+   * - pingPong: bounce at the ends and reverse direction
+   * - loop: wrap around to the opposite end
+   * - otherwise: stop at the end and optionally invoke `onEnd`
    */
   const tick = function (cam) {
     const st = getState(cam);
@@ -168,28 +205,52 @@ p5.registerAddon((p5, fn, lifecycles) => {
     }
 
     const dur = Math.max(1, st.duration | 0);
-    const forward = st.rate >= 0;
-    const step = Math.max(1, Math.round(Math.abs(st.rate)));
+    const speed = Math.abs(st.rate);
 
-    st.f += step;
+    if (speed === 0) {
+      st.playing = false;
+      return;
+    }
+
+    let dir = st.rate >= 0 ? 1 : -1;
+
+    st.f += speed;
 
     while (st.f >= dur) {
       st.f -= dur;
-      st.seg += forward ? 1 : -1;
+      st.seg += dir;
 
       if (st.seg >= nSeg || st.seg < 0) {
-        if (st.loop) {
-          st.seg = forward ? 0 : (nSeg - 1);
+        if (st.pingPong) {
+          // Bounce at endpoints and flip direction.
+          if (dir > 0) {
+            st.seg = nSeg - 1;
+            st.f = 0;
+            st.rate = -speed;
+          } else {
+            st.seg = 0;
+            st.f = 0;
+            st.rate = speed;
+          }
+          dir = st.rate >= 0 ? 1 : -1;
+        } else if (st.loop) {
+          st.seg = dir > 0 ? 0 : (nSeg - 1);
         } else {
           st.playing = false;
-          seekGlobal(cam, forward ? 1 : 0);
+          seekGlobal(cam, dir > 0 ? 1 : 0);
+
+          const cb = st.onEnd;
+          if (typeof cb === 'function') {
+            try { cb(cam); } catch (e) { /* ignore user callback errors */ }
+          }
+
           return;
         }
       }
     }
 
     const local = st.f / dur;
-    const amt = forward ? local : (1 - local);
+    const amt = dir > 0 ? local : (1 - local);
 
     cam.slerp(path[st.seg], path[st.seg + 1], amt);
   };
@@ -235,14 +296,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
       path.length = 0;
       st.seg = 0;
       st.f = 0;
-      st.projSig = null;
+      st.projSig = undefined;
     }
 
     // addPath() -> snapshot this
     if (arguments.length === 0) {
       const sig = projSig(this);
       st.projSig || (st.projSig = sig);
-      path.push(this.copy());
+      const last = path.length ? path[path.length - 1] : undefined;
+      last && sameKeyframe(last, this) || path.push(this.copy());
       return this;
     }
 
@@ -273,20 +335,25 @@ p5.registerAddon((p5, fn, lifecycles) => {
         warn('addPath: unable to verify projection compatibility (projMatrix.mat4 unavailable).');
       }
 
-      path.push(c.copy());
+      const last = path.length ? path[path.length - 1] : undefined;
+      last && sameKeyframe(last, c) || path.push(c.copy());
     }
 
     return this;
   };
 
-  /**
+    /**
    * playPath overloads:
    *   camera.playPath(rate)
-   *   camera.playPath({ duration, loop, rate })
+   *   camera.playPath({ duration, loop, pingPong, onEnd, rate })
    *
    * duration: frames per segment (default 30).
    * loop: wraps at ends (default false).
-   * rate: speed multiplier; negative plays reverse; rate=0 stops.
+   * pingPong: bounces at ends (default false).
+   * onEnd: called when playback naturally ends (non-looping, non-pingpong).
+   * rate: speed multiplier (fractional supported); negative plays reverse; rate=0 stops.
+   *
+   * If both pingPong and loop are true, pingPong takes precedence.
    */
   p5.Camera.prototype.playPath = function (rateOrOpts) {
     const st = getState(this);
@@ -305,6 +372,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const o = rateOrOpts || {};
       st.duration = isFiniteNumber(o.duration) ? o.duration : st.duration;
       st.loop = !!o.loop;
+      st.pingPong = !!o.pingPong;
+      st.onEnd = typeof o.onEnd === 'function' ? o.onEnd : st.onEnd;
       st.rate = isFiniteNumber(o.rate) ? o.rate : st.rate;
     }
 
@@ -371,15 +440,27 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
     if (!isFiniteNumber(n)) {
       path.length = 0;
-      st.projSig = null;
+      st.projSig = undefined;
       return this;
     }
 
-    const keep = Math.max(0, n | 0);
-    path.length = Math.min(path.length, keep);
+    const nInt = n | 0;
+    const keep = Math.max(0, Math.abs(nInt));
+
+    if (keep === 0) {
+      path.length = 0;
+      st.projSig = undefined;
+      return this;
+    }
+
+    if (nInt >= 0) {
+      path.length = Math.min(path.length, keep);
+    } else if (path.length > keep) {
+      path.splice(0, path.length - keep);
+    }
 
     if (segmentCount(path) === 0) {
-      st.projSig = null;
+      st.projSig = undefined;
     }
 
     return this;
