@@ -21,7 +21,7 @@
  *
  * p5 wrappers (same names) forward to current active camera.
  *
- * Uses p5.prototype.registerMethod('pre', ...) to tick playback automatically.
+ * Uses p5 lifecicle predraw hook to tick playback automatically.
  *
  * Projection safety:
  *   p5.Camera.slerp requires that all cameras use the same projection.
@@ -59,7 +59,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Prefer matrix comparisons (cameraMatrix / projMatrix). Fallback to scalar camera params if needed.
   const sameKeyframe = function (a, b) {
     if (!a || !b) return false;
-
     const aCM = a.cameraMatrix && a.cameraMatrix.mat4;
     const bCM = b.cameraMatrix && b.cameraMatrix.mat4;
     if (aCM && bCM) {
@@ -69,16 +68,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
       if (a.centerX !== b.centerX || a.centerY !== b.centerY || a.centerZ !== b.centerZ) return false;
       if (a.upX !== b.upX || a.upY !== b.upY || a.upZ !== b.upZ) return false;
     }
-
     const aPM = a.projMatrix && a.projMatrix.mat4;
     const bPM = b.projMatrix && b.projMatrix.mat4;
     if (aPM && bPM) {
       for (let i = 0; i < 16; i++) if (aPM[i] !== bPM[i]) return false;
     }
-
     return true;
   };
-
 
   const warn = function (msg) {
     console.warn('[tree.camera.path] ' + msg);
@@ -126,7 +122,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const pm = cam && cam.projMatrix;
     const m = pm && pm.mat4;
     if (!m || m.length !== 16) return undefined;
-
     let s = '';
     for (let i = 0; i < 16; i++) {
       const v = Math.round(m[i] * 1e6) / 1e6;
@@ -143,15 +138,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const path = ensurePath(cam);
     const nSeg = segmentCount(path);
     if (nSeg === 0) return;
-
     const st = getState(cam);
     const tt = clamp01(t);
     const x = tt * nSeg;
     const seg = Math.min(nSeg - 1, Math.floor(x));
     const amt = x - seg;
-
     cam.slerp(path[seg], path[seg + 1], amt);
-
     st.seg = seg;
     st.f = Math.round(amt * Math.max(1, st.duration | 0));
   };
@@ -163,13 +155,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const path = ensurePath(cam);
     const nSeg = segmentCount(path);
     if (nSeg === 0) return;
-
     const st = getState(cam);
     const seg = Math.max(0, Math.min(segIndex | 0, nSeg - 1));
     const a = clamp01(amt);
-
     cam.slerp(path[seg], path[seg + 1], a);
-
     st.seg = seg;
     st.f = Math.round(a * Math.max(1, st.duration | 0));
   };
@@ -196,30 +185,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const tick = function (cam) {
     const st = getState(cam);
     if (!st.playing) return;
-
     const path = ensurePath(cam);
     const nSeg = segmentCount(path);
     if (nSeg === 0) {
       st.playing = false;
       return;
     }
-
     const dur = Math.max(1, st.duration | 0);
     const speed = Math.abs(st.rate);
-
     if (speed === 0) {
       st.playing = false;
       return;
     }
-
     let dir = st.rate >= 0 ? 1 : -1;
-
     st.f += speed;
-
     while (st.f >= dur) {
       st.f -= dur;
       st.seg += dir;
-
       if (st.seg >= nSeg || st.seg < 0) {
         if (st.pingPong) {
           // Bounce at endpoints and flip direction.
@@ -238,26 +220,22 @@ p5.registerAddon((p5, fn, lifecycles) => {
         } else {
           st.playing = false;
           seekGlobal(cam, dir > 0 ? 1 : 0);
-
           const cb = st.onEnd;
           if (typeof cb === 'function') {
             try { cb(cam); } catch (e) { /* ignore user callback errors */ }
           }
-
           return;
         }
       }
     }
-
     const local = st.f / dur;
     const amt = dir > 0 ? local : (1 - local);
-
     cam.slerp(path[st.seg], path[st.seg + 1], amt);
   };
 
-  // ------------------------------------------------------------
-  // v2 addon lifecycle hook (preferred over registerMethod('pre'))
-  // ------------------------------------------------------------
+  // -----------------------
+  // v2 addon lifecycle hook
+  // -----------------------
 
   lifecycles.predraw = function () {
     const players = getPlayers(this);
@@ -272,9 +250,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     players && players.clear();
   };
 
-  // ------------------------------------------------------------
-  // Camera API (requested names)
-  // ------------------------------------------------------------
+  // ----------
+  // Camera API
+  // ----------
 
   /**
    * addPath overloads:
@@ -290,7 +268,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   p5.Camera.prototype.addPath = function (camOrArray, opts) {
     const st = getState(this);
     const path = ensurePath(this);
-
     const o = opts || {};
     if (o.clear) {
       path.length = 0;
@@ -298,7 +275,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.f = 0;
       st.projSig = undefined;
     }
-
     // addPath() -> snapshot this
     if (arguments.length === 0) {
       const sig = projSig(this);
@@ -307,42 +283,33 @@ p5.registerAddon((p5, fn, lifecycles) => {
       last && sameKeyframe(last, this) || path.push(this.copy());
       return this;
     }
-
     const cams = Array.isArray(camOrArray) ? camOrArray : [camOrArray];
-
     // Initialize baseline projection signature from first keyframe if possible.
     // If we can’t detect it, we won’t reject, but we will warn once we see a mismatch attempt.
     st.projSig || (st.projSig = projSig(cams[0] instanceof p5.Camera ? cams[0] : this));
-
     for (let i = 0; i < cams.length; i++) {
       const c = cams[i];
-
       if (!(c instanceof p5.Camera)) {
         warn('addPath: ignored non-camera value.');
         continue;
       }
-
       const sig = projSig(c);
-
       if (st.projSig && sig && sig !== st.projSig) {
         warn('addPath rejected: camera has different projection; Camera.slerp requires same projection.');
         continue;
       }
-
       if (!st.projSig && sig) {
         st.projSig = sig;
       } else if (!st.projSig && !sig) {
         warn('addPath: unable to verify projection compatibility (projMatrix.mat4 unavailable).');
       }
-
       const last = path.length ? path[path.length - 1] : undefined;
       last && sameKeyframe(last, c) || path.push(c.copy());
     }
-
     return this;
   };
 
-    /**
+  /**
    * playPath overloads:
    *   camera.playPath(rate)
    *   camera.playPath({ duration, loop, pingPong, onEnd, rate })
@@ -359,13 +326,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const st = getState(this);
     const path = ensurePath(this);
     const nSeg = segmentCount(path);
-
     if (nSeg === 0) {
       warn('playPath ignored: need at least 2 keyframes in camera.path.');
       st.playing = false;
       return this;
     }
-
     if (isFiniteNumber(rateOrOpts)) {
       st.rate = rateOrOpts;
     } else {
@@ -376,12 +341,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.onEnd = typeof o.onEnd === 'function' ? o.onEnd : st.onEnd;
       st.rate = isFiniteNumber(o.rate) ? o.rate : st.rate;
     }
-
     if (st.rate === 0) {
       st.playing = false;
       return this;
     }
-
     // If starting from stopped state, default to an endpoint depending on direction
     if (!st.playing) {
       const forward = st.rate >= 0;
@@ -389,12 +352,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.f = 0;
       seekGlobal(this, forward ? 0 : 1);
     }
-
     st.playing = true;
-
     const pInst = this._renderer && this._renderer._pInst;
     pInst && getPlayers(pInst).add(this);
-
     return this;
   };
 
@@ -406,19 +366,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
   p5.Camera.prototype.stopPath = function (opts) {
     const st = getState(this);
     const o = opts || {};
-
     st.playing = false;
-
     const pInst = this._renderer && this._renderer._pInst;
     pInst && getPlayers(pInst).delete(this);
-
     if (o.reset) {
       const forward = st.rate >= 0;
       seekGlobal(this, forward ? 0 : 1);
       st.seg = forward ? 0 : Math.max(0, segmentCount(ensurePath(this)) - 1);
       st.f = 0;
     }
-
     return this;
   };
 
@@ -430,39 +386,31 @@ p5.registerAddon((p5, fn, lifecycles) => {
   p5.Camera.prototype.resetPath = function (n) {
     const st = getState(this);
     const path = ensurePath(this);
-
     st.playing = false;
     st.seg = 0;
     st.f = 0;
-
     const pInst = this._renderer && this._renderer._pInst;
     pInst && getPlayers(pInst).delete(this);
-
     if (!isFiniteNumber(n)) {
       path.length = 0;
       st.projSig = undefined;
       return this;
     }
-
     const nInt = n | 0;
     const keep = Math.max(0, Math.abs(nInt));
-
     if (keep === 0) {
       path.length = 0;
       st.projSig = undefined;
       return this;
     }
-
     if (nInt >= 0) {
       path.length = Math.min(path.length, keep);
     } else if (path.length > keep) {
       path.splice(0, path.length - keep);
     }
-
     if (segmentCount(path) === 0) {
       st.projSig = undefined;
     }
-
     return this;
   };
 
@@ -476,15 +424,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
   p5.Camera.prototype.seekPath = function (t, segIndex) {
     const st = getState(this);
     st.playing = false;
-
     const pInst = this._renderer && this._renderer._pInst;
     pInst && getPlayers(pInst).delete(this);
-
     if (isFiniteNumber(segIndex)) {
       seekSegment(this, t, segIndex);
       return this;
     }
-
     seekGlobal(this, t);
     return this;
   };
