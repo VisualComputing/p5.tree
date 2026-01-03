@@ -108,10 +108,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
     pInst[PLAYERS_KEY] || (pInst[PLAYERS_KEY] = new Set());
     return pInst[PLAYERS_KEY];
   };
-
+  
   const getActiveCamera = function (pInst) {
     const r = pInst && pInst._renderer;
-    return (r && (r._curCamera || r.curCamera || r.camera)) || undefined;
+    return (
+      (r && r.states && r.states.curCamera) || // p5-v2 canonical
+      (r && (r._curCamera || r.curCamera || r._camera)) || // fallbacks
+      undefined
+    );
   };
 
   /**
@@ -438,49 +442,47 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // p5 wrappers (same names, forward to active camera)
   // ------------------------------------------------------------
 
-  fn.addPath = function (camOrArray, opts) {
+  fn.addPath = function (...args) {
     const cam = getActiveCamera(this);
-    cam && cam.addPath(camOrArray, opts);
+    cam && cam.addPath(...args);
     return this;
   };
 
-  fn.playPath = function (rateOrOpts) {
+  fn.playPath = function (...args) {
     const cam = getActiveCamera(this);
-    cam && cam.playPath(rateOrOpts);
+    cam && cam.playPath(...args);
     return this;
   };
-
-  fn.stopPath = function (opts) {
+  
+  fn.seekPath = function (...args) {
     const cam = getActiveCamera(this);
-    cam && cam.stopPath(opts);
+    cam && cam.seekPath(...args);
     return this;
   };
-
-  fn.resetPath = function (n) {
+  
+  fn.resetPath = function (...args) {
     const cam = getActiveCamera(this);
-    cam && cam.resetPath(n);
+    cam && cam.resetPath(...args);
     return this;
   };
-
-  fn.seekPath = function (t, segIndex) {
+  
+  fn.stopPath = function (...args) {
     const cam = getActiveCamera(this);
-    cam && cam.seekPath(t, segIndex);
+    cam && cam.stopPath(...args);
     return this;
   };
   
   // HUD
 
-  fn.beginHUD = function () {
-    const cam = getActiveCamera(this);
-    cam && this._renderer instanceof p5.RendererGL && this._renderer.beginHUD();
+  fn.beginHUD = function (...args) {
+    this._renderer?.beginHUD?.(...args);
     return this;
-  };
+  }
   
-  fn.endHUD = function () {
-    const cam = getActiveCamera(this);
-    cam && this._renderer instanceof p5.RendererGL && this._renderer.endHUD();
+  fn.endHUD = function (...args) {
+    this._renderer?.endHUD?.(...args);
     return this;
-  };
+  }
     
   p5.RendererGL.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
