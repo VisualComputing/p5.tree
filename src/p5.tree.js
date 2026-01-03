@@ -489,6 +489,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const states = this.states;
     if (p === undefined || gl === undefined || states === undefined) return;
     p.push(); // calls: this._rendererState = this.push();
+    p.resetShader();
     // --- HUD setup ---
     this._hudPrevCam = states.curCamera;
     this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
@@ -499,7 +500,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     this._hudCam.ortho(-p.width / 2, p.width / 2, -p.height / 2, p.height / 2, -z, z);
     this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
     p.setCamera(this._hudCam);
-    p.resetShader();
     this._hudActive = true;
   };
   
