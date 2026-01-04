@@ -42,6 +42,636 @@ p5.registerAddon((p5, fn, lifecycles) => {
     enumerable: true,
     configurable: false
   });
+  
+  // ---------------------------------------------------------------------------
+  // Matrix queries (p5.treegl -> p5.tree, p5-v2)
+  // Rely on p5-v2, minimal safeties, cache-friendly.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * @private
+   * Returns the WEBGL renderer or undefined.
+   * @param {p5} pInst
+   * @returns {p5.RendererGL|undefined}
+   */
+  const _rendererGL = function (pInst) {
+    const r = pInst._renderer;
+    return r instanceof p5.RendererGL ? r : undefined;
+  };
+
+  // ---------------------------------------------------------------------------
+  // p5.Matrix * vector helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Multiply a direction vector by a mat3.
+   * @param {p5.Vector} v
+   * @returns {p5.Vector}
+   */
+  p5.Matrix.prototype.mult3 = function (v) {
+    const m = this.mat3;
+    return new p5.Vector(
+      m[0] * v.x + m[3] * v.y + m[6] * v.z,
+      m[1] * v.x + m[4] * v.y + m[7] * v.z,
+      m[2] * v.x + m[5] * v.y + m[8] * v.z
+    );
+  };
+
+  /**
+   * Multiply a point (w=1) by a mat4.
+   * p5-v2 canonical implementation.
+   * @param {p5.Vector} v
+   * @returns {p5.Vector}
+   */
+  p5.Matrix.prototype.mult4 = function (v) {
+    return this.multiplyPoint(v);
+  };
+
+  // ---------------------------------------------------------------------------
+  // p5.Matrix operations (immutable)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the transpose of a matrix (immutable).
+   * @param {p5.Matrix} matrix
+   * @returns {p5.Matrix}
+   */
+  fn.tMatrix = function (matrix) {
+    return matrix.clone().transpose();
+  };
+
+  /**
+   * Returns the inverse of a matrix (immutable).
+   * @param {p5.Matrix} matrix
+   * @returns {p5.Matrix}
+   */
+  fn.invMatrix = function (matrix) {
+    return matrix.clone().invert();
+  };
+
+  /**
+   * Returns A * B without mutating A (immutable).
+   * @param {p5.Matrix} a
+   * @param {p5.Matrix} b
+   * @returns {p5.Matrix}
+   */
+  fn.axbMatrix = function (a, b) {
+    return a.clone().mult(b);
+  };
+
+  /**
+   * Returns a new identity matrix (mat4).
+   * @returns {p5.Matrix}
+   */
+  fn.iMatrix = function () {
+    return new p5.Matrix();
+  };
+
+  // ---------------------------------------------------------------------------
+  // Matrix queries (immutable, cache-friendly)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the current projection matrix (immutable copy).
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.pMatrix = function () {
+    return this.states.uPMatrix.clone();
+  };
+
+  /**
+   * Returns the current projection matrix (immutable copy).
+   * Requires WEBGL.
+   * @returns {p5.Matrix}
+   */
+  fn.pMatrix = function () {
+    return _rendererGL(this).pMatrix();
+  };
+
+  /**
+   * Returns the current model matrix (immutable copy).
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.mMatrix = function () {
+    return this.states.uModelMatrix.clone();
+  };
+
+  /**
+   * Returns the current model matrix (immutable copy).
+   * Requires WEBGL.
+   * @returns {p5.Matrix}
+   */
+  fn.mMatrix = function () {
+    return _rendererGL(this).mMatrix();
+  };
+
+  /**
+   * Returns the view matrix (world -> camera) for this camera (immutable copy).
+   * @returns {p5.Matrix}
+   */
+  p5.Camera.prototype.vMatrix = function () {
+    return this.cameraMatrix.clone();
+  };
+
+  /**
+   * Returns the eye matrix (camera -> world) for this camera (immutable).
+   * @returns {p5.Matrix}
+   */
+  p5.Camera.prototype.eMatrix = function () {
+    return this.vMatrix().invert();
+  };
+
+  /**
+   * Returns the current view matrix (world -> camera) (immutable copy).
+   * Prefers the renderer cached view matrix when available.
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.vMatrix = function () {
+    return (this.states.uViewMatrix || this.states.curCamera.cameraMatrix).clone();
+  };
+
+  /**
+   * Returns the current view matrix (world -> camera) (immutable copy).
+   * Requires WEBGL.
+   * @returns {p5.Matrix}
+   */
+  fn.vMatrix = function () {
+    return _rendererGL(this).vMatrix();
+  };
+
+  /**
+   * Returns the current eye matrix (camera -> world) (immutable).
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.eMatrix = function () {
+    return this.vMatrix().invert();
+  };
+
+  /**
+   * Returns the current eye matrix (camera -> world) (immutable).
+   * Requires WEBGL.
+   * @returns {p5.Matrix}
+   */
+  fn.eMatrix = function () {
+    return _rendererGL(this).eMatrix();
+  };
+
+  /**
+   * lMatrix({ from, to }):
+   * Location transform (mat4) mapping points from `from` space to `to` space.
+   * treegl semantics: to^-1 * from.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.from=new p5.Matrix()] Source frame matrix.
+   * @param {p5.Matrix} [opts.to=this.eMatrix()] Target frame matrix.
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.lMatrix = function ({
+    from = new p5.Matrix(),
+    to = this.eMatrix()
+  } = {}) {
+    return to.clone().invert().mult(from);
+  };
+
+  /**
+   * lMatrix({ from, to }):
+   * Location transform (mat4) mapping points from `from` space to `to` space.
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.from]
+   * @param {p5.Matrix} [opts.to]
+   * @returns {p5.Matrix}
+   */
+  fn.lMatrix = function (opts = {}) {
+    return _rendererGL(this).lMatrix(opts);
+  };
+
+  /**
+   * dMatrix({ from, to, matrix }):
+   * Direction transform (mat3) mapping vectors from `from` space to `to` space.
+   * Translation ignored. treegl semantics: linear_part(from^-1 * to).
+   * If `matrix` (mat4) is provided, uses linear_part(matrix).
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.from=new p5.Matrix()] Source frame matrix.
+   * @param {p5.Matrix} [opts.to=this.eMatrix()] Target frame matrix.
+   * @param {p5.Matrix} [opts.matrix] Precomputed mat4 override.
+   * @returns {p5.Matrix} mat3
+   */
+  p5.RendererGL.prototype.dMatrix = function ({
+    from = new p5.Matrix(),
+    to = this.eMatrix(),
+    matrix
+  } = {}) {
+    return (matrix ? matrix : from.clone().invert().mult(to)).clone().createSubMatrix3x3();
+  };
+
+  /**
+   * dMatrix({ from, to, matrix }):
+   * Direction transform (mat3) mapping vectors from `from` space to `to` space.
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.from]
+   * @param {p5.Matrix} [opts.to]
+   * @param {p5.Matrix} [opts.matrix]
+   * @returns {p5.Matrix} mat3
+   */
+  fn.dMatrix = function (opts = {}) {
+    return _rendererGL(this).dMatrix(opts);
+  };
+
+  /**
+   * mvMatrix({ vMatrix, mMatrix }):
+   * ModelView matrix (mat4) = M * V (p5-v2 convention).
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] View matrix.
+   * @param {p5.Matrix} [opts.mMatrix=this.mMatrix()] Model matrix.
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.mvMatrix = function ({
+    vMatrix = this.vMatrix(),
+    mMatrix = this.mMatrix()
+  } = {}) {
+    return mMatrix.clone().mult(vMatrix);
+  };
+
+  /**
+   * mvMatrix({ vMatrix, mMatrix }):
+   * ModelView matrix (mat4) = M * V (p5-v2 convention).
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.vMatrix]
+   * @param {p5.Matrix} [opts.mMatrix]
+   * @returns {p5.Matrix}
+   */
+  fn.mvMatrix = function (opts = {}) {
+    return _rendererGL(this).mvMatrix(opts);
+  };
+
+  /**
+   * nMatrix({ vMatrix, mMatrix, mvMatrix }):
+   * Normal matrix (mat3) = inverseTranspose(linear_part(MV)).
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.vMatrix] Optional view matrix.
+   * @param {p5.Matrix} [opts.mMatrix] Optional model matrix.
+   * @param {p5.Matrix} [opts.mvMatrix=this.mvMatrix({ mMatrix, vMatrix })] Optional MV matrix override.
+   * @returns {p5.Matrix} mat3
+   */
+  p5.RendererGL.prototype.nMatrix = function ({
+    vMatrix,
+    mMatrix,
+    mvMatrix = this.mvMatrix({ mMatrix, vMatrix })
+  } = {}) {
+    return mvMatrix.clone().createSubMatrix3x3().invert().transpose();
+  };
+
+  /**
+   * nMatrix({ vMatrix, mMatrix, mvMatrix }):
+   * Normal matrix (mat3) = inverseTranspose(linear_part(MV)).
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.vMatrix]
+   * @param {p5.Matrix} [opts.mMatrix]
+   * @param {p5.Matrix} [opts.mvMatrix]
+   * @returns {p5.Matrix} mat3
+   */
+  fn.nMatrix = function (opts = {}) {
+    return _rendererGL(this).nMatrix(opts);
+  };
+
+  /**
+   * pmvMatrix({ pMatrix, vMatrix, mMatrix, mvMatrix }):
+   * PMV (mat4) = M * V * P (p5-v2 convention).
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.pMatrix=this.pMatrix()] Projection matrix.
+   * @param {p5.Matrix} [opts.vMatrix] Optional view matrix (used if mvMatrix is computed).
+   * @param {p5.Matrix} [opts.mMatrix] Optional model matrix (used if mvMatrix is computed).
+   * @param {p5.Matrix} [opts.mvMatrix=this.mvMatrix({ mMatrix, vMatrix })] Optional MV matrix override.
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.pmvMatrix = function ({
+    pMatrix = this.pMatrix(),
+    vMatrix,
+    mMatrix,
+    mvMatrix = this.mvMatrix({ mMatrix, vMatrix })
+  } = {}) {
+    return mvMatrix.clone().mult(pMatrix);
+  };
+
+  /**
+   * pmvMatrix({ pMatrix, vMatrix, mMatrix, mvMatrix }):
+   * PMV (mat4) = M * V * P (p5-v2 convention).
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.pMatrix]
+   * @param {p5.Matrix} [opts.vMatrix]
+   * @param {p5.Matrix} [opts.mMatrix]
+   * @param {p5.Matrix} [opts.mvMatrix]
+   * @returns {p5.Matrix}
+   */
+  fn.pmvMatrix = function (opts = {}) {
+    return _rendererGL(this).pmvMatrix(opts);
+  };
+
+  /**
+   * pvMatrix({ pMatrix, vMatrix }):
+   * PV (mat4) = V * P (p5-v2 convention).
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.pMatrix=this.pMatrix()] Projection matrix.
+   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] View matrix.
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.pvMatrix = function ({
+    pMatrix = this.pMatrix(),
+    vMatrix = this.vMatrix()
+  } = {}) {
+    return vMatrix.clone().mult(pMatrix);
+  };
+
+  /**
+   * pvMatrix({ pMatrix, vMatrix }):
+   * PV (mat4) = V * P (p5-v2 convention).
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.pMatrix]
+   * @param {p5.Matrix} [opts.vMatrix]
+   * @returns {p5.Matrix}
+   */
+  fn.pvMatrix = function (opts = {}) {
+    return _rendererGL(this).pvMatrix(opts);
+  };
+
+  /**
+   * pvInvMatrix({ pMatrix, vMatrix, pvMatrix }):
+   * Inverse(PV) (mat4).
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.pMatrix] Optional projection matrix (used if pvMatrix is computed).
+   * @param {p5.Matrix} [opts.vMatrix] Optional view matrix (used if pvMatrix is computed).
+   * @param {p5.Matrix} [opts.pvMatrix=this.pvMatrix({ pMatrix, vMatrix })] Optional PV matrix override.
+   * @returns {p5.Matrix}
+   */
+  p5.RendererGL.prototype.pvInvMatrix = function ({
+    pMatrix,
+    vMatrix,
+    pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
+  } = {}) {
+    return pvMatrix.clone().invert();
+  };
+
+  /**
+   * pvInvMatrix({ pMatrix, vMatrix, pvMatrix }):
+   * Inverse(PV) (mat4).
+   * Requires WEBGL.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.pMatrix]
+   * @param {p5.Matrix} [opts.vMatrix]
+   * @param {p5.Matrix} [opts.pvMatrix]
+   * @returns {p5.Matrix}
+   */
+  fn.pvInvMatrix = function (opts = {}) {
+    return _rendererGL(this).pvInvMatrix(opts);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Projection matrix queries (isOrtho, planes, fov, hfov)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns true if this projection matrix is orthographic.
+   * @returns {boolean}
+   */
+  p5.Matrix.prototype.isOrtho = function () {
+    return this.mat4[15] !== 0;
+  };
+
+  /**
+   * Returns true if the current projection is orthographic.
+   * @returns {boolean}
+   */
+  p5.RendererGL.prototype.isOrtho = function () {
+    return this.pMatrix().isOrtho();
+  };
+
+  /**
+   * Returns true if the current projection is orthographic.
+   * Requires WEBGL.
+   * @returns {boolean}
+   */
+  fn.isOrtho = function () {
+    return _rendererGL(this).isOrtho();
+  };
+
+  /**
+   * Near plane distance.
+   * @returns {number}
+   */
+  p5.Matrix.prototype.nPlane = function () {
+    const m = this.mat4;
+    return m[15] === 0 ? m[14] / (m[10] - 1) : (1 + m[14]) / m[10];
+  };
+
+  /**
+   * Far plane distance.
+   * @returns {number}
+   */
+  p5.Matrix.prototype.fPlane = function () {
+    const m = this.mat4;
+    return m[15] === 0 ? m[14] / (1 + m[10]) : (m[14] - 1) / m[10];
+  };
+
+  /**
+   * Left plane at the near plane.
+   * @returns {number}
+   */
+  p5.Matrix.prototype.lPlane = function () {
+    const m = this.mat4;
+    return m[15] === 1 ? -(1 + m[12]) / m[0] : this.nPlane() * (m[8] - 1) / m[0];
+  };
+
+  /**
+   * Right plane at the near plane.
+   * @returns {number}
+   */
+  p5.Matrix.prototype.rPlane = function () {
+    const m = this.mat4;
+    return m[15] === 1 ? (1 - m[12]) / m[0] : this.nPlane() * (1 + m[8]) / m[0];
+  };
+
+  /**
+   * Top plane at the near plane.
+   * @returns {number}
+   */
+  p5.Matrix.prototype.tPlane = function () {
+    const m = this.mat4;
+    return m[15] === 1 ? (m[13] - 1) / m[5] : this.nPlane() * (m[9] - 1) / m[5];
+  };
+
+  /**
+   * Bottom plane at the near plane.
+   * @returns {number}
+   */
+  p5.Matrix.prototype.bPlane = function () {
+    const m = this.mat4;
+    return m[15] === 1 ? (1 + m[13]) / m[5] : this.nPlane() * (1 + m[9]) / m[5];
+  };
+
+  /**
+   * Near plane distance for the current projection.
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.nPlane = function () {
+    return this.pMatrix().nPlane();
+  };
+
+  /**
+   * Far plane distance for the current projection.
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.fPlane = function () {
+    return this.pMatrix().fPlane();
+  };
+
+  /**
+   * Left plane for the current projection.
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.lPlane = function () {
+    return this.pMatrix().lPlane();
+  };
+
+  /**
+   * Right plane for the current projection.
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.rPlane = function () {
+    return this.pMatrix().rPlane();
+  };
+
+  /**
+   * Top plane for the current projection.
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.tPlane = function () {
+    return this.pMatrix().tPlane();
+  };
+
+  /**
+   * Bottom plane for the current projection.
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.bPlane = function () {
+    return this.pMatrix().bPlane();
+  };
+
+  /**
+   * Near plane distance for the current projection.
+   * Requires WEBGL.
+   * @returns {number}
+   */
+  fn.nPlane = function () {
+    return _rendererGL(this).nPlane();
+  };
+
+  /**
+   * Far plane distance for the current projection.
+   * Requires WEBGL.
+   * @returns {number}
+   */
+  fn.fPlane = function () {
+    return _rendererGL(this).fPlane();
+  };
+
+  /**
+   * Left plane for the current projection.
+   * Requires WEBGL.
+   * @returns {number}
+   */
+  fn.lPlane = function () {
+    return _rendererGL(this).lPlane();
+  };
+
+  /**
+   * Right plane for the current projection.
+   * Requires WEBGL.
+   * @returns {number}
+   */
+  fn.rPlane = function () {
+    return _rendererGL(this).rPlane();
+  };
+
+  /**
+   * Top plane for the current projection.
+   * Requires WEBGL.
+   * @returns {number}
+   */
+  fn.tPlane = function () {
+    return _rendererGL(this).tPlane();
+  };
+
+  /**
+   * Bottom plane for the current projection.
+   * Requires WEBGL.
+   * @returns {number}
+   */
+  fn.bPlane = function () {
+    return _rendererGL(this).bPlane();
+  };
+
+  /**
+   * Vertical field of view (radians), perspective only.
+   * @returns {number|undefined}
+   */
+  p5.Matrix.prototype.fov = function () {
+    if (this.mat4[15] !== 0) {
+      console.error('[tree.matrix] fov only works for a perspective projection.');
+      return;
+    }
+    return Math.abs(2 * Math.atan(1 / this.mat4[5]));
+  };
+
+  /**
+   * Horizontal field of view (radians), perspective only.
+   * @returns {number|undefined}
+   */
+  p5.Matrix.prototype.hfov = function () {
+    if (this.mat4[15] !== 0) {
+      console.error('[tree.matrix] hfov only works for a perspective projection.');
+      return;
+    }
+    return Math.abs(2 * Math.atan(1 / this.mat4[0]));
+  };
+
+  /**
+   * Vertical field of view (radians) of the current projection.
+   * @returns {number|undefined}
+   */
+  p5.RendererGL.prototype.fov = function () {
+    return this.pMatrix().fov();
+  };
+
+  /**
+   * Horizontal field of view (radians) of the current projection.
+   * @returns {number|undefined}
+   */
+  p5.RendererGL.prototype.hfov = function () {
+    return this.pMatrix().hfov();
+  };
+
+  /**
+   * Vertical field of view (radians) of the current projection.
+   * Requires WEBGL.
+   * @returns {number|undefined}
+   */
+  fn.fov = function () {
+    return _rendererGL(this).fov();
+  };
+
+  /**
+   * Horizontal field of view (radians) of the current projection.
+   * Requires WEBGL.
+   * @returns {number|undefined}
+   */
+  fn.hfov = function () {
+    return _rendererGL(this).hfov();
+  };
 
   // --- private keys (shared internal state across protos) ---
   const STATE_KEY = Symbol.for('tree.camera.path.state');
