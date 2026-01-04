@@ -259,59 +259,162 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ----------
 
   /**
-   * addPath overloads:
-   *   camera.addPath()                               // snapshot this camera
-   *   camera.addPath(otherCamera)                    // snapshot otherCamera
-   *   camera.addPath([camA, camB, ...], { clear })   // bulk add
+   * addPath overloads (opts, if present, must be last; opts is the only allowed plain object):
+   *
+   *   camera.addPath();                                // snapshot this camera
+   *   camera.addPath(opts);                            // snapshot this camera (with opts)
+   *
+   *   camera.addPath(otherCam, opts);                  // snapshot otherCam
+   *   camera.addPath([camA, camB, ...], opts);         // bulk add
+   *
+   *   camera.addPath(eye, center, up, opts);           // eye/center/up: p5.Vector or [x, y, z]
+   *
+   *   camera.addPath(view, opts);                      // view: p5.Matrix (4x4) or mat4[16]
+   *                                                   // (world -> camera), like p5.Camera.cameraMatrix
+   *
+   * Options:
+   *   - clear: boolean (default false) Clears the current path before adding.
    *
    * Notes:
-   * - We store snapshots via camera.copy() so keyframes are stable.
-   * - We enforce same projection for all keyframes by comparing projMatrix.mat4 signature.
-   * - If projection signature is unavailable, we warn and accept (best effort).
+   * - Keyframes are stored as camera snapshots (p5.Camera.copy()) so Camera.slerp() works.
+   * - Projection compatibility is enforced (Camera.slerp requires same projection).
    */
-  p5.Camera.prototype.addPath = function (camOrArray, opts) {
+  p5.Camera.prototype.addPath = function (...args) {
     const st = getState(this);
     const path = ensurePath(this);
-    const o = opts || {};
-    if (o.clear) {
-      path.length = 0;
-      st.seg = 0;
-      st.f = 0;
-      st.projSig = undefined;
-    }
-    // addPath() -> snapshot this
-    if (arguments.length === 0) {
+    const isPlainObject = v => {
+      if (!v || typeof v !== 'object') return false;
+      if (Array.isArray(v)) return false;
+      if (ArrayBuffer.isView(v)) return false;
+      const proto = Object.getPrototypeOf(v);
+      return proto === Object.prototype || proto === null;
+    };
+    const isVec3 = v =>
+      v instanceof p5.Vector ||
+      (Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && Number.isFinite(n)));
+    const toVec3 = v => v instanceof p5.Vector ? [v.x, v.y, v.z] : [v[0], v[1], v[2]];
+    const addSnapshot = c => {
+      const last = path.length ? path[path.length - 1] : undefined;
+      last && sameKeyframe(last, c) || path.push(c.copy());
+    };
+    const initProjBaseline = () => {
       const sig = projSig(this);
       st.projSig || (st.projSig = sig);
-      const last = path.length ? path[path.length - 1] : undefined;
-      last && sameKeyframe(last, this) || path.push(this.copy());
-      return this;
-    }
-    const cams = Array.isArray(camOrArray) ? camOrArray : [camOrArray];
-    // Initialize baseline projection signature from first keyframe if possible.
-    // If we can’t detect it, we won’t reject, but we will warn once we see a mismatch attempt.
-    st.projSig || (st.projSig = projSig(cams[0] instanceof p5.Camera ? cams[0] : this));
-    for (let i = 0; i < cams.length; i++) {
-      const c = cams[i];
-      if (!(c instanceof p5.Camera)) {
-        warn('addPath: ignored non-camera value.');
-        continue;
-      }
+    };
+    const checkProjCompat = c => {
       const sig = projSig(c);
       if (st.projSig && sig && sig !== st.projSig) {
         warn('addPath rejected: camera has different projection; Camera.slerp requires same projection.');
-        continue;
+        return false;
       }
       if (!st.projSig && sig) {
         st.projSig = sig;
       } else if (!st.projSig && !sig) {
         warn('addPath: unable to verify projection compatibility (projMatrix.mat4 unavailable).');
       }
-      const last = path.length ? path[path.length - 1] : undefined;
-      last && sameKeyframe(last, c) || path.push(c.copy());
+      return true;
+    };
+    const isMat4Array = v =>
+      (Array.isArray(v) || ArrayBuffer.isView(v)) &&
+      v.length === 16 &&
+      Array.prototype.every.call(v, n => typeof n === 'number' && Number.isFinite(n));
+    const isView = v => v instanceof p5.Matrix || isMat4Array(v);
+    const toMat4 = v => v instanceof p5.Matrix ? v.mat4 : v;
+    const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const len3 = v => Math.sqrt(dot3(v, v));
+    const norm3 = v => {
+      const l = len3(v) || 1;
+      return [v[0] / l, v[1] / l, v[2] / l];
+    };
+    const importViewToCamera = view => {
+      // view is a column-major mat4, world -> camera (p5.Camera.cameraMatrix).
+      const m = toMat4(view);
+      // Rows of rotation part (world->camera):
+      const right = norm3([m[0], m[4], m[8]]);
+      const up = norm3([m[1], m[5], m[9]]);
+      const negFwd = norm3([m[2], m[6], m[10]]);
+      const fwd = [-negFwd[0], -negFwd[1], -negFwd[2]];
+      // Translation column: t = -R^T * eye
+      const t = [m[12], m[13], m[14]];
+      // eye = -(t0*right + t1*up) + t2*forward
+      const eye = [
+        -(t[0] * right[0] + t[1] * up[0]) + t[2] * fwd[0],
+        -(t[0] * right[1] + t[1] * up[1]) + t[2] * fwd[1],
+        -(t[0] * right[2] + t[1] * up[2]) + t[2] * fwd[2]
+      ];
+      // Enforce center using this camera’s current focus distance.
+      const dist = Math.sqrt(
+        (this.centerX - this.eyeX) * (this.centerX - this.eyeX) +
+        (this.centerY - this.eyeY) * (this.centerY - this.eyeY) +
+        (this.centerZ - this.eyeZ) * (this.centerZ - this.eyeZ)
+      ) || 1;
+      const center = [
+        eye[0] + fwd[0] * dist,
+        eye[1] + fwd[1] * dist,
+        eye[2] + fwd[2] * dist
+      ];
+      // Important: use camera(...) so cameraMatrix stays consistent with eye/center/up.
+      const c = this.copy();
+      c.camera(
+        eye[0], eye[1], eye[2],
+        center[0], center[1], center[2],
+        up[0], up[1], up[2]
+      );
+      return c;
+    };
+    // --- opts extraction (opts always last; only plain object is opts) ---
+    const o = args.length && isPlainObject(args[args.length - 1]) ? args.pop() : {};
+    if (o.clear) {
+      path.length = 0;
+      st.seg = 0;
+      st.f = 0;
+      st.projSig = undefined;
     }
+    initProjBaseline();
+    // addPath() -> snapshot this
+    if (args.length === 0) {
+      const last = path.length ? path[path.length - 1] : undefined;
+      last && sameKeyframe(last, this) || path.push(this.copy());
+      return this;
+    }
+    // addPath(view) OR addPath(camera) OR addPath([cameras])
+    if (args.length === 1) {
+      const override = args[0];
+      if (isView(override)) {
+        const c = importViewToCamera(override);
+        checkProjCompat(c) && addSnapshot(c);
+        return this;
+      }
+      const cams = Array.isArray(override) ? override : [override];
+      for (let i = 0; i < cams.length; i++) {
+        const c = cams[i];
+        if (!(c instanceof p5.Camera)) {
+          warn('addPath: ignored non-camera value.');
+          continue;
+        }
+        checkProjCompat(c) && addSnapshot(c);
+      }
+      return this;
+    }
+    // addPath(eye, center, up)
+    if (args.length === 3 && isVec3(args[0]) && isVec3(args[1]) && isVec3(args[2])) {
+      const eye = toVec3(args[0]);
+      const center = toVec3(args[1]);
+      const up = norm3(toVec3(args[2]));
+      // Important: use camera(...) so cameraMatrix stays consistent with eye/center/up.
+      const c = this.copy();
+      c.camera(
+        eye[0], eye[1], eye[2],
+        center[0], center[1], center[2],
+        up[0], up[1], up[2]
+      );
+      checkProjCompat(c) && addSnapshot(c);
+      return this;
+    }
+    warn('addPath: ignored unsupported arguments.');
     return this;
   };
+
 
   /**
    * playPath overloads:
@@ -349,12 +452,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.playing = false;
       return this;
     }
-    // If starting from stopped state, default to an endpoint depending on direction
+    // If starting from stopped state, default to an endpoint depending on direction.
+    // Important: do NOT use seekGlobal(cam, 1) for reverse start, because seekGlobal sets st.f = dur
+    // and the next tick will immediately underflow the segment and stop (snap).
     if (!st.playing) {
       const forward = st.rate >= 0;
       st.seg = forward ? 0 : (nSeg - 1);
       st.f = 0;
-      seekGlobal(this, forward ? 0 : 1);
+      // Snap pose to the start/end of the current segment, but keep st.f = 0.
+      this.slerp(path[st.seg], path[st.seg + 1], forward ? 0 : 1);
     }
     st.playing = true;
     const pInst = this._renderer && this._renderer._pInst;
