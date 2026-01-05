@@ -723,27 +723,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return typeof x === 'number' && Number.isFinite(x);
   };
 
-  // Keyframe equality helper (used to avoid consecutive identical snapshots).
-  // Prefer matrix comparisons (cameraMatrix / projMatrix). Fallback to scalar camera params if needed.
-  const sameKeyframe = function (a, b) {
-    if (!a || !b) return false;
-    const aCM = a.cameraMatrix && a.cameraMatrix.mat4;
-    const bCM = b.cameraMatrix && b.cameraMatrix.mat4;
-    if (aCM && bCM) {
-      for (let i = 0; i < 16; i++) if (aCM[i] !== bCM[i]) return false;
-    } else {
-      if (a.eyeX !== b.eyeX || a.eyeY !== b.eyeY || a.eyeZ !== b.eyeZ) return false;
-      if (a.centerX !== b.centerX || a.centerY !== b.centerY || a.centerZ !== b.centerZ) return false;
-      if (a.upX !== b.upX || a.upY !== b.upY || a.upZ !== b.upZ) return false;
-    }
-    const aPM = a.projMatrix && a.projMatrix.mat4;
-    const bPM = b.projMatrix && b.projMatrix.mat4;
-    if (aPM && bPM) {
-      for (let i = 0; i < 16; i++) if (aPM[i] !== bPM[i]) return false;
-    }
-    return true;
-  };
-
   const warn = function (msg) {
     console.warn('[tree.camera.path] ' + msg);
   };
@@ -767,7 +746,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       duration: 30, // frames per segment
       seg: 0,
       f: 0,
-      projSig: undefined
+      pathIsOrtho: undefined
     });
     return cam[STATE_KEY];
   };
@@ -954,31 +933,44 @@ p5.registerAddon((p5, fn, lifecycles) => {
       if (!v || typeof v !== 'object') return false;
       if (Array.isArray(v)) return false;
       if (ArrayBuffer.isView(v)) return false;
-      const proto = Object.getPrototypeOf(v);
-      return proto === Object.prototype || proto === null;
+      return Object.getPrototypeOf(v) === Object.prototype;
     };
     const isVec3 = v =>
       v instanceof p5.Vector ||
       (Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && Number.isFinite(n)));
     const toVec3 = v => v instanceof p5.Vector ? [v.x, v.y, v.z] : [v[0], v[1], v[2]];
+    const sameKeyframe = function (a, b) {
+      if (!a || !b) return false;
+      const aCM = a.cameraMatrix && a.cameraMatrix.mat4;
+      const bCM = b.cameraMatrix && b.cameraMatrix.mat4;
+      if (!aCM || !bCM) return false;
+      for (let i = 0; i < 16; i++) if (aCM[i] !== bCM[i]) return false;
+      return true;
+    };
     const addSnapshot = c => {
       const last = path.length ? path[path.length - 1] : undefined;
       last && sameKeyframe(last, c) || path.push(c.copy());
     };
-    const initProjBaseline = () => {
-      const sig = projSig(this);
-      st.projSig || (st.projSig = sig);
+    const isOrthoCam = c => {
+      const m = c && c.projMatrix && c.projMatrix.mat4;
+      return m && m.length === 16 ? (m[15] !== 0) : undefined;
+    };
+    const initProjBaseline = c => {
+      if (st.pathIsOrtho !== undefined) return;
+      const v = isOrthoCam(c);
+      st.pathIsOrtho = v;
+      v === undefined && warn('addPath: unable to verify projection type (projMatrix.mat4 unavailable).');
     };
     const checkProjCompat = c => {
-      const sig = projSig(c);
-      if (st.projSig && sig && sig !== st.projSig) {
-        warn('addPath rejected: camera has different projection; Camera.slerp requires same projection.');
-        return false;
+      initProjBaseline(c);
+      const v = isOrthoCam(c);
+      if (st.pathIsOrtho === undefined || v === undefined) {
+        v === undefined && warn('addPath: unable to verify projection type (projMatrix.mat4 unavailable).');
+        return true;
       }
-      if (!st.projSig && sig) {
-        st.projSig = sig;
-      } else if (!st.projSig && !sig) {
-        warn('addPath: unable to verify projection compatibility (projMatrix.mat4 unavailable).');
+      if (v !== st.pathIsOrtho) {
+        warn('addPath rejected: keyframe has different projection type (ortho vs perspective).');
+        return false;
       }
       return true;
     };
@@ -1036,13 +1028,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
       path.length = 0;
       st.seg = 0;
       st.f = 0;
-      st.projSig = undefined;
+      st.pathIsOrtho = undefined;
     }
-    initProjBaseline();
+    initProjBaseline(this);
     // addPath() -> snapshot this
     if (args.length === 0) {
-      const last = path.length ? path[path.length - 1] : undefined;
-      last && sameKeyframe(last, this) || path.push(this.copy());
+      addSnapshot(this);
       return this;
     }
     // addPath(view) OR addPath(camera) OR addPath([cameras])
@@ -1082,7 +1073,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     warn('addPath: ignored unsupported arguments.');
     return this;
   };
-
 
   /**
    * playPath overloads:
@@ -1171,14 +1161,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
     pInst && getPlayers(pInst).delete(this);
     if (!isFiniteNumber(n)) {
       path.length = 0;
-      st.projSig = undefined;
+      st.pathIsOrtho = undefined;
       return this;
     }
     const nInt = n | 0;
     const keep = Math.max(0, Math.abs(nInt));
     if (keep === 0) {
       path.length = 0;
-      st.projSig = undefined;
+      st.pathIsOrtho = undefined;
       return this;
     }
     if (nInt >= 0) {
@@ -1187,7 +1177,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       path.splice(0, path.length - keep);
     }
     if (segmentCount(path) === 0) {
-      st.projSig = undefined;
+      st.pathIsOrtho = undefined;
     }
     return this;
   };
