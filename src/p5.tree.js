@@ -1066,6 +1066,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (nSeg === 0) {
       warn('playPath ignored: need at least 2 keyframes in camera.path.');
       st.playing = false;
+      // If this camera was previously registered as a player, ensure it is removed.
+      const pInst = this._renderer && this._renderer._pInst;
+      pInst && getPlayers(pInst).delete(this);
       return this;
     }
     if (isFiniteNumber(rateOrOpts)) {
