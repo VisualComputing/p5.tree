@@ -90,6 +90,46 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   // p5.Matrix operations (immutable)
   // ---------------------------------------------------------------------------
+  
+  /**
+   * @private
+   * Returns the inverse of a matrix (immutable).
+   * p5-v2: invert(a) inverts 'a' into 'this' (gl-matrix style).
+   * @param {p5.Matrix} matrix
+   * @returns {p5.Matrix}
+   */
+  const _invert = function (matrix) {
+    const out = matrix.clone();
+    out.invert(matrix);
+    return out;
+  };
+
+  /**
+   * @private
+   * Returns the transpose of a matrix (immutable).
+   * Fast-path for mat4 / mat3 to match treegl semantics.
+   * @param {p5.Matrix} matrix
+   * @returns {p5.Matrix}
+   */
+  const _transpose = function (matrix) {
+    const m4 = matrix.mat4;
+    if (m4) {
+      return new p5.Matrix([
+        m4[0], m4[4], m4[8],  m4[12],
+        m4[1], m4[5], m4[9],  m4[13],
+        m4[2], m4[6], m4[10], m4[14],
+        m4[3], m4[7], m4[11], m4[15]
+      ]);
+    }
+    const m3 = matrix.mat3;
+    if (m3) {
+      return new p5.Matrix([
+        m3[0], m3[3], m3[6],
+        m3[1], m3[4], m3[7],
+        m3[2], m3[5], m3[8]
+      ]);
+    }
+  };
 
   /**
    * Returns the transpose of a matrix (immutable).
@@ -97,7 +137,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.tMatrix = function (matrix) {
-    return matrix.clone().transpose();
+    return _transpose(matrix);
   };
 
   /**
@@ -106,7 +146,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.invMatrix = function (matrix) {
-    return matrix.clone().invert();
+    return _invert(matrix);
   };
 
   /**
@@ -124,7 +164,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.iMatrix = function () {
-    return new p5.Matrix();
+    return new p5.Matrix(4);
   };
 
   // ---------------------------------------------------------------------------
@@ -178,7 +218,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   p5.Camera.prototype.eMatrix = function () {
-    return this.vMatrix().invert();
+    return _invert(this.cameraMatrix);
   };
 
   /**
@@ -204,7 +244,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   p5.RendererGL.prototype.eMatrix = function () {
-    return this.vMatrix().invert();
+    return _invert(this.states.uViewMatrix || this.states.curCamera.cameraMatrix);
   };
 
   /**
@@ -226,10 +266,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   p5.RendererGL.prototype.lMatrix = function ({
-    from = new p5.Matrix(),
+    from = new p5.Matrix(4),
     to = this.eMatrix()
   } = {}) {
-    return to.clone().invert().mult(from);
+    return _invert(to).mult(from);
   };
 
   /**
@@ -257,11 +297,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix} mat3
    */
   p5.RendererGL.prototype.dMatrix = function ({
-    from = new p5.Matrix(),
+    from = new p5.Matrix(4),
     to = this.eMatrix(),
     matrix
   } = {}) {
-    return (matrix ? matrix : from.clone().invert().mult(to)).clone().createSubMatrix3x3();
+    return (matrix || _invert(from).mult(to)).createSubMatrix3x3();
   };
 
   /**
@@ -288,9 +328,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
    */
   p5.RendererGL.prototype.mvMatrix = function ({
     vMatrix = this.vMatrix(),
-    mMatrix = this.mMatrix()
+    mMatrix
   } = {}) {
-    return mMatrix.clone().mult(vMatrix);
+    return (mMatrix || this.states.uModelMatrix).clone().mult(vMatrix);
   };
 
   /**
@@ -320,7 +360,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     mMatrix,
     mvMatrix = this.mvMatrix({ mMatrix, vMatrix })
   } = {}) {
-    return mvMatrix.clone().createSubMatrix3x3().invert().transpose();
+    return _transpose(_invert(mvMatrix.createSubMatrix3x3()));
   };
 
   /**
@@ -351,9 +391,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     pMatrix = this.pMatrix(),
     vMatrix,
     mMatrix,
-    mvMatrix = this.mvMatrix({ mMatrix, vMatrix })
+    mvMatrix
   } = {}) {
-    return mvMatrix.clone().mult(pMatrix);
+    return (mvMatrix ? mvMatrix.clone() : this.mvMatrix({ mMatrix, vMatrix })).mult(pMatrix);
   };
 
   /**
@@ -381,9 +421,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
    */
   p5.RendererGL.prototype.pvMatrix = function ({
     pMatrix = this.pMatrix(),
-    vMatrix = this.vMatrix()
+    vMatrix
   } = {}) {
-    return vMatrix.clone().mult(pMatrix);
+    return (vMatrix || (this.states.uViewMatrix || this.states.curCamera.cameraMatrix)).clone().mult(pMatrix);
   };
 
   /**
@@ -413,7 +453,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     vMatrix,
     pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
   } = {}) {
-    return pvMatrix.clone().invert();
+    return _invert(pvMatrix);
   };
 
   /**
