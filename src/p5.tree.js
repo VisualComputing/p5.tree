@@ -141,11 +141,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
 
   /**
-   * Returns the inverse of a matrix (immutable).
+   * Returns the inverse of a matrix.
    * @param {p5.Matrix} matrix
    * @returns {p5.Matrix}
    */
-  fn.invMatrix = function (matrix) {
+  fn.iMatrix = function (matrix) {
     return _invert(matrix);
   };
 
@@ -158,13 +158,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
   fn.axbMatrix = function (a, b) {
     return a.clone().mult(b);
   };
-
+  
   /**
-   * Returns a new identity matrix (mat4).
+   * Creates a new identity matrix of size n.
+   * (Wrapper for `new p5.Matrix(n)`.)
+   * @param {number} [n=4] Matrix size (typically 4).
    * @returns {p5.Matrix}
    */
-  fn.iMatrix = function () {
-    return new p5.Matrix(4);
+  fn.createMatrix = function (n = 4) {
+    return new p5.Matrix(n);
   };
 
   // ---------------------------------------------------------------------------
@@ -438,9 +440,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
   fn.pvMatrix = function (opts = {}) {
     return _rendererGL(this).pvMatrix(opts);
   };
-
+  
   /**
-   * pvInvMatrix({ pMatrix, vMatrix, pvMatrix }):
+   * pviMatrix({ pMatrix, vMatrix, pvMatrix }):
    * Inverse(PV) (mat4).
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.pMatrix] Optional projection matrix (used if pvMatrix is computed).
@@ -448,26 +450,22 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix=this.pvMatrix({ pMatrix, vMatrix })] Optional PV matrix override.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.pvInvMatrix = function ({
+  p5.RendererGL.prototype.pviMatrix = function ({
     pMatrix,
     vMatrix,
     pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
   } = {}) {
     return _invert(pvMatrix);
   };
-
+  
   /**
-   * pvInvMatrix({ pMatrix, vMatrix, pvMatrix }):
-   * Inverse(PV) (mat4).
-   * Requires WEBGL.
+   * pviMatrix({ pMatrix, vMatrix, pvMatrix }):
+   * Inverse(PV) (mat4). Requires WEBGL.
    * @param {object} [opts]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.pvMatrix]
    * @returns {p5.Matrix}
    */
-  fn.pvInvMatrix = function (opts = {}) {
-    return _rendererGL(this).pvInvMatrix(opts);
+  fn.pviMatrix = function (opts = {}) {
+    return _rendererGL(this).pviMatrix(opts);
   };
 
   // ---------------------------------------------------------------------------
