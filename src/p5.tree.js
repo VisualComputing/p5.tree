@@ -60,34 +60,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
 
   // ---------------------------------------------------------------------------
-  // p5.Matrix * vector helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Multiply a direction vector by a mat3.
-   * @param {p5.Vector} v
-   * @returns {p5.Vector}
-   */
-  p5.Matrix.prototype.mult3 = function (v) {
-    const m = this.mat3;
-    return new p5.Vector(
-      m[0] * v.x + m[3] * v.y + m[6] * v.z,
-      m[1] * v.x + m[4] * v.y + m[7] * v.z,
-      m[2] * v.x + m[5] * v.y + m[8] * v.z
-    );
-  };
-
-  /**
-   * Multiply a point (w=1) by a mat4.
-   * p5-v2 canonical implementation.
-   * @param {p5.Vector} v
-   * @returns {p5.Vector}
-   */
-  p5.Matrix.prototype.mult4 = function (v) {
-    return this.multiplyPoint(v);
-  };
-
-  // ---------------------------------------------------------------------------
   // p5.Matrix operations (immutable)
   // ---------------------------------------------------------------------------
   
