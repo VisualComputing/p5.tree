@@ -65,7 +65,7 @@ function keyPressed() {
   if (key === 'd') {
     console.log('eye view direction in world space', parseDirection());
   }
-  if (key === 'p') {
+  if (key === 'l') {
     console.log('eye position in world space: ', parsePosition());
   }
   if (key === 'a') {
