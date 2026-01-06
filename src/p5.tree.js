@@ -36,6 +36,7 @@
       Try p5.treegl approach (see methods)
  ii.  treeLocation & treeDisplacement stress test
  iii. Test / pass: esm.
+ iv.  Port p5.treegl parseGeometry
  2. Future
  i.   Drawing stuff
  ii.  Shader & effects handling
