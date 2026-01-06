@@ -8,10 +8,17 @@ async function setup() {
   textFont(font);
   textSize(14);
   console.log(p5.Tree.VERSION);
+  console.log('eye position in world space: ', parsePosition());
+  console.log('eye view direction in world space', parseDirection());
 }
 
 function draw() {
   background(20);
+  axes( { size: 300 } );
+  push();
+  stroke('white');
+  grid({ size: 300, style: p5.Tree.SOLID });
+  pop();
   orbitControl();
   ambientLight(120);
   directionalLight(255, 255, 255, 0.25, 0.3, -1);
@@ -52,4 +59,13 @@ function draw() {
   text('HUD OK\norbitControl OK', 20, 30);
   pop();
   endHUD();
+}
+
+function keyPressed() {
+  if (key === 'd') {
+    console.log('eye view direction in world space', parseDirection());
+  }
+  if (key === 'p') {
+    console.log('eye position in world space: ', parsePosition());
+  }
 }

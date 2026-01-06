@@ -80,6 +80,8 @@ async function setup() {
   sSeek.style('width', '260px');
 
   console.log('p5.Tree.VERSION =', p5.Tree.VERSION);
+  console.log('p5.Tree.EYE =', p5.Tree.EYE);
+  console.log(parseDirection());
 }
 
 function draw() {
