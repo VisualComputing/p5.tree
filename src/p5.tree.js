@@ -34,10 +34,9 @@
  i.   Issue: beginHUD / endHUD doesnt restore gl state properly
       Seems like an upstream issue
       Try p5.treegl approach (see methods)
- ii.  Implement / pass: Stress test (against treegl)
- iii. Implement treeLocation & treeDisplacement
- iv.  Test / pass: esm.
- v.   Implement axes & grid
+ ii.  Implement treeLocation & treeDisplacement
+ iii. Test / pass: esm.
+ iv.  Implement axes & grid
  2. Future
  i.   Drawing stuff
  ii.  Shader & effects handling
