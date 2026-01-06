@@ -28,6 +28,22 @@
  *   We enforce this by comparing projMatrix.mat4 signatures.
  */
 
+/*
+ TODO's
+ 1. Frst release
+ i.   Issue: beginHUD / endHUD doesnt restore gl state properly
+      Seems like an upstream issue
+      Try p5.treegl approach (see methods)
+ ii.  Implement / pass: Stress test (against treegl)
+ iii. Implement treeLocation & treeDisplacement
+ iv.  Test / pass: esm.
+ v.   Implement axes & grid
+ 2. Future
+ i.   Drawing stuff
+ ii.  Shader & effects handling
+ iii. p5.strands interface
+ */
+
 'use strict';
 
 import p5 from 'p5';
@@ -1252,6 +1268,36 @@ p5.registerAddon((p5, fn, lifecycles) => {
     this._renderer?.endHUD?.(...args);
     return this;
   }
+  
+  /*
+  // treegl approach:
+  p5.RendererGL.prototype.beginHUD = function () {
+    this.m = this.mMatrix();
+    this.v = this.vMatrix();
+    this.p = this.pMatrix();
+    this._rendererState = this.push();
+    let gl = this.drawingContext;
+    gl.flush();
+    gl.disable(gl.DEPTH_TEST);
+    this.uModelMatrix = new p5.Matrix();
+    this.uViewMatrix = new p5.Matrix();
+    let z = Number.MAX_VALUE;
+    this._curCamera.ortho(0, this.width, -this.height, 0, -z, z);
+    // this._curCamera.ortho(0, this.width, 0, -this.height, -z, z); // <- flipped
+    this._hud = true;
+  }
+  
+  p5.RendererGL.prototype.endHUD = function () {
+    let gl = this.drawingContext;
+    gl.flush();
+    gl.enable(gl.DEPTH_TEST);
+    this.pop(this._rendererState);
+    this.uPMatrix.set(this.p);
+    this.uModelMatrix.set(this.m);
+    this.uViewMatrix.set(this.v);
+    this._hud = false;
+  }
+  */
     
   p5.RendererGL.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
