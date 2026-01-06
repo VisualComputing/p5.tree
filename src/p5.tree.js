@@ -148,14 +148,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   /**
-   * Creates a new identity matrix of size n.
-   * (Wrapper for `new p5.Matrix(n)`.)
-   * @param {number} [n=4] Matrix size (typically 4).
+   * Creates a new p5.Matrix.
+   * (Wrapper for `new p5.Matrix(...args)`.)
+   *
+   * - `createMatrix()` → identity 4×4
+   * - `createMatrix(n)` → identity n×n (typically 3 or 4)
+   * - `createMatrix(coeffs)` → matrix from coefficients (length 9 or 16)
+   *
+   * @param {...(number|Array<number>)} [args] Arguments forwarded to the p5.Matrix constructor.
    * @returns {p5.Matrix}
    */
-  fn.createMatrix = function (n = 4) {
-    return new p5.Matrix(n);
-  };
+  fn.createMatrix = (...args) => new p5.Matrix(...args);
 
   // ---------------------------------------------------------------------------
   // Matrix queries (immutable, cache-friendly)
