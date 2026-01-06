@@ -14,7 +14,8 @@
         "dist/"
     ],
     "scripts": {
-        "build": "rollup -c"
+        "build": "rollup -c",
+        "prepublishOnly": "npm run build"
     },
     "keywords": [
         "p5",
@@ -40,6 +41,6 @@
     },
     "devDependencies": {
         "@rollup/plugin-node-resolve": "^16.0.3",
-        "rollup": "^4.54.0"
+        "rollup": "^4.55.1"
     }
 }

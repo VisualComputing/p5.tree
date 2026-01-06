@@ -1051,24 +1051,53 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   camera.playPath(rate)
    *   camera.playPath({ duration, loop, pingPong, onEnd, rate })
    *
+   * Playback runs in "frames per segment" (duration), and rate is interpreted as a
+   * simple speed multiplier:
+   * - rate > 0 : forward
+   * - rate < 0 : reverse
+   * - rate === 0 : stopped (does not register for ticking)
+   *
    * duration: frames per segment (default 30).
    * loop: wraps at ends (default false).
    * pingPong: bounces at ends (default false).
    * onEnd: called when playback naturally ends (non-looping, non-pingpong).
-   * rate: speed multiplier (fractional supported); negative plays reverse; rate=0 stops.
+   *
+   * Special case (single keyframe):
+   * If camera.path has exactly 1 keyframe, playPath does not start playback.
+   * It restores this camera pose to that keyframe (via p5.Camera.camera())
+   * and ensures playback is stopped/unregistered.
    *
    * If both pingPong and loop are true, pingPong takes precedence.
    */
   p5.Camera.prototype.playPath = function (rateOrOpts) {
     const st = getState(this);
     const path = ensurePath(this);
+    const pInst = this._renderer && this._renderer._pInst;
+    const unregister = () => pInst && getPlayers(pInst).delete(this);
+    const register = () => pInst && getPlayers(pInst).add(this);
+    // 0 keyframes: nothing to do
+    if (path.length === 0) {
+      warn('playPath ignored: need at least 1 keyframe in camera.path.');
+      st.playing = false;
+      unregister();
+      return this;
+    }
+    // 1 keyframe: restore pose only (no playback)
+    if (path.length === 1) {
+      const kf = path[0];
+      st.playing = false;
+      unregister();
+      return this.camera(
+        kf.eyeX, kf.eyeY, kf.eyeZ,
+        kf.centerX, kf.centerY, kf.centerZ,
+        kf.upX, kf.upY, kf.upZ
+      );
+    }
     const nSeg = segmentCount(path);
     if (nSeg === 0) {
       warn('playPath ignored: need at least 2 keyframes in camera.path.');
       st.playing = false;
-      // If this camera was previously registered as a player, ensure it is removed.
-      const pInst = this._renderer && this._renderer._pInst;
-      pInst && getPlayers(pInst).delete(this);
+      unregister();
       return this;
     }
     if (isFiniteNumber(rateOrOpts)) {
@@ -1081,8 +1110,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.onEnd = typeof o.onEnd === 'function' ? o.onEnd : st.onEnd;
       st.rate = isFiniteNumber(o.rate) ? o.rate : st.rate;
     }
+    // rate === 0 means "stop" (don’t register for ticking)
     if (st.rate === 0) {
       st.playing = false;
+      unregister();
       return this;
     }
     // If starting from stopped state, default to an endpoint depending on direction.
@@ -1094,10 +1125,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.f = 0;
       // Snap pose to the start/end of the current segment, but keep st.f = 0.
       this.slerp(path[st.seg], path[st.seg + 1], forward ? 0 : 1);
-    }
+    }  
     st.playing = true;
-    const pInst = this._renderer && this._renderer._pInst;
-    pInst && getPlayers(pInst).add(this);
+    register();
     return this;
   };
 
