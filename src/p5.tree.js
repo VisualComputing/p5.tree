@@ -1600,7 +1600,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Vector}
    */
   p5.RendererGL.prototype.parseDirection = function (...args) {
-    const { mainArg, options } = this._parseTransformArgs(p5.Tree.i, ...args);
+    const { mainArg, options } = this._parseTransformArgs(p5.Tree._k, ...args);
     return this._direction(mainArg, options);
   };
   
