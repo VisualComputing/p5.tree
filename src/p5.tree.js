@@ -83,7 +83,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
     LABELS: CONST(1 << 6),
     
     DOTS: CONST(0),
-    SOLID: CONST(1)
+    SOLID: CONST(1),
+                          
+    // bullsEye
+    CIRCLE: CONST(0),
+    SQUARE: CONST(1)
   });
   
   // ---------------------------------------------------------------------------
@@ -1369,27 +1373,25 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Space transforms: parsePosition / parseDirection
   // ---------------------------------------------------------------------------
   
+  p5.RendererGL.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
+    let mainArg = defaultMainArg;
+    const options = {};
+    for (const arg of args) {
+      if (arg instanceof p5.Vector || Array.isArray(arg)) {
+        mainArg = arg;
+      } else if (arg && typeof arg === 'object') {
+        Object.assign(options, arg);
+      }
+    }
+    return { mainArg, options };
+  };
+
   // ---------------------------------------------------------------------------
   // Points (positions)
   // ---------------------------------------------------------------------------
   
-  /**
-   * Converts a point (location) from one space into another.
-   * Delegates to the WEBGL renderer.
-   *
-   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
-   * @param {Object} [opts]
-   * @param {p5.Matrix|string} [opts.from=p5.Tree.EYE]
-   * @param {p5.Matrix|string} [opts.to=p5.Tree.WORLD]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.eMatrix]
-   * @param {p5.Matrix} [opts.pvMatrix]
-   * @param {p5.Matrix} [opts.pviMatrix]
-   * @returns {p5.Vector}
-   */
-  fn.parsePosition = function (point = p5.Tree.ORIGIN, opts) {
-    return this._renderer.parsePosition(point, opts);
+  fn.parsePosition = function (...args) {
+    return _rendererGL(this)?.parsePosition(...args);
   };
   
   /**
@@ -1406,8 +1408,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pviMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.parsePosition = function (point = p5.Tree.ORIGIN, opts = {}) {
-    return this._position(point, opts);
+  p5.RendererGL.prototype.parsePosition = function (...args) {
+    const { mainArg, options } = this._parseTransformArgs(p5.Tree.ORIGIN, ...args);
+    return this._position(mainArg, options);
   };
   
   p5.RendererGL.prototype._position = function (
@@ -1580,21 +1583,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Directions (vector displacements)
   // ---------------------------------------------------------------------------
   
-  /**
-   * Converts a vector displacement from one space into another.
-   * Delegates to the WEBGL renderer.
-   *
-   * @param {p5.Vector|number[]} [vector=p5.Tree._k]
-   * @param {Object} [opts]
-   * @param {p5.Matrix|string} [opts.from=p5.Tree.EYE]
-   * @param {p5.Matrix|string} [opts.to=p5.Tree.WORLD]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.eMatrix]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @returns {p5.Vector}
-   */
-  fn.parseDirection = function (vector = p5.Tree._k, opts) {
-    return this._renderer.parseDirection(vector, opts);
+  fn.parseDirection = function (...args) {
+    return _rendererGL(this)?.parseDirection(...args);
   };
   
   /**
@@ -1609,8 +1599,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.parseDirection = function (vector = p5.Tree._k, opts = {}) {
-    return this._direction(vector, opts);
+  p5.RendererGL.prototype.parseDirection = function (...args) {
+    const { mainArg, options } = this._parseTransformArgs(p5.Tree.i, ...args);
+    return this._direction(mainArg, options);
   };
   
   p5.RendererGL.prototype._direction = function (
