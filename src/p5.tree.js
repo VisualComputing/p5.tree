@@ -325,7 +325,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
     to = this.eMatrix(),
     matrix
   } = {}) {
-    return (matrix || _invert(from).mult(to)).createSubMatrix3x3();
+    const m = (matrix || _invert(from).mult(to));
+    const a = m.mat4 || m.matrix; // v2: mat4 getter if 4x4, else fallback
+    // Note: this is the same "mat4 -> mat3 transpose" as treegl (baked into indices)
+    return new p5.Matrix([
+      a[0], a[4], a[8],
+      a[1], a[5], a[9],
+      a[2], a[6], a[10]
+    ]);
   };
 
   /**

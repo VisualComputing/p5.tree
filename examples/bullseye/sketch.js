@@ -22,6 +22,13 @@ function draw() {
 }
 
 function keyPressed () {
-  key === 'p' && console.log('eye position in world space: ', parsePosition())
-  key === 'd' && console.log('eye view direction in world space', parseDirection())
+  if (key === 'l') {
+    camera(800, 0, 0,   0, 0, 0,   0, 1, 0)
+  }
+  if (key === 'p') {
+    console.log('eye position in world space: ', parsePosition())
+  }
+  if (key === 'd') {
+    console.log('eye view direction in world space', parseDirection())
+  }
 }
