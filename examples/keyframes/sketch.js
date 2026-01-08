@@ -81,7 +81,7 @@ async function setup() {
 
   console.log('p5.Tree.VERSION =', p5.Tree.VERSION);
   console.log('p5.Tree.EYE =', p5.Tree.EYE);
-  console.log(parseDirection());
+  console.log(transformDirection());
 }
 
 function draw() {

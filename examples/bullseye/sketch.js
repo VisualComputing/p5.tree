@@ -1,9 +1,12 @@
 'use strict';
   
 let XY = false
+let p5v1
 
 function setup() {
   createCanvas(600, 400, WEBGL)
+  console.log(p5.VERSION)
+  p5v1 = p5.VERSION[0] == 1
 }
 
 function draw() {
@@ -26,10 +29,10 @@ function keyPressed () {
     camera(800, 800, 800,   0, 0, 0,   0, 1, 0)
   }
   if (key === 'p') {
-    console.log('eye position in world space: ', parsePosition())
+    console.log('eye position in world space: ', p5v1 ? parsePosition() : transformPosition())
   }
   if (key === 'd') {
-    console.log('eye view direction in world space', parseDirection())
+    console.log('eye view direction in world space', p5v1 ? parseDirection() : transformDirection())
   }
   if (key === 'n') {
     console.log(pvMatrix())

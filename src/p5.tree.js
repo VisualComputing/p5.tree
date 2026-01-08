@@ -35,11 +35,12 @@
       Seems like an upstream issue
       Try p5.treegl approach (see methods)
  ii.  treeLocation & treeDisplacement stress test
- iii. Port p5.treegl parseGeometry
+ iii. viewFrustum
  2. Future
  i.   Drawing stuff
  ii.  Shader & effects handling
  iii. p5.strands interface
+ iv.  Port p5.treegl parseGeometry
  */
 
 'use strict';
@@ -1396,7 +1397,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   // ---------------------------------------------------------------------------
-  // Space transforms: parsePosition / parseDirection
+  // Space transforms: transformPosition / transformDirection
   // ---------------------------------------------------------------------------
   
   p5.RendererGL.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
@@ -1416,8 +1417,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Points (positions)
   // ---------------------------------------------------------------------------
   
-  fn.parsePosition = function (...args) {
-    return _rendererGL(this)?.parsePosition(...args);
+  fn.transformPosition = function (...args) {
+    return _rendererGL(this)?.transformPosition(...args);
   };
   
   /**
@@ -1434,7 +1435,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pviMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.parsePosition = function (...args) {
+  p5.RendererGL.prototype.transformPosition = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree.ORIGIN, ...args);
     return this._position(mainArg, options);
   };
@@ -1553,7 +1554,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (from == p5.Tree.EYE && to instanceof p5.Matrix) {
       return to.copy().invert(to).mult4((eMatrix ?? this.eMatrix()).mult4(point));
     }
-    console.error('couldn\'t parse your parsePosition query!');
+    console.error('couldn\'t parse your transformPosition query!');
     return point;
   };
   
@@ -1635,8 +1636,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Directions (vector displacements)
   // ---------------------------------------------------------------------------
   
-  fn.parseDirection = function (...args) {
-    return _rendererGL(this)?.parseDirection(...args);
+  fn.transformDirection = function (...args) {
+    return _rendererGL(this)?.transformDirection(...args);
   };
   
   /**
@@ -1651,7 +1652,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.parseDirection = function (...args) {
+  p5.RendererGL.prototype.transformDirection = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree._k, ...args);
     return this._direction(mainArg, options);
   };
@@ -1756,7 +1757,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       );
     }
   
-    console.error('[p5.tree] parseDirection: could not parse query.');
+    console.error('[p5.tree] transformDirection: could not parse query.');
     return vector;
   };
   
@@ -1965,7 +1966,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return this.isOrtho()
       ? Math.abs(this.tPlane() - this.bPlane()) / this.height
       : 2 * Math.abs(
-        this.parsePosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
+        this.transformPosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
       ) * Math.tan(this.fov() / 2) / this.height;
   };
   
@@ -2058,10 +2059,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (!p) return;
     
     if (x == null || y == null) {
-      const screen = this.parsePosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
       x = screen.x;
       y = screen.y;
-      const world = this.parsePosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
     
@@ -2113,10 +2114,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (!p) return;
     
     if (x == null || y == null) {
-      const screen = this.parsePosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
       x = screen.x;
       y = screen.y;
-      const world = this.parsePosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
     

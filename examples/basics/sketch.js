@@ -8,8 +8,8 @@ async function setup() {
   textFont(font);
   textSize(14);
   console.log(p5.Tree.VERSION);
-  console.log('eye position in world space: ', parsePosition());
-  console.log('eye view direction in world space', parseDirection());
+  console.log('eye position in world space: ', transformPosition());
+  console.log('eye view direction in world space', transformDirection());
 }
 
 function draw() {
@@ -63,10 +63,10 @@ function draw() {
 
 function keyPressed() {
   if (key === 'd') {
-    console.log('eye view direction in world space', parseDirection());
+    console.log('eye view direction in world space', transformDirection());
   }
   if (key === 'l') {
-    console.log('eye position in world space: ', parsePosition());
+    console.log('eye position in world space: ', transformPosition());
   }
   if (key === 'a') {
     addPath();
