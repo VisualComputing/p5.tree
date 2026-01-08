@@ -55,6 +55,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
   Object.defineProperties(p5.Tree, {
     VERSION: CONST('0.0.1'),
+                          
+    NONE: CONST(0),
   
     // Spaces
     WORLD: CONST('WORLD'),
@@ -88,7 +90,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
                           
     // bullsEye
     CIRCLE: CONST(0),
-    SQUARE: CONST(1)
+    SQUARE: CONST(1),
+                          
+    // View frustum bits
+    NEAR:   CONST(1 << 0),
+    FAR:    CONST(1 << 1),
+    LEFT:   CONST(1 << 2),
+    RIGHT:  CONST(1 << 3),
+    BOTTOM: CONST(1 << 4),
+    TOP:    CONST(1 << 5),
+    BODY:   CONST(1 << 6),
+    APEX:   CONST(1 << 7)
   });
   
   // ---------------------------------------------------------------------------
@@ -2148,5 +2160,160 @@ p5.registerAddon((p5, fn, lifecycles) => {
     p.line(x, y - crossHalf, x, y + crossHalf);
     
     this.endHUD();
-  };  
+  };
+  
+  // ---------------------------------------------------------------------------
+  // View frustum (pg frustum display)
+  // ---------------------------------------------------------------------------
+  
+  fn.viewFrustum = function (opts) {
+    _rendererGL(this)?.viewFrustum(opts);
+    return this;
+  };
+  
+  /**
+   * Displays a view frustum, either from a pg (p5.Graphics / p5.RendererGL) or from eMatrix/pMatrix.
+   *
+   * Draws the frustum in *this* renderer, positioned/oriented by `eMatrix` and projected by `pMatrix`,
+   * after first transforming from world space to this renderer eye via `vMatrix`.
+   *
+   * @param {Object} [opts]
+   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] view matrix of *this* renderer (world -> this eye).
+   * @param {p5.RendererGL|p5.Graphics} [opts.pg] renderer/pg whose frustum is to be displayed.
+   * @param {p5.Matrix} [opts.eMatrix=pg?.eMatrix()] eye matrix defining frustum pose (eye -> world).
+   * @param {p5.Matrix} [opts.pMatrix=pg?.pMatrix()] projection matrix defining frustum projection.
+   * @param {number} [opts.bits=p5.Tree.NEAR|p5.Tree.FAR] bitmask composed of p5.Tree.NEAR, p5.Tree.FAR,
+   *                                                    p5.Tree.BODY, p5.Tree.APEX (and reserved LEFT/RIGHT/TOP/BOTTOM).
+   * @param {Function|false|null} [opts.viewer=...] callback drawn at the frustum origin (in frustum space).
+   *                                                Pass `false` (or null) to disable.
+   */
+  p5.RendererGL.prototype.viewFrustum = function ({
+    vMatrix = this.vMatrix(),
+    pg,
+    eMatrix = pg?.eMatrix(),
+    pMatrix = pg?.pMatrix(),
+    bits = p5.Tree.NEAR | p5.Tree.FAR,
+    viewer = () => this.axes({ size: 50, bits: p5.Tree.X | p5.Tree._X | p5.Tree.Y | p5.Tree._Y | p5.Tree.Z | p5.Tree._Z })
+  } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+  
+    if (this === pg) {
+      console.error('displaying viewFrustum requires a pg different than this');
+      return;
+    }
+    if (!pMatrix || !eMatrix) {
+      console.error('displaying viewFrustum requires either a pg or projection and eye matrices');
+      return;
+    }
+  
+    p.push();
+  
+    // Reset model/view uniforms so applyMatrix composes from identity (treegl-style).
+    this.uModelMatrix = new p5.Matrix();
+    this.uViewMatrix = new p5.Matrix();
+  
+    // transform from world space to this eye (world -> this eye)
+    this.applyMatrix(...vMatrix.mat4);
+  
+    // transform from eye space to world space (eye -> world)
+    this.applyMatrix(...eMatrix.mat4);
+  
+    // frustum rendering begins here...
+    typeof viewer === 'function' && viewer();
+  
+    const isOrtho = pMatrix.isOrtho();
+    const apex = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
+  
+    const n = -pMatrix.nPlane();
+    const f = -pMatrix.fPlane();
+    const l = pMatrix.lPlane();
+    const r = pMatrix.rPlane();
+  
+    // treegl hack preserved (sign handling for t/b differs in ortho vs persp)
+    const t = isOrtho ? -pMatrix.tPlane() : pMatrix.tPlane();
+    const b = isOrtho ? -pMatrix.bPlane() : pMatrix.bPlane();
+  
+    // far plane corners
+    const ratio = isOrtho ? 1 : f / n;
+    const _l = ratio * l;
+    const _r = ratio * r;
+    const _b = ratio * b;
+    const _t = ratio * t;
+  
+    // FAR plane
+    if ((bits & p5.Tree.FAR) !== 0) {
+      this.beginShape();
+      this.vertex(_l, _t, f);
+      this.vertex(_r, _t, f);
+      this.vertex(_r, _b, f);
+      this.vertex(_l, _b, f);
+      this.endShape(p5.prototype.CLOSE);
+    } else {
+      this.line(_l, _t, f, _r, _t, f);
+      this.line(_r, _t, f, _r, _b, f);
+      this.line(_r, _b, f, _l, _b, f);
+      this.line(_l, _b, f, _l, _t, f);
+    }
+  
+    // BODY
+    if ((bits & p5.Tree.BODY) !== 0) {
+      this.beginShape();
+      this.vertex(_l, _t, f);
+      this.vertex(l, t, n);
+      this.vertex(r, t, n);
+      this.vertex(_r, _t, f);
+      this.endShape();
+  
+      this.beginShape();
+      this.vertex(_r, _t, f);
+      this.vertex(r, t, n);
+      this.vertex(r, b, n);
+      this.vertex(_r, _b, f);
+      this.endShape();
+  
+      this.beginShape();
+      this.vertex(_r, _b, f);
+      this.vertex(r, b, n);
+      this.vertex(l, b, n);
+      this.vertex(_l, _b, f);
+      this.endShape();
+  
+      this.beginShape();
+      this.vertex(l, t, n);
+      this.vertex(_l, _t, f);
+      this.vertex(_l, _b, f);
+      this.vertex(l, b, n);
+      this.endShape();
+  
+      if (apex) {
+        this.line(0, 0, 0, r, t, n);
+        this.line(0, 0, 0, l, t, n);
+        this.line(0, 0, 0, l, b, n);
+        this.line(0, 0, 0, r, b, n);
+      }
+    } else {
+      this.line(apex ? 0 : r, apex ? 0 : t, apex ? 0 : n, _r, _t, f);
+      this.line(apex ? 0 : l, apex ? 0 : t, apex ? 0 : n, _l, _t, f);
+      this.line(apex ? 0 : l, apex ? 0 : b, apex ? 0 : n, _l, _b, f);
+      this.line(apex ? 0 : r, apex ? 0 : b, apex ? 0 : n, _r, _b, f);
+    }
+  
+    // NEAR plane
+    if ((bits & p5.Tree.NEAR) !== 0) {
+      this.beginShape();
+      this.vertex(l, t, n);
+      this.vertex(r, t, n);
+      this.vertex(r, b, n);
+      this.vertex(l, b, n);
+      this.endShape(p5.prototype.CLOSE);
+    } else {
+      this.line(l, t, n, r, t, n);
+      this.line(r, t, n, r, b, n);
+      this.line(r, b, n, l, b, n);
+      this.line(l, b, n, l, t, n);
+    }
+  
+    p.pop();
+  };
 });
