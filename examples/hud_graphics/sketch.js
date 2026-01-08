@@ -52,8 +52,6 @@ function draw() {
   beginHUD();
 
   push();
-  resetMatrix();
-  translate(-width / 2, -height / 2);
   image(hud, 0, 0);
   pop();
 

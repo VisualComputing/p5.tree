@@ -149,6 +149,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
       ]);
     }
   };
+  
+  p5.Matrix.prototype.mult4 = function (vector) {
+    return new p5.Vector(...this._mult4([vector.x, vector.y, vector.z, 1]));
+  };
+  
+  p5.Matrix.prototype._mult4 = function (vec4) {
+    if (this.mat4 === undefined) {
+      console.error('_mult4 only works with mat4');
+      return;
+    }
+    return [
+      this.mat4[0] * vec4[0] + this.mat4[4] * vec4[1] + this.mat4[8]  * vec4[2] + this.mat4[12] * vec4[3],
+      this.mat4[1] * vec4[0] + this.mat4[5] * vec4[1] + this.mat4[9]  * vec4[2] + this.mat4[13] * vec4[3],
+      this.mat4[2] * vec4[0] + this.mat4[6] * vec4[1] + this.mat4[10] * vec4[2] + this.mat4[14] * vec4[3],
+      this.mat4[3] * vec4[0] + this.mat4[7] * vec4[1] + this.mat4[11] * vec4[2] + this.mat4[15] * vec4[3]
+    ];
+  };
 
   /**
    * Returns the transpose of a matrix (immutable).
@@ -1355,7 +1372,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     gl.disable(gl.DEPTH_TEST);
     if (this._hudCam === undefined) this._hudCam = p.createCamera();
     const z = 1e6;
-    this._hudCam.ortho(-p.width / 2, p.width / 2, -p.height / 2, p.height / 2, -z, z);
+    // HUD coordinates: x in [0, width], y in [0, height]
+    this._hudCam.ortho(0, p.width, -p.height, 0, -z, z);
+    // this._hudCam.ortho(0, p.width, 0, -p.height, -z, z); // <- flipped
     this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
     p.setCamera(this._hudCam);
     this._hudActive = true;
@@ -1432,30 +1451,33 @@ p5.registerAddon((p5, fn, lifecycles) => {
       pviMatrix
     } = {}
   ) {
-    const asVec3 = v =>
-      v instanceof p5.Vector ? v : new p5.Vector(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
-  
-    point = asVec3(point);
-  
-    if (from === p5.Tree.MODEL) from = this.mMatrix({ eMatrix });
-    if (to === p5.Tree.MODEL) to = this.mMatrix({ eMatrix });
-  
-    if (from === p5.Tree.WORLD && to === p5.Tree.SCREEN) {
+    if (Array.isArray(point)) {
+      point = new p5.Vector(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0);
+    }
+    if (from == p5.Tree.MODEL) {
+      from = this.mMatrix({ eMatrix });
+    }
+    if (to == p5.Tree.MODEL) {
+      to = this.mMatrix({ eMatrix });
+    }
+    if ((from == p5.Tree.WORLD) && (to == p5.Tree.SCREEN)) {
       return this._worldToScreenPosition({ point, pMatrix, vMatrix, pvMatrix });
     }
-    if (from === p5.Tree.SCREEN && to === p5.Tree.WORLD) {
+    if ((from == p5.Tree.SCREEN) && (to == p5.Tree.WORLD)) {
       return this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, pviMatrix });
     }
-  
-    if (from === p5.Tree.SCREEN && to === p5.Tree.NDC) return this._screenToNDCPosition(point);
-    if (from === p5.Tree.NDC && to === p5.Tree.SCREEN) return this._ndcToScreenPosition(point);
-  
-    if (from === p5.Tree.WORLD && to === p5.Tree.NDC) {
+    if (from == p5.Tree.SCREEN && to == p5.Tree.NDC) {
+      return this._screenToNDCPosition(point);
+    }
+    if (from == p5.Tree.NDC && to == p5.Tree.SCREEN) {
+      return this._ndcToScreenPosition(point);
+    }
+    if (from == p5.Tree.WORLD && to == p5.Tree.NDC) {
       return this._screenToNDCPosition(
         this._worldToScreenPosition({ point, pMatrix, vMatrix, pvMatrix })
       );
     }
-    if (from === p5.Tree.NDC && to === p5.Tree.WORLD) {
+    if (from == p5.Tree.NDC && to == p5.Tree.WORLD) {
       return this._screenToWorldPosition({
         point: this._ndcToScreenPosition(point),
         pMatrix,
@@ -1464,51 +1486,74 @@ p5.registerAddon((p5, fn, lifecycles) => {
         pviMatrix
       });
     }
-  
-    if (from === p5.Tree.NDC && (to instanceof p5.Matrix || to === p5.Tree.EYE)) {
-      const world = this._screenToWorldPosition({
-        point: this._ndcToScreenPosition(point),
-        pMatrix,
-        vMatrix,
-        pvMatrix,
-        pviMatrix
-      });
-      const m = to === p5.Tree.EYE ? _invert(vMatrix ?? this.vMatrix()) : _invert(to);
-      return m.multiplyPoint(world);
-    }
-  
-    if ((from instanceof p5.Matrix || from === p5.Tree.EYE) && to === p5.Tree.NDC) {
-      const w = (from === p5.Tree.EYE ? (eMatrix ?? this.eMatrix()) : from).multiplyPoint(point);
-      return this._screenToNDCPosition(
-        this._worldToScreenPosition({ point: w, pMatrix, vMatrix, pvMatrix })
+    if (from == p5.Tree.NDC && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
+      return (to == p5.Tree.EYE
+        ? (vMatrix ?? this.vMatrix())
+        : to.copy().invert(to)
+      ).mult4(
+        this._screenToWorldPosition({
+          point: this._ndcToScreenPosition(point),
+          pMatrix,
+          vMatrix,
+          pvMatrix,
+          pviMatrix
+        })
       );
     }
-  
-    if (from === p5.Tree.WORLD && (to instanceof p5.Matrix || to === p5.Tree.EYE)) {
-      const m = to === p5.Tree.EYE ? _invert(vMatrix ?? this.vMatrix()) : _invert(to);
-      return m.multiplyPoint(point);
+    if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.NDC) {
+      return this._screenToNDCPosition(
+        this._worldToScreenPosition({
+          point: (from == p5.Tree.EYE
+            ? (eMatrix ?? this.eMatrix())
+            : from
+          ).mult4(point),
+          pMatrix,
+          vMatrix,
+          pvMatrix
+        })
+      );
     }
-    if ((from instanceof p5.Matrix || from === p5.Tree.EYE) && to === p5.Tree.WORLD) {
-      const m = from === p5.Tree.EYE ? (eMatrix ?? this.eMatrix()) : from;
-      return m.multiplyPoint(point);
+    if (from == p5.Tree.WORLD && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
+      return (to == p5.Tree.EYE
+        ? (vMatrix ?? this.vMatrix())
+        : to.copy().invert(to)
+      ).mult4(point);
     }
-  
+    if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.WORLD) {
+      return (from == p5.Tree.EYE
+        ? (eMatrix ?? this.eMatrix())
+        : from
+      ).mult4(point);
+    }
     if (from instanceof p5.Matrix && to instanceof p5.Matrix) {
-      return this.lMatrix({ from, to }).multiplyPoint(point);
+      return this.lMatrix({ from: from, to: to }).mult4(point);
     }
-  
-    if (from === p5.Tree.SCREEN && (to instanceof p5.Matrix || to === p5.Tree.EYE)) {
-      const world = this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, pviMatrix });
-      const m = to === p5.Tree.EYE ? _invert(vMatrix ?? this.vMatrix()) : _invert(to);
-      return m.multiplyPoint(world);
+    if (from == p5.Tree.SCREEN && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
+      return (to == p5.Tree.EYE
+        ? (vMatrix ?? this.vMatrix())
+        : to.copy().invert(to)
+      ).mult4(
+        this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, pviMatrix })
+      );
     }
-  
-    if ((from instanceof p5.Matrix || from === p5.Tree.EYE) && to === p5.Tree.SCREEN) {
-      const w = (from === p5.Tree.EYE ? (eMatrix ?? this.eMatrix()) : from).multiplyPoint(point);
-      return this._worldToScreenPosition({ point: w, pMatrix, vMatrix, pvMatrix });
+    if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.SCREEN) {
+      return this._worldToScreenPosition({
+        point: (from == p5.Tree.EYE
+          ? (eMatrix ?? this.eMatrix())
+          : from
+        ).mult4(point),
+        pMatrix,
+        vMatrix,
+        pvMatrix
+      });
     }
-  
-    console.error('[p5.tree] parsePosition: could not parse query.');
+    if (from instanceof p5.Matrix && to == p5.Tree.EYE) {
+      return (vMatrix ?? this.vMatrix()).mult4(from.mult4(point));
+    }
+    if (from == p5.Tree.EYE && to instanceof p5.Matrix) {
+      return to.copy().invert(to).mult4((eMatrix ?? this.eMatrix()).mult4(point));
+    }
+    console.error('couldn\'t parse your parsePosition query!');
     return point;
   };
   
@@ -1534,7 +1579,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     vMatrix,
     pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
   } = {}) {
-    const target = pvMatrix.multiplyVec4(point.x, point.y, point.z, 1);
+    let target = pvMatrix._mult4([point.x, point.y, point.z, 1]);
     if (target[3] === 0) {
       console.error('[p5.tree] World->Screen broken: check pvMatrix.');
       return point.copy();
@@ -1573,7 +1618,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     source[1] = source[1] * 2 - 1;
     source[2] = source[2] * 2 - 1;
   
-    const target = pviMatrix.multiplyVec4(source[0], source[1], source[2], source[3]);
+    let target = pviMatrix._mult4(source);
     if (target[3] === 0) {
       console.error('[p5.tree] Screen->World broken: check pviMatrix.');
       return point.copy();
@@ -1888,4 +1933,219 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
     p.pop();
   };
+  
+  // -------------------------------------------------------------------------
+  // Drawing helpers (bullsEye / cross)
+  // -------------------------------------------------------------------------
+  
+  /**
+   * Returns the world-to-pixel ratio units at a given world point position.
+   *
+   * A line of `n * pixelRatio(point)` world units will be projected with a
+   * length of `n` pixels on screen (locally around that point).
+   *
+   * - In orthographic projection, the ratio is constant.
+   * - In perspective projection, the ratio depends on eye-space depth.
+   *
+   * Requires WEBGL.
+   *
+   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN] World-space point.
+   * @returns {number|undefined} World units per pixel at the given point.
+   */
+  fn.pixelRatio = function (point) {
+    return _rendererGL(this)?.pixelRatio(point);
+  };
+  
+  /**
+   * Returns the world-to-pixel ratio units at a given world point position.
+   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
+    return this.isOrtho()
+      ? Math.abs(this.tPlane() - this.bPlane()) / this.height
+      : 2 * Math.abs(
+        this.parsePosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
+      ) * Math.tan(this.fov() / 2) / this.height;
+  };
+  
+  /**
+   * @private
+   * Draws a circle primitive in the *current* renderer space.
+   *
+   * This is a geometry primitive (lines / triangles in the XY plane at z=0),
+   * so it can be used in 3D *or* in HUD/screen space depending on the caller:
+   * - Call inside `beginHUD()/endHUD()` to interpret `x,y,radius` in screen pixels.
+   * - Call outside HUD to interpret them in the current 3D space units.
+   *
+   * @param {object} [opts]
+   * @param {boolean} [opts.filled=false] Whether to fill the circle.
+   * @param {number} [opts.x=width/2] Center x in current space.
+   * @param {number} [opts.y=height/2] Center y in current space.
+   * @param {number} [opts.radius=100] Radius in current space.
+   * @param {number} [opts.detail=50] Segment count.
+   */
+  p5.RendererGL.prototype._circle = function ({
+    filled = false,
+    x = this.width / 2,
+    y = this.height / 2,
+    radius = 100,
+    detail = 50
+  } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+    
+    p.push();
+    p.translate(x, y);
+    
+    if (filled) {
+      p.beginShape(p.TRIANGLE_STRIP);
+      for (let t = 0; t <= detail; t++) {
+        const cx = Math.cos(t * (2 * Math.PI) / detail);
+        const cy = Math.sin(t * (2 * Math.PI) / detail);
+        p.vertex(0, 0, 0, 0.5, 0.5);
+        p.vertex(radius * cx, radius * cy, 0, (cx * 0.5) + 0.5, (cy * 0.5) + 0.5);
+      }
+      p.endShape();
+    } else {
+      const angle = (2 * Math.PI) / detail;
+      let last = { x: radius, y: 0 };
+      for (let i = 1; i <= detail; i++) {
+        const pos = { x: Math.cos(i * angle) * radius, y: Math.sin(i * angle) * radius };
+        p.line(last.x, last.y, pos.x, pos.y);
+        last = pos;
+      }
+    }
+    
+    p.pop();
+  };
+  
+  /**
+   * Draws a cross in HUD space (`x,y` in screen coordinates).
+   *
+   * If `x` and `y` are not provided, the cross is placed at the screen position
+   * corresponding to the origin of `mMatrix`.
+   *
+   * If `mMatrix` is used (x/y omitted), `size` is interpreted in world units
+   * and converted to pixels using `pixelRatio()` at the corresponding world point.
+   *
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.mMatrix] Model-space matrix origin to compute (x, y) from.
+   * @param {number} [opts.x] Screen x coordinate in HUD space (pixels).
+   * @param {number} [opts.y] Screen y coordinate in HUD space (pixels).
+   * @param {number} [opts.size=50] Cross size (pixels in HUD space, or world units when deriving x/y).
+   * @param {p5.Matrix} [opts.eMatrix] Eye matrix override.
+   * @param {p5.Matrix} [opts.pMatrix] Projection matrix override.
+   * @param {p5.Matrix} [opts.vMatrix] View (camera) matrix override.
+   * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
+   */
+  fn.cross = function (opts) {
+    _rendererGL(this)?.cross(opts);
+    return this;
+  };
+  
+  p5.RendererGL.prototype.cross = function ({
+    mMatrix = this.mMatrix(),
+    x,
+    y,
+    size = 50,
+    eMatrix,
+    pMatrix,
+    vMatrix,
+    pvMatrix
+  } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+    
+    if (x == null || y == null) {
+      const screen = this.parsePosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      x = screen.x;
+      y = screen.y;
+      const world = this.parsePosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      size = size / this.pixelRatio(world);
+    }
+    
+    const half = size / 2.0;
+    this.beginHUD();
+    p.line(x - half, y, x + half, y);
+    p.line(x, y - half, x, y + half);
+    this.endHUD();
+  };
+  
+  /**
+   * Draws a bulls-eye on the screen (HUD space): either a circle or square-corners,
+   * plus a center cross.
+   *
+   * If `x` and `y` are not provided, the bulls-eye is placed at the screen position
+   * corresponding to the origin of `mMatrix`.
+   *
+   * If `mMatrix` is used (x/y omitted), `size` is interpreted in world units
+   * and converted to pixels using `pixelRatio()` at the corresponding world point.
+   *
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.mMatrix] Model-space matrix origin to compute (x, y) from.
+   * @param {number} [opts.x] Screen x coordinate in HUD space (pixels).
+   * @param {number} [opts.y] Screen y coordinate in HUD space (pixels).
+   * @param {number} [opts.size=50] Bulls-eye diameter (pixels in HUD space, or world units when deriving x/y).
+   * @param {number} [opts.shape=p5.Tree.CIRCLE] Either `p5.Tree.CIRCLE` or `p5.Tree.SQUARE`.
+   * @param {p5.Matrix} [opts.eMatrix] Eye matrix override.
+   * @param {p5.Matrix} [opts.pMatrix] Projection matrix override.
+   * @param {p5.Matrix} [opts.vMatrix] View (camera) matrix override.
+   * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
+   */
+  fn.bullsEye = function (opts) {
+    _rendererGL(this)?.bullsEye(opts);
+    return this;
+  };
+  
+  p5.RendererGL.prototype.bullsEye = function ({
+    mMatrix = this.mMatrix(),
+    x,
+    y,
+    size = 50,
+    shape = p5.Tree.CIRCLE,
+    eMatrix,
+    pMatrix,
+    vMatrix,
+    pvMatrix
+  } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+    
+    if (x == null || y == null) {
+      const screen = this.parsePosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      x = screen.x;
+      y = screen.y;
+      const world = this.parsePosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      size = size / this.pixelRatio(world);
+    }
+    
+    const half = size / 2.0;
+    const corner = 0.6 * half;
+    
+    this.beginHUD();
+    
+    if (shape === p5.Tree.CIRCLE) {
+      this._circle({ x, y, radius: half });
+    } else {
+      p.line(x - half, y - half + corner, x - half, y - half);
+      p.line(x - half, y - half, x - half + corner, y - half);
+      
+      p.line(x + half - corner, y - half, x + half, y - half);
+      p.line(x + half, y - half, x + half, y - half + corner);
+      
+      p.line(x + half, y + half - corner, x + half, y + half);
+      p.line(x + half, y + half, x + half - corner, y + half);
+      
+      p.line(x - half + corner, y + half, x - half, y + half);
+      p.line(x - half, y + half, x - half, y + half - corner);
+    }
+    
+    // Center cross (0.6 * size), in HUD space.
+    const crossHalf = 0.6 * half;
+    p.line(x - crossHalf, y, x + crossHalf, y);
+    p.line(x, y - crossHalf, x, y + crossHalf);
+    
+    this.endHUD();
+  };  
 });

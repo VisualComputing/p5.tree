@@ -51,7 +51,6 @@ function draw() {
   // HUD working here
   beginHUD();
   push();
-  translate(-width / 2, -height / 2);
   noStroke();
   fill(0, 160);
   rect(10, 10, 220, 56, 6);
