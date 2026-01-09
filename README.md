@@ -42,10 +42,19 @@ The path lives in user-space as `camera.path` (an array of `p5.Camera` snapshots
 
 `camera.addPath(...)` appends a keyframe (camera snapshot) to `camera.path`.
 
-Overloads:
+**Overloads**
 
-1. `camera.addPath(eye, center, [up], [opts])`
-2. `camera.addPath(view, [opts])`
+1. `camera.addPath(eye, center, up, [opts])`  
+2. `camera.addPath(view, [opts])`  
+3. `camera.addPath([camera0, camera1, ...], [opts])`  
+4. `camera.addPath([opts])`  
+
+**Notes**
+
+- In **(1)**, `up` is **mandatory** (no default is assumed).
+- In **(2)**, `view` is a `p5.Matrix(4)` or a raw `mat4[16]` representing a world→camera transform.
+- **(3)** appends copies of existing camera snapshots.
+- **(4)** records a snapshot of the current camera at call time.
 
 Where:
 
@@ -62,9 +71,9 @@ function setup() {
   createCanvas(600, 400, WEBGL)
   cam = createCamera()
 
-  cam.addPath([400, 0, 0], [0, 0, 0])
-  cam.addPath([0, 400, 0], [0, 0, 0])
-  cam.addPath([0, 0, 400], [0, 0, 0])
+  cam.addPath([400, 0, 0], [0, 0, 0], [0, 1, 0])
+  cam.addPath(other_cam)
+  cam.addPath(eyeMatrix)
 }
 ```
 
@@ -76,9 +85,9 @@ function setup() {
 function setup() {
   createCanvas(600, 400, WEBGL)
 
-  addPath([400, 0, 0], [0, 0, 0])
-  addPath([0, 400, 0], [0, 0, 0])
-  addPath([0, 0, 400], [0, 0, 0])
+  addPath([400, 0, 0], [0, 0, 0], [0, 1, 0])
+  addPath(cam)
+  addPath(eyeMatrix)
 }
 ```
 
@@ -109,9 +118,9 @@ If both `pingPong` and `loop` are `true`, `pingPong` takes precedence.
 ```js
 function setup() {
   createCanvas(600, 400, WEBGL)
-  addPath([400, 0, 0], [0, 0, 0], { clear: true })
-  addPath([0, 400, 0], [0, 0, 0])
-  addPath([0, 0, 400], [0, 0, 0])
+  addPath([400, 0, 0], [0, 0, 0], [0, 1, 0], { clear: true })
+  addPath(cam)
+  addPath(eyeMatrix)
 
   // 45 frames per segment, loop forever
   playPath({ duration: 45, loop: true })
