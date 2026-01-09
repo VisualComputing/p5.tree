@@ -1849,6 +1849,89 @@ p5.registerAddon((p5, fn, lifecycles) => {
         this.transformPosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
       ) * Math.tan(this.fov() / 2) / this.height;
   };
+
+  /**
+   * Returns the normalized texel size for an image/texture.
+   * Useful for offsetting UVs by exactly one pixel.
+   *
+   * @param {p5.Image|p5.Framebuffer|Object} image Any object exposing `width` and `height`.
+   * @returns {number[]} `[1 / width, 1 / height]`
+   */
+  fn.texOffset = function (image) {
+    return [1 / image.width, 1 / image.height];
+  };
+
+  /**
+   * Returns the current mouse position in *pixel* coordinates.
+   * By default the y-axis is flipped so y=0 is at the bottom (HUD-style).
+   *
+   * @param {boolean} [flip=true] Whether to flip the y coordinate.
+   * @returns {number[]} `[x, y]` in pixels (includes pixelDensity scaling).
+   */
+  fn.mousePosition = function (flip = true) {
+    const pd = this.pixelDensity();
+    return [pd * this.mouseX, pd * (flip ? this.height - this.mouseY : this.mouseY)];
+  };
+
+  /**
+   * Returns a pointer position in *pixel* coordinates from an arbitrary (x, y) pair.
+   * Delegates to the WEBGL renderer.
+   *
+   * Accepts parameters in any order:
+   * - `number, number` → pointerX, pointerY
+   * - optional `boolean` → `flip`
+   *
+   * @param  {...(number|boolean)} args
+   * @returns {number[]|undefined} `[x, y]` in pixels, or undefined if not in WEBGL.
+   */
+  fn.pointerPosition = function (...args) {
+    return _rendererGL(this)?.pointerPosition(...args);
+  };
+
+  /**
+   * Returns the canvas resolution in *pixel* coordinates.
+   * Delegates to the WEBGL renderer.
+   *
+   * @returns {number[]|undefined} `[width, height]` in pixels, or undefined if not in WEBGL.
+   */
+  fn.resolution = function () {
+    return _rendererGL(this)?.resolution();
+  };
+
+  /**
+   * Returns a pointer position in *pixel* coordinates from an arbitrary (x, y) pair.
+   *
+   * Accepts parameters in any order:
+   * - `number, number` → pointerX, pointerY
+   * - optional `boolean` → `flip`
+   *
+   * @param  {...(number|boolean)} args
+   * @returns {number[]} `[x, y]` in pixels (includes pixelDensity scaling).
+   */
+  p5.RendererGL.prototype.pointerPosition = function (...args) {
+    let pointerX;
+    let pointerY;
+    let flip = true;
+    for (const arg of args) {
+      if (typeof arg === 'number') {
+        // First number is x, second is y.
+        pointerX === undefined ? (pointerX = arg) : (pointerY = arg);
+      } else if (typeof arg === 'boolean') {
+        flip = arg;
+      }
+    }
+    const pd = this.pixelDensity();
+    return [pd * pointerX, pd * (flip ? this.height - pointerY : pointerY)];
+  };
+
+  /**
+   * Returns the canvas resolution in *pixel* coordinates.
+   * @returns {number[]} `[width, height]` in pixels (includes pixelDensity scaling).
+   */
+  p5.RendererGL.prototype.resolution = function () {
+    const pd = this.pixelDensity();
+    return [pd * this.width, pd * this.height];
+  };
   
   // -------------------------------------------------------------------------
   // Drawing helpers (axes / grid)
