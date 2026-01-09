@@ -1368,15 +1368,20 @@ p5.registerAddon((p5, fn, lifecycles) => {
     this._hud = false;
   }
   */
-    
+  
   p5.RendererGL.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
     const p = this._pInst;
+    if (!p) return;
     const gl = this.drawingContext;
     const states = this.states;
-    if (p === undefined || gl === undefined || states === undefined) return;
-    p.push(); // calls: this._rendererState = this.push();
+    if (!gl || !states) return;
+    p.push(); // isolate all subsequent HUD drawing from caller state
     p.resetShader();
+    // Ensure HUD space does NOT inherit the user's current model transforms
+    // (e.g. push()/translate()
+    p.resetMatrix();
+    // ---------------------
     // --- HUD setup ---
     this._hudPrevCam = states.curCamera;
     this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);

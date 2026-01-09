@@ -26,55 +26,6 @@ function keyPressed() {
   key === 'c' && (cached = !cached)
 }
 
-// /*
-function draw() {
-  background(0.5)
-  orbitControl()
-  // cache pv matrix to speedup computations
-  const params = {
-    shape: squared ? p5.Tree.SQUARE : p5.Tree.CIRCLE, ...(cached && { pvMatrix: pvMatrix() })
-  }
-  axes()
-  grid()
-  models.forEach(element => {
-    push()
-    translate(element.position)
-    params.size = element.size * 2.5
-    const picked = mousePicking(params)
-    fill(picked ? 'white' : element.color)
-    noStroke()
-    squared ? box(element.size * 2) : sphere(element.size)
-    pop()
-  })
-}
-// */
-
-/*
-function draw() {
-  background(0.5)
-  orbitControl()
-  // cache pv matrix to speedup computations
-  const params = {
-    shape: squared ? p5.Tree.SQUARE : p5.Tree.CIRCLE, ...(cached && { pvMatrix: pvMatrix() })
-  }
-  axes()
-  grid()
-  models.forEach(element => {
-    push()
-    translate(element.position)
-    params.size = element.size * 2.5
-    fill(element.color)
-    noStroke()
-    squared ? box(element.size * 2) : sphere(element.size)
-    strokeWeight(3)
-    stroke('magenta')
-    squared ? cross(params) : bullsEye(params)
-    pop()
-  })
-}
-// */
-
-/*
 function draw() {
   background(0.5)
   orbitControl()
@@ -98,4 +49,3 @@ function draw() {
     pop()
   })
 }
-// */
