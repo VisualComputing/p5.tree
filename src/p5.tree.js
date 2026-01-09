@@ -1597,20 +1597,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
       console.error('[p5.tree] World->Screen broken: check pvMatrix.');
       return point.copy();
     }
-  
     const viewport = [0, this.height, this.width, -this.height];
-  
     target[0] /= target[3];
     target[1] /= target[3];
     target[2] /= target[3];
-  
     target[0] = target[0] * 0.5 + 0.5;
     target[1] = target[1] * 0.5 + 0.5;
     target[2] = target[2] * 0.5 + 0.5;
-  
     target[0] = target[0] * viewport[2] + viewport[0];
     target[1] = target[1] * viewport[3] + viewport[1];
-  
     return new p5.Vector(target[0], target[1], target[2]);
   };
   
@@ -1623,24 +1618,19 @@ p5.registerAddon((p5, fn, lifecycles) => {
   } = {}) {
     const viewport = [0, this.height, this.width, -this.height];
     const source = [point.x, point.y, point.z, 1];
-  
     source[0] = (source[0] - viewport[0]) / viewport[2];
     source[1] = (source[1] - viewport[1]) / viewport[3];
-  
     source[0] = source[0] * 2 - 1;
     source[1] = source[1] * 2 - 1;
     source[2] = source[2] * 2 - 1;
-  
     let target = pviMatrix._mult4(source);
     if (target[3] === 0) {
       console.error('[p5.tree] Screen->World broken: check pviMatrix.');
       return point.copy();
     }
-  
     target[0] /= target[3];
     target[1] /= target[3];
     target[2] /= target[3];
-  
     return new p5.Vector(target[0], target[1], target[2]);
   };
   
@@ -1681,25 +1671,19 @@ p5.registerAddon((p5, fn, lifecycles) => {
   ) {
     const asVec3 = v =>
       v instanceof p5.Vector ? v : new p5.Vector(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
-  
     vector = asVec3(vector);
-  
     if (from === p5.Tree.MODEL) from = this.mMatrix({ eMatrix });
     if (to === p5.Tree.MODEL) to = this.mMatrix({ eMatrix });
-  
     if (from === p5.Tree.WORLD && to === p5.Tree.SCREEN) return this._worldToScreenDirection(vector, pMatrix);
     if (from === p5.Tree.SCREEN && to === p5.Tree.WORLD) return this._screenToWorldDirection(vector, pMatrix);
-  
     if (from === p5.Tree.SCREEN && to === p5.Tree.NDC) return this._screenToNDCDirection(vector);
     if (from === p5.Tree.NDC && to === p5.Tree.SCREEN) return this._ndcToScreenDirection(vector);
-  
     if (from === p5.Tree.WORLD && to === p5.Tree.NDC) {
       return this._screenToNDCDirection(this._worldToScreenDirection(vector, pMatrix));
     }
     if (from === p5.Tree.NDC && to === p5.Tree.WORLD) {
       return this._screenToWorldDirection(this._ndcToScreenDirection(vector), pMatrix);
     }
-  
     if (from === p5.Tree.NDC && to === p5.Tree.EYE) {
       const m = this.dMatrix({ matrix: eMatrix ?? this.eMatrix() }); // mat3
       return m.multiplyVec3(
@@ -1712,7 +1696,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
         this._worldToScreenDirection(m.multiplyVec3(vector), pMatrix)
       );
     }
-  
     if (from === p5.Tree.SCREEN && to instanceof p5.Matrix) {
       const m = this.dMatrix({ matrix: to }); // mat3
       return m.multiplyVec3(this._screenToWorldDirection(vector, pMatrix));
@@ -1724,7 +1707,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (from instanceof p5.Matrix && to instanceof p5.Matrix) {
       return this.dMatrix({ from, to }).multiplyVec3(vector); // mat3
     }
-  
     if (from === p5.Tree.EYE && to === p5.Tree.WORLD) {
       return this.dMatrix({ matrix: vMatrix ?? this.vMatrix() }).multiplyVec3(vector); // mat3
     }
@@ -1742,7 +1724,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
         this._screenToWorldDirection(vector, pMatrix)
       );
     }
-  
     if (from === p5.Tree.EYE && to instanceof p5.Matrix) {
       const m = this.dMatrix({ matrix: (vMatrix ?? this.vMatrix()).apply(to) }); // mat3
       return m.multiplyVec3(vector);
@@ -1768,18 +1749,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
         this._screenToWorldDirection(this._ndcToScreenDirection(vector), pMatrix)
       );
     }
-  
     console.error('[p5.tree] transformDirection: could not parse query.');
     return vector;
   };
   
   p5.RendererGL.prototype._worldToScreenDirection = function (vector, pMatrix) {
     pMatrix = pMatrix ?? this.pMatrix();
-  
     const eyeVector = this._direction(vector, { from: p5.Tree.WORLD, to: p5.Tree.EYE });
     let dx = eyeVector.x;
     let dy = eyeVector.y;
-  
     const perspective = pMatrix.mat4[15] === 0;
     if (perspective) {
       const zEye = this._position(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
@@ -1787,14 +1765,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
       dx /= 2 * k / this.height;
       dy /= 2 * k / this.height;
     }
-  
     let dz = eyeVector.z;
     dz /= (pMatrix.nPlane() - pMatrix.fPlane()) / (
       perspective
         ? Math.tan(pMatrix.fov() / 2)
         : Math.abs(pMatrix.rPlane() - pMatrix.lPlane()) / this.width
     );
-  
     return new p5.Vector(dx, dy, dz);
   };
   
@@ -1849,41 +1825,34 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const p = this._pInst;
     if (!p) return;
     p.push();
-  
     if ((bits & p5.Tree.LABELS) !== 0) {
       const charWidth = size / 40.0;
       const charHeight = size / 30.0;
       const charShift = 1.04 * size;
-  
       // The X
       p.stroke(colors[0 % colors.length]);
       p.line(charShift, charWidth, -charHeight, charShift, -charWidth, charHeight);
       p.line(charShift, -charWidth, -charHeight, charShift, charWidth, charHeight);
-  
       // The Y
       p.stroke(colors[1 % colors.length]);
       p.line(charWidth, charShift, charHeight, 0.0, charShift, 0.0);
       p.line(0.0, charShift, 0.0, -charWidth, charShift, charHeight);
       p.line(-charWidth, charShift, charHeight, 0.0, charShift, 0.0);
       p.line(0.0, charShift, 0.0, 0.0, charShift, -charHeight);
-  
       // The Z
       p.stroke(colors[2 % colors.length]);
       p.line(-charWidth, -charHeight, charShift, charWidth, -charHeight, charShift);
       p.line(charWidth, -charHeight, charShift, -charWidth, charHeight, charShift);
       p.line(-charWidth, charHeight, charShift, charWidth, charHeight, charShift);
     }
-  
     // X Axis
     p.stroke(colors[0 % colors.length]);
     (bits & p5.Tree.X) !== 0 && p.line(0, 0, 0, size, 0, 0);
     (bits & p5.Tree._X) !== 0 && p.line(0, 0, 0, -size, 0, 0);
-  
     // Y Axis
     p.stroke(colors[1 % colors.length]);
     (bits & p5.Tree.Y) !== 0 && p.line(0, 0, 0, 0, size, 0);
     (bits & p5.Tree._Y) !== 0 && p.line(0, 0, 0, 0, -size, 0);
-  
     // Z Axis
     p.stroke(colors[2 % colors.length]);
     (bits & p5.Tree.Z) !== 0 && p.line(0, 0, 0, 0, 0, size);
@@ -1907,11 +1876,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const p = this._pInst;
     if (!p) return;
     p.push();
-  
     if (style === p5.Tree.DOTS) {
       let posi = 0;
       let posj = 0;
-  
       p.strokeWeight(weight * 2);
       p.beginShape(p.POINTS);
       for (let i = 0; i <= subdivisions; ++i) {
@@ -1922,10 +1889,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
         }
       }
       p.endShape();
-  
       const internalSub = Math.max(1, minorSubdivisions | 0);
       const subSubdivisions = subdivisions * internalSub;
-  
       p.strokeWeight(weight);
       p.beginShape(p.POINTS);
       for (let i = 0; i <= subSubdivisions; ++i) {
@@ -1943,7 +1908,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
         p.line(-size, pos, 0, size, pos, 0);
       }
     }
-  
     p.pop();
   };
   
@@ -2007,10 +1971,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    
     p.push();
     p.translate(x, y);
-    
     if (filled) {
       p.beginShape(p.TRIANGLE_STRIP);
       for (let t = 0; t <= detail; t++) {
@@ -2029,7 +1991,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
         last = pos;
       }
     }
-    
     p.pop();
   };
   
@@ -2077,7 +2038,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
-    
     const half = size / 2.0;
     this.beginHUD();
     p.line(x - half, y, x + half, y);
@@ -2124,7 +2084,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    
     if (x == null || y == null) {
       const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
       x = screen.x;
@@ -2132,12 +2091,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
-    
     const half = size / 2.0;
     const corner = 0.6 * half;
-    
     this.beginHUD();
-    
     if (shape === p5.Tree.CIRCLE) {
       this._circle({ x, y, radius: half });
     } else {
@@ -2153,12 +2109,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
       p.line(x - half + corner, y + half, x - half, y + half);
       p.line(x - half, y + half, x - half, y + half - corner);
     }
-    
     // Center cross (0.6 * size), in HUD space.
     const crossHalf = 0.6 * half;
     p.line(x - crossHalf, y, x + crossHalf, y);
     p.line(x, y - crossHalf, x, y + crossHalf);
-    
     this.endHUD();
   };
   
@@ -2174,18 +2128,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * Displays a view frustum, either from a pg (p5.Graphics / p5.RendererGL) or from eMatrix/pMatrix.
    *
-   * Draws the frustum in *this* renderer, positioned/oriented by `eMatrix` and projected by `pMatrix`,
-   * after first transforming from world space to this renderer eye via `vMatrix`.
-   *
    * @param {Object} [opts]
-   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] view matrix of *this* renderer (world -> this eye).
+   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] desired view matrix (world -> this eye) for drawing the frustum.
    * @param {p5.RendererGL|p5.Graphics} [opts.pg] renderer/pg whose frustum is to be displayed.
    * @param {p5.Matrix} [opts.eMatrix=pg?.eMatrix()] eye matrix defining frustum pose (eye -> world).
    * @param {p5.Matrix} [opts.pMatrix=pg?.pMatrix()] projection matrix defining frustum projection.
-   * @param {number} [opts.bits=p5.Tree.NEAR|p5.Tree.FAR] bitmask composed of p5.Tree.NEAR, p5.Tree.FAR,
-   *                                                    p5.Tree.BODY, p5.Tree.APEX (and reserved LEFT/RIGHT/TOP/BOTTOM).
+   * @param {number} [opts.bits=p5.Tree.NEAR|p5.Tree.FAR] bitmask (NEAR/FAR/BODY/APEX).
    * @param {Function|false|null} [opts.viewer=...] callback drawn at the frustum origin (in frustum space).
-   *                                                Pass `false` (or null) to disable.
    */
   p5.RendererGL.prototype.viewFrustum = function ({
     vMatrix = this.vMatrix(),
@@ -2197,7 +2146,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-  
     if (this === pg) {
       console.error('displaying viewFrustum requires a pg different than this');
       return;
@@ -2206,41 +2154,34 @@ p5.registerAddon((p5, fn, lifecycles) => {
       console.error('displaying viewFrustum requires either a pg or projection and eye matrices');
       return;
     }
-  
+    const states = this.states;
+    const uView = states?.uViewMatrix;
+    if (!uView) return;
     p.push();
-  
-    // Reset model/view uniforms so applyMatrix composes from identity (treegl-style).
-    this.uModelMatrix = new p5.Matrix();
-    this.uViewMatrix = new p5.Matrix();
-  
-    // transform from world space to this eye (world -> this eye)
-    this.applyMatrix(...vMatrix.mat4);
-  
-    // transform from eye space to world space (eye -> world)
+    p.resetMatrix();
+    // Override view matrix in-place (fast path: no inversion).
+    // Save previous values so we can restore them after drawing.
+    const prevView = uView.copy();
+    uView.set(vMatrix);
+    // Apply frustum camera pose (eye -> world) as a model transform.
     this.applyMatrix(...eMatrix.mat4);
-  
-    // frustum rendering begins here...
+    // Optional viewer at frustum origin
     typeof viewer === 'function' && viewer();
-  
     const isOrtho = pMatrix.isOrtho();
     const apex = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
-  
     const n = -pMatrix.nPlane();
     const f = -pMatrix.fPlane();
     const l = pMatrix.lPlane();
     const r = pMatrix.rPlane();
-  
-    // treegl hack preserved (sign handling for t/b differs in ortho vs persp)
+    // hack preserved (sign handling for t/b differs in ortho vs persp)
     const t = isOrtho ? -pMatrix.tPlane() : pMatrix.tPlane();
     const b = isOrtho ? -pMatrix.bPlane() : pMatrix.bPlane();
-  
     // far plane corners
     const ratio = isOrtho ? 1 : f / n;
     const _l = ratio * l;
     const _r = ratio * r;
     const _b = ratio * b;
     const _t = ratio * t;
-  
     // FAR plane
     if ((bits & p5.Tree.FAR) !== 0) {
       this.beginShape();
@@ -2255,7 +2196,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       this.line(_r, _b, f, _l, _b, f);
       this.line(_l, _b, f, _l, _t, f);
     }
-  
     // BODY
     if ((bits & p5.Tree.BODY) !== 0) {
       this.beginShape();
@@ -2264,28 +2204,24 @@ p5.registerAddon((p5, fn, lifecycles) => {
       this.vertex(r, t, n);
       this.vertex(_r, _t, f);
       this.endShape();
-  
       this.beginShape();
       this.vertex(_r, _t, f);
       this.vertex(r, t, n);
       this.vertex(r, b, n);
       this.vertex(_r, _b, f);
       this.endShape();
-  
       this.beginShape();
       this.vertex(_r, _b, f);
       this.vertex(r, b, n);
       this.vertex(l, b, n);
       this.vertex(_l, _b, f);
       this.endShape();
-  
       this.beginShape();
       this.vertex(l, t, n);
       this.vertex(_l, _t, f);
       this.vertex(_l, _b, f);
       this.vertex(l, b, n);
       this.endShape();
-  
       if (apex) {
         this.line(0, 0, 0, r, t, n);
         this.line(0, 0, 0, l, t, n);
@@ -2298,7 +2234,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       this.line(apex ? 0 : l, apex ? 0 : b, apex ? 0 : n, _l, _b, f);
       this.line(apex ? 0 : r, apex ? 0 : b, apex ? 0 : n, _r, _b, f);
     }
-  
     // NEAR plane
     if ((bits & p5.Tree.NEAR) !== 0) {
       this.beginShape();
@@ -2313,7 +2248,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
       this.line(r, b, n, l, b, n);
       this.line(l, b, n, l, t, n);
     }
-  
+    // Restore previous view matrix (no try/finally as requested).
+    uView.set(prevView);
     p.pop();
   };
 });
