@@ -35,12 +35,11 @@
       Seems like an upstream issue
       Try p5.treegl approach (see methods)
  ii.  treeLocation & treeDisplacement stress test
- iii. viewFrustum
+ iii. Port p5.treegl parseGeometry?
  2. Future
- i.   Drawing stuff
  ii.  Shader & effects handling
  iii. p5.strands interface
- iv.  Port p5.treegl parseGeometry
+
  */
 
 'use strict';
@@ -1806,8 +1805,41 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return new p5.Vector(2 * vector.x / this.width, 2 * vector.y / this.height, 2 * vector.z);
   };
   
-  // --- add these near your other p5 wrappers (e.g. right before HUD) ---
-
+  // ---------------------------------------------------------------------------
+  // Utilities
+  // ---------------------------------------------------------------------------
+  
+  /**
+   * Returns the world-to-pixel ratio units at a given world point position.
+   *
+   * A line of `n * pixelRatio(point)` world units will be projected with a
+   * length of `n` pixels on screen (locally around that point).
+   *
+   * - In orthographic projection, the ratio is constant.
+   * - In perspective projection, the ratio depends on eye-space depth.
+   *
+   * Requires WEBGL.
+   *
+   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN] World-space point.
+   * @returns {number|undefined} World units per pixel at the given point.
+   */
+  fn.pixelRatio = function (point) {
+    return _rendererGL(this)?.pixelRatio(point);
+  };
+  
+  /**
+   * Returns the world-to-pixel ratio units at a given world point position.
+   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
+   * @returns {number}
+   */
+  p5.RendererGL.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
+    return this.isOrtho()
+      ? Math.abs(this.tPlane() - this.bPlane()) / this.height
+      : 2 * Math.abs(
+        this.transformPosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
+      ) * Math.tan(this.fov() / 2) / this.height;
+  };
+  
   // -------------------------------------------------------------------------
   // Drawing helpers (axes / grid)
   // -------------------------------------------------------------------------
@@ -1911,40 +1943,122 @@ p5.registerAddon((p5, fn, lifecycles) => {
     p.pop();
   };
   
-  // -------------------------------------------------------------------------
-  // Drawing helpers (bullsEye / cross)
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Picking
+  // ---------------------------------------------------------------------------
   
   /**
-   * Returns the world-to-pixel ratio units at a given world point position.
+   * Returns `true` if the mouse is close enough to a target screen position.
    *
-   * A line of `n * pixelRatio(point)` world units will be projected with a
-   * length of `n` pixels on screen (locally around that point).
-   *
-   * - In orthographic projection, the ratio is constant.
-   * - In perspective projection, the ratio depends on eye-space depth.
+   * If `x`/`y` are not provided, they are derived by projecting `mMatrix` to
+   * `p5.Tree.SCREEN`. In that case, `size` is interpreted in *world units* and
+   * converted to pixels using `pixelRatio()` at the corresponding world point.
    *
    * Requires WEBGL.
    *
-   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN] World-space point.
-   * @returns {number|undefined} World units per pixel at the given point.
+   * @param {object} [opts]
+   * @param {p5.Matrix} [opts.mMatrix] Model-space matrix origin to compute (x, y) from.
+   * @param {number} [opts.x] Screen x coordinate in HUD space (pixels).
+   * @param {number} [opts.y] Screen y coordinate in HUD space (pixels).
+   * @param {number} [opts.size=50] Picking diameter (pixels in HUD space, or world units when deriving x/y).
+   * @param {number} [opts.shape=p5.Tree.CIRCLE] Either `p5.Tree.CIRCLE` or `p5.Tree.SQUARE`.
+   * @param {p5.Matrix} [opts.eMatrix] Eye matrix override.
+   * @param {p5.Matrix} [opts.pMatrix] Projection matrix override.
+   * @param {p5.Matrix} [opts.vMatrix] View (camera) matrix override.
+   * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
+   * @returns {boolean|undefined}
    */
-  fn.pixelRatio = function (point) {
-    return _rendererGL(this)?.pixelRatio(point);
+  fn.mousePicking = function (opts) {
+    return _rendererGL(this)?.mousePicking(opts);
   };
   
   /**
-   * Returns the world-to-pixel ratio units at a given world point position.
-   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
-   * @returns {number}
+   * Returns `true` if a pointer is close enough to a target screen position.
+   *
+   * If `x`/`y` are not provided, they are derived by projecting `mMatrix` to
+   * `p5.Tree.SCREEN`. In that case, `size` is interpreted in *world units* and
+   * converted to pixels using `pixelRatio()` at the corresponding world point.
+   *
+   * Requires WEBGL.
+   *
+   * @param {...any} args
+   * @returns {boolean|undefined}
    */
-  p5.RendererGL.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
-    return this.isOrtho()
-      ? Math.abs(this.tPlane() - this.bPlane()) / this.height
-      : 2 * Math.abs(
-        this.transformPosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
-      ) * Math.tan(this.fov() / 2) / this.height;
+  fn.pointerPicking = function (...args) {
+    return _rendererGL(this)?.pointerPicking(...args);
   };
+  
+  p5.RendererGL.prototype.mousePicking = function ({
+    mMatrix = this.mMatrix(),
+    x,
+    y,
+    size = 50,
+    shape = p5.Tree.CIRCLE,
+    eMatrix,
+    pMatrix,
+    vMatrix,
+    pvMatrix
+  } = {}) {
+    const p = this._pInst;
+    if (!p) return false;
+    return this.pointerPicking(p.mouseX, p.mouseY, { mMatrix, x, y, size, shape, eMatrix, pMatrix, vMatrix, pvMatrix });
+  };
+  
+  /**
+   * Returns `true` if pointer is close enough to a target screen position.
+   *
+   * Supported call patterns:
+   * - `pointerPicking(pointerX, pointerY, opts)`
+   * - `pointerPicking(opts)` (pointer defaults to current mouse if available)
+   *
+   * @param {...any} args
+   * @returns {boolean}
+   */
+  p5.RendererGL.prototype.pointerPicking = function (...args) {
+    let pointerX;
+    let pointerY;
+    const config = {};
+    for (const arg of args) {
+      if (typeof arg === 'number' && Number.isFinite(arg)) {
+        pointerX == null ? pointerX = arg : pointerY = arg;
+      } else if (arg && typeof arg === 'object') {
+        Object.assign(config, arg);
+      }
+    }
+    const p = this._pInst;
+    if (pointerX == null) pointerX = p ? p.mouseX : this.width / 2;
+    if (pointerY == null) pointerY = p ? p.mouseY : this.height / 2;
+    let {
+      mMatrix = this.mMatrix(),
+      x,
+      y,
+      size = 50,
+      shape = p5.Tree.CIRCLE,
+      eMatrix,
+      pMatrix,
+      vMatrix,
+      pvMatrix
+    } = config;
+    // If target screen position not provided, derive it from mMatrix.
+    // In that case, treat `size` as world units and convert to pixels locally.
+    if (x == null || y == null) {
+      const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      x = screen.x;
+      y = screen.y;
+      const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      size = size / this.pixelRatio(world);
+    }
+    const r = size / 2.0;
+    const dx = x - pointerX;
+    const dy = y - pointerY;
+    return shape === p5.Tree.CIRCLE
+      ? Math.sqrt(dx * dx + dy * dy) < r
+      : (Math.abs(dx) < r && Math.abs(dy) < r);
+  };
+  
+  // -------------------------------------------------------------------------
+  // Drawing helpers (bullsEye / cross)
+  // -------------------------------------------------------------------------
   
   /**
    * @private
@@ -2099,13 +2213,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     } else {
       p.line(x - half, y - half + corner, x - half, y - half);
       p.line(x - half, y - half, x - half + corner, y - half);
-      
       p.line(x + half - corner, y - half, x + half, y - half);
       p.line(x + half, y - half, x + half, y - half + corner);
-      
       p.line(x + half, y + half - corner, x + half, y + half);
       p.line(x + half, y + half, x + half - corner, y + half);
-      
       p.line(x - half + corner, y + half, x - half, y + half);
       p.line(x - half, y + half, x - half, y + half - corner);
     }
