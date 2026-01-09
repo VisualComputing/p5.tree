@@ -1678,9 +1678,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
       pMatrix
     } = {}
   ) {
-    const asVec3 = v =>
-      v instanceof p5.Vector ? v : new p5.Vector(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
-    vector = asVec3(vector);
+    if (Array.isArray(vector)) {
+      vector = new p5.Vector(vector[0] ?? 0, vector[1] ?? 0, vector[2] ?? 0);
+    }
     if (from === p5.Tree.MODEL) from = this.mMatrix({ eMatrix });
     if (to === p5.Tree.MODEL) to = this.mMatrix({ eMatrix });
     if (from === p5.Tree.WORLD && to === p5.Tree.SCREEN) return this._worldToScreenDirection(vector, pMatrix);
