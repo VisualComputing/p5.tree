@@ -2421,6 +2421,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     let corner2;
     let center;
     let radius;
+    let pendingRadius;
     let bounds;
     const vecs = [];
     const isPlainObject = v => {
@@ -2435,11 +2436,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
         continue;
       }
       if (typeof arg === 'number' && Number.isFinite(arg) && radius === undefined) {
-        radius = arg;
+        // Only accept a radius if we already have (or will infer) a center.
+        center ? (radius = arg) : (pendingRadius = arg);
         continue;
       }
       if (isPlainObject(arg)) {
-        // If it looks like the opts object, merge it; otherwise treat as bounds.
         if ('corner1' in arg || 'corner2' in arg || 'center' in arg || 'radius' in arg || 'bounds' in arg) {
           corner1 = arg.corner1 ?? corner1;
           corner2 = arg.corner2 ?? corner2;
@@ -2460,11 +2461,21 @@ p5.registerAddon((p5, fn, lifecycles) => {
         corner2 = vecs[1];
       }
     }
+    // Commit leading radius only if we ended up with a center (supports visibility(radius, center[, bounds])).
+    if (radius === undefined && pendingRadius !== undefined && center) {
+      radius = pendingRadius;
+    }
     return { corner1, corner2, center, radius, bounds };
   };
   
   /**
    * Returns object visibility with respect to the current view frustum.
+   *
+   * Supported forms:
+   * - visibility(center[, radius][, bounds])
+   * - visibility(radius, center[, bounds])
+   * - visibility(corner1, corner2[, bounds])
+   * - visibility({ corner1, corner2, center, radius, bounds })
    *
    * @param {Object} [opts]
    * @param {p5.Vector|number[]} [opts.corner1] First box corner (use with corner2).
