@@ -75,7 +75,7 @@ function setup() {
 
   cam.addPath([400, 0, 0], [0, 0, 0], [0, 1, 0])
   cam.addPath(other_cam)
-  cam.addPath(eyeMatrix)
+  cam.addPath(viewMatrix)
 }
 ```
 
@@ -89,7 +89,7 @@ function setup() {
 
   addPath([400, 0, 0], [0, 0, 0], [0, 1, 0])
   addPath(cam)
-  addPath(eyeMatrix)
+  addPath(viewMatrix)
 }
 ```
 
@@ -122,7 +122,7 @@ function setup() {
   createCanvas(600, 400, WEBGL)
   addPath([400, 0, 0], [0, 0, 0], [0, 1, 0], { reset: true })
   addPath(cam)
-  addPath(eyeMatrix)
+  addPath(viewMatrix)
 
   // 45 frames per segment, loop forever
   playPath({ duration: 45, loop: true })
