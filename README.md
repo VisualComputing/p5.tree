@@ -24,8 +24,8 @@ In `p5.tree`, matrix queries are **immutable** and cache-friendly: they never mo
 ```js
 let matrix = createMatrix(4)
 // iMatrix doesn't modify its matrix param, it gives a new value
-let inv = iMatrix(matrix)
-// inv !== matrix
+let i = iMatrix(matrix)
+// i !== matrix
 ````
 
 Most functions are available both as **p5 helpers** (global-style) and as **renderer methods** (`p5.RendererGL`). Camera path methods are available on `p5.Camera`, and also as `p5` helpers that forward to the current active camera.
@@ -155,7 +155,7 @@ This section covers matrix operations, matrix/frustum queries, and coordinate sp
 
 1. `createMatrix(...args)`: Explicit wrapper around `new p5.Matrix(...args)` (identity creation).
 2. `tMatrix(matrix)`: Returns the transpose of `matrix`.
-3. `iMatrix(matrix)`: Returns the inverse of `matrix`. *(Renamed from `invMatrix` in `p5.treegl`.)*
+3. `iMatrix(matrix)`: Returns the inverse of `matrix`.
 4. `axbMatrix(a, b)`: Returns the product of the `a` and `b` matrices.
 
 **Observation:** all returned matrices are `p5.Matrix` instances.
@@ -168,7 +168,7 @@ This section covers matrix operations, matrix/frustum queries, and coordinate sp
 4. `eMatrix()`: Returns the current eye matrix (inverse of `vMatrix()`). Also available on `p5.Camera`.
 5. `vMatrix()`: Returns the view matrix (inverse of `eMatrix()`). Also available on `p5.Camera`.
 6. `pvMatrix([{ [pMatrix], [vMatrix] }])`: Returns projection × view.
-7. `ipvMatrix([{ [pMatrix], [vMatrix], [pvMatrix] }])`: Returns `(pvMatrix)⁻¹`. *(Renamed from `pvInvMatrix` in `p5.treegl`.)*
+7. `ipvMatrix([{ [pMatrix], [vMatrix], [pvMatrix] }])`: Returns `(pvMatrix)⁻¹`.
 8. `lMatrix([{ [from = createMatrix(4)], [to = this.eMatrix()], [matrix] }])`: Returns the 4×4 matrix that transforms **locations** (points) from `from` to `to`.
 9. `dMatrix([{ [from = createMatrix(4)], [to = this.eMatrix()], [matrix] }])`: Returns the 3×3 matrix that transforms **directions** (vectors) from `from` to `to` (rotational part only).
 10. `nMatrix([{ [vMatrix], [mMatrix], [mvMatrix] }])`: Returns the normal matrix.
