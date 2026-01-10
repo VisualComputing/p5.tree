@@ -980,11 +980,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   camera.addPath(eye, center, up, opts);           // eye/center/up: p5.Vector or [x, y, z]
    *
    *   camera.addPath(view, opts);                      // view: p5.Matrix (4x4) or mat4[16]
-   *                                                   // (world -> camera), like p5.Camera.cameraMatrix
+   *                                                    // (world -> camera), like p5.Camera.cameraMatrix
    *   camera.addPath([viewA, viewB, ...], opts);       // bulk add (views)
    *
    * Options:
-   *   - clear: boolean (default false) Clears the current path before adding.
+   *   - reset: boolean (default false) Clears the current path before adding.
    *
    * Notes:
    * - Keyframes are stored as camera snapshots (p5.Camera.copy()) so Camera.slerp() works.
@@ -1091,7 +1091,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     };
     // --- opts extraction (opts always last; only plain object is opts) ---
     const o = args.length && isPlainObject(args[args.length - 1]) ? args.pop() : {};
-    if (o.clear) {
+    if (o.reset) {
       path.length = 0;
       st.seg = 0;
       st.f = 0;

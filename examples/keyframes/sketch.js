@@ -25,9 +25,9 @@ async function setup() {
 
   // --- UI ----------------------------------------------------
 
-  btnImport = createButton('addPath([cam0, cam1, cam2], clear)');
+  btnImport = createButton('addPath([cam0, cam1, cam2], reset)');
   btnImport.mousePressed(() => {
-    addPath([cam0, cam1, cam2], { clear: true });
+    addPath([cam0, cam1, cam2], { reset: true });
     seekPath(0);
     sSeek.value(0);
   });
