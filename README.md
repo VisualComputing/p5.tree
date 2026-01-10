@@ -1,4 +1,5 @@
 # p5.tree
+[![](https://data.jsdelivr.com/v1/package/npm/p5.tree/badge)](https://www.jsdelivr.com/package/npm/p5.tree)
 
 Shader development, camera keyframes interpolation and space transformations for [WEBGL](https://p5js.org/reference/#/p5/WEBGL) / WebGPU-ready [p5.js v2](https://beta.p5js.org/).
 
@@ -272,36 +273,97 @@ Debug / teaching primitives for visualizing common 3D concepts:
 
 ---
 
-# Installation
+# Releases
 
-Link `p5.tree.js` after you have linked in `p5.js`. For example:
+- **Latest (v0.0.1):**  
+  These links always point to the latest published version on npm.
+  - [p5.tree.js (unminified)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js)
+  - [npm package](https://www.npmjs.com/package/p5.tree)
+
+- **Current tagged version (v0.0.1):**  
+  Use these if you want to lock to a specific version.
+  - [p5.tree@0.0.1.js (unminified)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.1/dist/p5.tree.js)
+  - [npm package (v0.0.1)](https://www.npmjs.com/package/p5.tree/v/0.0.1)
+
+  Got it 👍 — thanks for the correction.
+Here is the **corrected and complete Usage section for p5.tree v0.0.1**, now **explicitly supporting both CDN (IIFE) and npm (ESM)**, aligned one-to-one with your p5.quadrille.js README style and wording.
+
+---
+
+# Usage
+
+The library works in two setups:
+
+- **[CDN](#cdn)**: Use the [IIFE](https://developer.mozilla.org/en-US/docs/Glossary/IIFE)
+  (Immediately Invoked Function Expression) format with `<script>` tags directly in the browser,
+  along with [p5.js](https://beta.p5js.org/).
+- **[npm](#npm-esm)**: Use the
+  [ES module](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules)
+  version in modern projects with [Vite](https://vitejs.dev/) or another bundler.
+
+## CDN
+
+Include both libraries using `<script>` tags, which run in both [global](https://github.com/processing/p5.js/wiki/Global-and-instance-mode) and [instance mode](https://github.com/processing/p5.js/wiki/Global-and-instance-mode).
 
 ```html
-<!doctype html>
-<html>
-<head>
-  <script src="p5.js"></script>
-  <script src="p5.sound.js"></script>
-  <script src=https://cdn.jsdelivr.net/gh/VisualComputing/p5.tree/p5.tree.js></script>
-  <script src="sketch.js"></script>
-</head>
-<body>
-</body>
-</html>
+<!-- index.html -->
+<!-- Load p5.js first (required by p5.tree) -->
+<script src="https://cdn.jsdelivr.net/npm/p5/lib/p5.min.js"></script>
+
+<!-- Load p5.tree (latest stable version) -->
+<script src="https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js"></script>
+
+<script>
+  function setup() {
+    createCanvas(600, 400, WEBGL)
+
+    // Example: draw world axes
+    axes(100)
+  }
+
+  function draw() {
+    background(0.15)
+    orbitControl()
+  }
+</script>
+````
+
+You can run the example, which uses global mode, by opening the `index.html` file in a browser, or by using
+[VSCodium](https://vscodium.com/) (recommended) or [Visual Studio Code](https://code.visualstudio.com/)
+with the [Live Server extension](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer).
+
+## npm (ESM)
+
+Install both [`p5`](https://www.npmjs.com/package/p5) and [`p5.tree`](https://www.npmjs.com/package/p5.tree) as dependencies:
+
+```bash
+npm i p5 p5.tree
 ```
 
-To include the minified build (when available):
+Then import them in your project’s entry file (e.g. `main.js`) using a
+modern bundler like [Vite](https://vitejs.dev/), which runs in
+[instance mode](https://github.com/processing/p5.js/wiki/Global-and-instance-mode) only:
 
-```html
-<script src=https://cdn.jsdelivr.net/gh/VisualComputing/p5.tree/p5.tree.min.js></script>
+```js
+// main.js
+import p5 from 'p5'
+import 'p5.tree'
+
+const sketch = p => {
+  p.setup = () => {
+    p.createCanvas(600, 400, p.WEBGL)
+
+    // Example: draw world axes
+    p.axes(100)
+  }
+
+  p.draw = () => {
+    p.background(0.15)
+    p.orbitControl()
+  }
+}
+
+new p5(sketch)
 ```
 
-# [vs-code](https://code.visualstudio.com/) & [vs-codium](https://vscodium.com/) & [gitpod](https://www.gitpod.io/) hacking instructions
-
-Clone the repo (`git clone https://github.com/VisualComputing/p5.tree`) and open it with your favorite editor.
-
-If you are developing against p5 v2, keep an eye on:
-
-1. [Creating libraries](https://beta.p5js.org/contribute/creating_libraries/)
-2. [p5.js source architecture](https://github.com/processing/p5.js/blob/main/src/core/README.md)
-3. [WEBGL mode architecture](https://github.com/processing/p5.js/blob/main/contributor_docs/webgl_mode_architecture.md)
+This approach provides full modularity, clean instance isolation, and compatibility with modern JavaScript tooling.
