@@ -47,14 +47,16 @@ The path lives in user-space as `camera.path` (an array of `p5.Camera` snapshots
 1. `camera.addPath(eye, center, up, [opts])`  
 2. `camera.addPath(view, [opts])`  
 3. `camera.addPath([camera0, camera1, ...], [opts])`  
-4. `camera.addPath([opts])`  
+4. `camera.addPath([view0, view1, ...], [opts])`  
+5. `camera.addPath([opts])`  
 
 **Notes**
 
 - In **(1)**, `up` is **mandatory** (no default is assumed).
 - In **(2)**, `view` is a `p5.Matrix(4)` or a raw `mat4[16]` representing a world→camera transform.
 - **(3)** appends copies of existing camera snapshots.
-- **(4)** records a snapshot of the current camera at call time.
+- **(4)** appends copies of existing camera view matrices.
+- **(5)** records a snapshot of the current camera at call time.
 
 Where:
 
