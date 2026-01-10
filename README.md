@@ -285,9 +285,6 @@ Debug / teaching primitives for visualizing common 3D concepts:
   - [p5.tree@0.0.1.js (unminified)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.1/dist/p5.tree.js)
   - [npm package (v0.0.1)](https://www.npmjs.com/package/p5.tree/v/0.0.1)
 
-  Got it 👍 — thanks for the correction.
-Here is the **corrected and complete Usage section for p5.tree v0.0.1**, now **explicitly supporting both CDN (IIFE) and npm (ESM)**, aligned one-to-one with your p5.quadrille.js README style and wording.
-
 ---
 
 # Usage
