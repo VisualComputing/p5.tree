@@ -1,5 +1,5 @@
 # p5.tree
-[![](https://data.jsdelivr.com/v1/package/npm/p5.tree/badge)](https://www.jsdelivr.com/package/npm/p5.tree)
+[![npm version](https://img.shields.io/npm/v/p5.tree)](https://www.npmjs.com/package/p5.tree)
 
 Shader development, camera keyframes interpolation and space transformations for [WEBGL](https://p5js.org/reference/#/p5/WEBGL) / WebGPU-ready [p5.js v2](https://beta.p5js.org/).
 
