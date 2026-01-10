@@ -76,7 +76,6 @@ async function setup() {
 
   console.log('p5.Tree.VERSION =', p5.Tree.VERSION);
   console.log('p5.Tree.EYE =', p5.Tree.EYE);
-  console.log(transformDirection());
 }
 
 function draw() {
@@ -141,9 +140,14 @@ function keyPressed() {
     addPath(v);
   }
   if (key === 'p') {
-    console.log(transformPosition({ from: p5.Tree.EYE, to: p5.Tree.WORLD }), p5.Tree.ORIGIN)
-    console.log(transformPosition())
+    console.log(transformPosition({ from: p5.Tree.EYE, to: p5.Tree.WORLD }, p5.Tree.ORIGIN))
     console.log(transformPosition(p5.Tree.ORIGIN, { from: p5.Tree.EYE, to: p5.Tree.WORLD }))
+    console.log(transformPosition())
+  }
+  if (key === 'd') {
+    console.log(transformDirection({ from: p5.Tree.EYE, to: p5.Tree.WORLD }, p5.Tree._k))
+    console.log(transformDirection(p5.Tree._k, { from: p5.Tree.EYE, to: p5.Tree.WORLD }))
+    console.log(transformDirection())
   }
   if (key === 'v') {
     viewBulk.push(vMatrix());

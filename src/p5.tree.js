@@ -505,7 +505,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   /**
-   * pviMatrix({ pMatrix, vMatrix, pvMatrix }):
+   * ipvMatrix({ pMatrix, vMatrix, pvMatrix }):
    * Inverse(PV) (mat4).
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.pMatrix] Optional projection matrix (used if pvMatrix is computed).
@@ -513,7 +513,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix=this.pvMatrix({ pMatrix, vMatrix })] Optional PV matrix override.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.pviMatrix = function ({
+  p5.RendererGL.prototype.ipvMatrix = function ({
     pMatrix,
     vMatrix,
     pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
@@ -522,13 +522,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   /**
-   * pviMatrix({ pMatrix, vMatrix, pvMatrix }):
+   * ipvMatrix({ pMatrix, vMatrix, pvMatrix }):
    * Inverse(PV) (mat4). Requires WEBGL.
    * @param {object} [opts]
    * @returns {p5.Matrix}
    */
-  fn.pviMatrix = function (opts = {}) {
-    return _rendererGL(this).pviMatrix(opts);
+  fn.ipvMatrix = function (opts = {}) {
+    return _rendererGL(this).ipvMatrix(opts);
   };
 
   // ---------------------------------------------------------------------------
@@ -1477,7 +1477,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.vMatrix]
    * @param {p5.Matrix} [opts.eMatrix]
    * @param {p5.Matrix} [opts.pvMatrix]
-   * @param {p5.Matrix} [opts.pviMatrix]
+   * @param {p5.Matrix} [opts.ipvMatrix]
    * @returns {p5.Vector}
    */
   p5.RendererGL.prototype.transformPosition = function (...args) {
@@ -1494,7 +1494,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       vMatrix,
       eMatrix,
       pvMatrix,
-      pviMatrix
+      ipvMatrix
     } = {}
   ) {
     if (Array.isArray(point)) {
@@ -1510,7 +1510,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return this._worldToScreenPosition({ point, pMatrix, vMatrix, pvMatrix });
     }
     if ((from == p5.Tree.SCREEN) && (to == p5.Tree.WORLD)) {
-      return this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, pviMatrix });
+      return this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix });
     }
     if (from == p5.Tree.SCREEN && to == p5.Tree.NDC) {
       return this._screenToNDCPosition(point);
@@ -1529,7 +1529,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
         pMatrix,
         vMatrix,
         pvMatrix,
-        pviMatrix
+        ipvMatrix
       });
     }
     if (from == p5.Tree.NDC && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
@@ -1542,7 +1542,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
           pMatrix,
           vMatrix,
           pvMatrix,
-          pviMatrix
+          ipvMatrix
         })
       );
     }
@@ -1579,7 +1579,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
         ? (vMatrix ?? this.vMatrix())
         : to.copy().invert(to)
       ).mult4(
-        this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, pviMatrix })
+        this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix })
       );
     }
     if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.SCREEN) {
@@ -1647,7 +1647,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     pMatrix,
     vMatrix,
     pvMatrix,
-    pviMatrix = this.pviMatrix({ pMatrix, vMatrix, pvMatrix })
+    ipvMatrix = this.ipvMatrix({ pMatrix, vMatrix, pvMatrix })
   } = {}) {
     const viewport = [0, this.height, this.width, -this.height];
     const source = [point.x, point.y, point.z, 1];
@@ -1656,9 +1656,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     source[0] = source[0] * 2 - 1;
     source[1] = source[1] * 2 - 1;
     source[2] = source[2] * 2 - 1;
-    let target = pviMatrix._mult4(source);
+    let target = ipvMatrix._mult4(source);
     if (target[3] === 0) {
-      console.error('[p5.tree] Screen->World broken: check pviMatrix.');
+      console.error('[p5.tree] Screen->World broken: check ipvMatrix.');
       return point.copy();
     }
     target[0] /= target[3];

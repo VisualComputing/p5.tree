@@ -60,7 +60,7 @@ Where:
 
 * `eye`, `center`, `up` are `p5.Vector` or `[x, y, z]`.
 * `view` is a `p5.Matrix` (4x4) or a raw `mat4[16]` representing a **world → camera** transform (like `camera.cameraMatrix`).
-* `opts.clear` (boolean, default `false`) clears the path before appending.
+* `opts.reset` (boolean, default `false`) clears the path before appending.
 
 **Example: record 3 keyframes**
 
@@ -118,7 +118,7 @@ If both `pingPong` and `loop` are `true`, `pingPong` takes precedence.
 ```js
 function setup() {
   createCanvas(600, 400, WEBGL)
-  addPath([400, 0, 0], [0, 0, 0], [0, 1, 0], { clear: true })
+  addPath([400, 0, 0], [0, 0, 0], [0, 1, 0], { reset: true })
   addPath(cam)
   addPath(eyeMatrix)
 
@@ -166,7 +166,7 @@ This section covers matrix operations, matrix/frustum queries, and coordinate sp
 4. `eMatrix()`: Returns the current eye matrix (inverse of `vMatrix()`). Also available on `p5.Camera`.
 5. `vMatrix()`: Returns the view matrix (inverse of `eMatrix()`). Also available on `p5.Camera`.
 6. `pvMatrix([{ [pMatrix], [vMatrix] }])`: Returns projection × view.
-7. `pviMatrix([{ [pMatrix], [vMatrix], [pvMatrix] }])`: Returns `(pvMatrix)⁻¹`. *(Renamed from `pvInvMatrix` in `p5.treegl`.)*
+7. `ipvMatrix([{ [pMatrix], [vMatrix], [pvMatrix] }])`: Returns `(pvMatrix)⁻¹`. *(Renamed from `pvInvMatrix` in `p5.treegl`.)*
 8. `lMatrix([{ [from = createMatrix(4)], [to = this.eMatrix()], [matrix] }])`: Returns the 4×4 matrix that transforms **locations** (points) from `from` to `to`.
 9. `dMatrix([{ [from = createMatrix(4)], [to = this.eMatrix()], [matrix] }])`: Returns the 3×3 matrix that transforms **directions** (vectors) from `from` to `to` (rotational part only).
 10. `nMatrix([{ [vMatrix], [mMatrix], [mvMatrix] }])`: Returns the normal matrix.
@@ -186,7 +186,7 @@ This section covers matrix operations, matrix/frustum queries, and coordinate sp
 
 ## Coordinate space conversions
 
-1. `transformPosition(point = p5.Tree.ORIGIN, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [pMatrix], [vMatrix], [eMatrix], [pvMatrix], [pviMatrix] }])`
+1. `transformPosition(point = p5.Tree.ORIGIN, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [pMatrix], [vMatrix], [eMatrix], [pvMatrix], [ipvMatrix] }])`
 2. `transformDirection(vector = p5.Tree._k, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [vMatrix], [eMatrix], [pMatrix] }])`
 
 Pass matrix parameters when you have **cached** those matrices (see [Matrix queries](#matrix-queries)) to speed up repeated conversions:
@@ -195,11 +195,11 @@ Pass matrix parameters when you have **cached** those matrices (see [Matrix quer
 let cachedPVI
 
 function draw() {
-  cachedPVI = pviMatrix() // compute once per frame
+  cachedPVI = ipvMatrix() // compute once per frame
 
   // many fast conversions using the cached matrix
-  const a = transformPosition([0, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, pviMatrix: cachedPVI })
-  const b = transformPosition([100, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, pviMatrix: cachedPVI })
+  const a = transformPosition([0, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, ipvMatrix: cachedPVI })
+  const b = transformPosition([100, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, ipvMatrix: cachedPVI })
   // ...
 }
 ```

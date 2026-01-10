@@ -45,13 +45,13 @@ function logMatrices() {
   logQuery('mvMatrix()', () => safeFn('mvMatrix')());
   logQuery('pmvMatrix()', () => safeFn('pmvMatrix')());
   p5_tree
-  ? logQuery('pviMatrix()', () => safeFn('pviMatrix')())
+  ? logQuery('ipvMatrix()', () => safeFn('ipvMatrix')())
   : logQuery('pvInvMatrix()', () => safeFn('pvInvMatrix')());
 
   // Invariant checks via point transforms
   const mv = safeTry(() => safeFn('mvMatrix')());
   const pmv = safeTry(() => safeFn('pmvMatrix')());
-  const pvi = p5_tree ? safeTry(() => safeFn('pviMatrix')()) : safeTry(() => safeFn('pvInvMatrix')());
+  const pvi = p5_tree ? safeTry(() => safeFn('ipvMatrix')()) : safeTry(() => safeFn('pvInvMatrix')());
 
   const v = safeTry(() => safeFn('vMatrix')());
   const p = safeTry(() => safeFn('pMatrix')());
@@ -77,7 +77,7 @@ function logMatrices() {
     const pv = safeTry(() => safeFn('pvMatrix')());
     if (pv) {
       const prod = safeTry(() => safeFn('axbMatrix')(pvi, pv));
-      prod && prod.mat4 && console.log(p5_tree ? 'pviMatrix()*pvMatrix() →' : 'pvInvMatrix()*pvMatrix() →', roundArray(prod.mat4));
+      prod && prod.mat4 && console.log(p5_tree ? 'ipvMatrix()*pvMatrix() →' : 'pvInvMatrix()*pvMatrix() →', roundArray(prod.mat4));
     }
   }
 
