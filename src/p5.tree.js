@@ -11,7 +11,7 @@
  *
  * Requires WEBGL (p5.Camera).
  *
- * Camera API (kept as requested):
+ * Camera API:
  *   camera.path : p5.Camera[]
  *   camera.addPath(...)
  *   camera.playPath(...)
