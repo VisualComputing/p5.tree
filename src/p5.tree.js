@@ -975,12 +975,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   camera.addPath(opts);                            // snapshot this camera (with opts)
    *
    *   camera.addPath(otherCam, opts);                  // snapshot otherCam
-   *   camera.addPath([camA, camB, ...], opts);         // bulk add
+   *   camera.addPath([camA, camB, ...], opts);         // bulk add (cameras)
    *
    *   camera.addPath(eye, center, up, opts);           // eye/center/up: p5.Vector or [x, y, z]
    *
    *   camera.addPath(view, opts);                      // view: p5.Matrix (4x4) or mat4[16]
    *                                                   // (world -> camera), like p5.Camera.cameraMatrix
+   *   camera.addPath([viewA, viewB, ...], opts);       // bulk add (views)
    *
    * Options:
    *   - clear: boolean (default false) Clears the current path before adding.
@@ -988,6 +989,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Notes:
    * - Keyframes are stored as camera snapshots (p5.Camera.copy()) so Camera.slerp() works.
    * - Projection compatibility is enforced (Camera.slerp requires same projection).
+   *
+   * @param  {...any} args
+   * @returns {p5.Camera} this
    */
   p5.Camera.prototype.addPath = function (...args) {
     const st = getState(this);
@@ -1099,27 +1103,47 @@ p5.registerAddon((p5, fn, lifecycles) => {
       addSnapshot(this);
       return this;
     }
-    // addPath(view) OR addPath(camera) OR addPath([cameras])
+    // addPath(view) OR addPath(camera) OR addPath([cameras]) OR addPath([views])
     if (args.length === 1) {
       const override = args[0];
+      // single view
       if (isView(override)) {
         const c = importViewToCamera(override);
         checkProjCompat(c) && addSnapshot(c);
         return this;
       }
-      const cams = Array.isArray(override) ? override : [override];
-      for (let i = 0; i < cams.length; i++) {
-        const c = cams[i];
-        if (!(c instanceof p5.Camera)) {
-          warn('addPath: ignored non-camera value.');
-          continue;
+      // bulk: views or cameras
+      if (Array.isArray(override)) {
+        const list = override;
+        // bulk views
+        if (list.length && list.every(isView)) {
+          for (let i = 0; i < list.length; i++) {
+            const c = importViewToCamera(list[i]);
+            checkProjCompat(c) && addSnapshot(c);
+          }
+          return this;
         }
-        checkProjCompat(c) && addSnapshot(c);
+        // bulk cameras (existing behavior)
+        for (let i = 0; i < list.length; i++) {
+          const c = list[i];
+          if (!(c instanceof p5.Camera)) {
+            warn('addPath: ignored non-camera value.');
+            continue;
+          }
+          checkProjCompat(c) && addSnapshot(c);
+        }
+        return this;
       }
+      // single camera
+      if (override instanceof p5.Camera) {
+        checkProjCompat(override) && addSnapshot(override);
+        return this;
+      }
+      warn('addPath: ignored unsupported arguments.');
       return this;
     }
-    // addPath(eye, center, up)
-    if (args.length === 3 && isVec3(args[0]) && isVec3(args[1]) && isVec3(args[2])) {
+    // addPath(eye, center, up, opts)
+    if (args.length === 3 && args.every(isVec3)) {
       const eye = toVec3(args[0]);
       const center = toVec3(args[1]);
       const up = norm3(toVec3(args[2]));

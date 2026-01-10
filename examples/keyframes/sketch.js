@@ -2,7 +2,6 @@
 
 let font;
 
-let cam;
 let cam0, cam1, cam2;
 
 let btnImport, btnAddCurrent, btnPlay, btnRev, btnStop, btnResetAll;
@@ -13,10 +12,6 @@ async function setup() {
 
   createCanvas(700, 450, WEBGL);
   textFont(font);
-
-  // Main camera (the one p5.tree augments)
-  cam = createCamera();
-  setCamera(cam);
 
   // Three reference cameras (same projection)
   cam0 = createCamera();
@@ -32,41 +27,41 @@ async function setup() {
 
   btnImport = createButton('addPath([cam0, cam1, cam2], clear)');
   btnImport.mousePressed(() => {
-    cam.addPath([cam0, cam1, cam2], { clear: true });
-    cam.seekPath(0);
+    addPath([cam0, cam1, cam2], { clear: true });
+    seekPath(0);
     sSeek.value(0);
   });
 
   btnAddCurrent = createButton('addPath() (snapshot)');
   btnAddCurrent.mousePressed(() => {
-    cam.addPath();
+    addPath();
   });
 
   btnPlay = createButton('playPath(loop)');
   btnPlay.mousePressed(() => {
-    cam.playPath({ duration: 45, loop: true, rate: 1 });
+    playPath({ duration: 45, loop: true, rate: 1 });
   });
 
   btnRev = createButton('playPath(reverse)');
   btnRev.mousePressed(() => {
-    cam.playPath({ duration: 45, loop: true, rate: -1 });
+    playPath({ duration: 45, loop: true, rate: -1 });
   });
 
   btnStop = createButton('stopPath()');
   btnStop.mousePressed(() => {
-    cam.stopPath();
+    stopPath();
   });
 
   btnResetAll = createButton('resetPath()');
   btnResetAll.mousePressed(() => {
-    cam.resetPath();
-    cam.seekPath(0);
+    resetPath();
+    seekPath(0);
     sSeek.value(0);
   });
 
   sSeek = createSlider(0, 1, 0, 0.001);
   sSeek.input(() => {
-    cam.seekPath(sSeek.value());
+    seekPath(sSeek.value());
   });
 
   // Layout
@@ -85,7 +80,7 @@ async function setup() {
 }
 
 function draw() {
-  background(25);
+  background(75);
 
   // Optional manual inspection (disable if it fights playback)
   orbitControl();
@@ -111,17 +106,14 @@ function draw() {
   push();
   translate(-250, 0, 0);
   normalMaterial();
-  //torus(70, 22);
   box(140);
+  //torus(70, 22);
   pop();
 
   // --- HUD ---------------------------------------------------
 
   // TODO fix hud with text() (but we do this afterwards)
   beginHUD();
-
-  resetMatrix();
-  translate(-width / 2, -height / 2);
 
   noStroke();
   fill(0, 160);
@@ -135,8 +127,32 @@ function draw() {
     '• play / reverse / scrub\n' +
     '• HUD uses beginHUD / endHUD',
     20,
-    height - 65
+    height - 75
   );
 
   endHUD();
+}
+
+let viewBulk = []
+
+function keyPressed() {
+  if (key === 'a') {
+    const v = vMatrix();
+    addPath(v);
+  }
+  if (key === 'p') {
+    console.log(transformPosition({ from: p5.Tree.EYE, to: p5.Tree.WORLD }), p5.Tree.ORIGIN)
+    console.log(transformPosition())
+    console.log(transformPosition(p5.Tree.ORIGIN, { from: p5.Tree.EYE, to: p5.Tree.WORLD }))
+  }
+  if (key === 'v') {
+    viewBulk.push(vMatrix());
+  }
+  if (key === 'b') {
+    addPath(viewBulk);
+  }
+  if (key === 'c') {
+    viewBulk = [];
+    resetPath();
+  }
 }
