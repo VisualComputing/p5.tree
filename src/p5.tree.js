@@ -30,16 +30,11 @@
 
 /*
  TODO's
- 1. Frst release
- i.   Issue: beginHUD / endHUD doesnt restore gl state properly
-      Seems like an upstream issue
-      Try p5.treegl approach (see methods)
+ i.   beginHUD / endHUD text() issue (seems like an upstream matter)
  ii.  treeLocation & treeDisplacement stress test
  iii. Port p5.treegl parseGeometry?
- 2. Future
- ii.  Shader & effects handling
- iii. p5.strands interface
-
+ iii. Shader & effects handling
+ iv.  p5.strands interface
  */
 
 'use strict';
@@ -1371,31 +1366,61 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /*
   // treegl approach:
   p5.RendererGL.prototype.beginHUD = function () {
-    this.m = this.mMatrix();
-    this.v = this.vMatrix();
-    this.p = this.pMatrix();
-    this._rendererState = this.push();
-    let gl = this.drawingContext;
+    if (this._hudActive === true) return;
+    const p = this._pInst;
+    const gl = this.drawingContext;
+    const states = this.states;
+    if (!p || !gl || !states) return;
+    // ------------------------------------------------------------------
+    // Save world state (treegl: m, v, p)
+    // ------------------------------------------------------------------
+    this._hudPrevCamera = states.curCamera;
+    // push isolates renderer state (tree-style equivalent of treegl push)
+    p.push();
+    p.resetShader();
+    // Ensure HUD does not inherit model transforms
+    p.resetMatrix();
+    // ------------------------------------------------------------------
+    // Depth state
+    // ------------------------------------------------------------------
+    this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
     gl.flush();
     gl.disable(gl.DEPTH_TEST);
-    this.uModelMatrix = new p5.Matrix();
-    this.uViewMatrix = new p5.Matrix();
-    let z = Number.MAX_VALUE;
-    this._curCamera.ortho(0, this.width, -this.height, 0, -z, z);
-    // this._curCamera.ortho(0, this.width, 0, -this.height, -z, z); // <- flipped
-    this._hud = true;
-  }
+    // ------------------------------------------------------------------
+    // HUD camera
+    // ------------------------------------------------------------------
+    if (this._hudCam === undefined) {
+      this._hudCam = p.createCamera();
+    }
+    const z = Number.MAX_VALUE;
+    // HUD coordinates:
+    // x ∈ [0, width], y ∈ [0, height], origin at top-left
+    this._hudCam.ortho(0, p.width, -p.height, 0, -z, z);
+    // this._hudCam.ortho(0, p.width, 0, -p.height, -z, z); // flipped variant
+    this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
+    p.setCamera(this._hudCam);
+    this._hudActive = true;
+  };
   
   p5.RendererGL.prototype.endHUD = function () {
-    let gl = this.drawingContext;
+    if (this._hudActive !== true) return;
+    const p = this._pInst;
+    const gl = this.drawingContext;
+    const states = this.states;
+    if (!p || !gl || !states) return;
     gl.flush();
-    gl.enable(gl.DEPTH_TEST);
-    this.pop(this._rendererState);
-    this.uPMatrix.set(this.p);
-    this.uModelMatrix.set(this.m);
-    this.uViewMatrix.set(this.v);
-    this._hud = false;
-  }
+    // Restore depth test
+    this._hudDepthWasEnabled ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+    // Restore renderer state
+    p.pop();
+    // Restore camera (tree equivalent of restoring u* matrices)
+    if (this._hudPrevCamera !== undefined) {
+      p.setCamera(this._hudPrevCamera);
+    }
+    this._hudPrevCamera = undefined;
+    this._hudDepthWasEnabled = undefined;
+    this._hudActive = false;
+  };
   */
   
   p5.RendererGL.prototype.beginHUD = function () {
