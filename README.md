@@ -189,8 +189,8 @@ This section covers matrix operations, matrix/frustum queries, and coordinate sp
 
 ## Coordinate space conversions
 
-1. `transformPosition(point = p5.Tree.ORIGIN, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [pMatrix], [vMatrix], [eMatrix], [pvMatrix], [ipvMatrix] }])`
-2. `transformDirection(vector = p5.Tree._k, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [vMatrix], [eMatrix], [pMatrix] }])`
+1. `mapLocation(point = p5.Tree.ORIGIN, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [pMatrix], [vMatrix], [eMatrix], [pvMatrix], [ipvMatrix] }])`
+2. `mapDirection(vector = p5.Tree._k, [{ [from = p5.Tree.EYE], [to = p5.Tree.WORLD], [vMatrix], [eMatrix], [pMatrix] }])`
 
 Pass matrix parameters when you have **cached** those matrices (see [Matrix queries](#matrix-queries)) to speed up repeated conversions:
 
@@ -201,8 +201,8 @@ function draw() {
   cachedPVI = ipvMatrix() // compute once per frame
 
   // many fast conversions using the cached matrix
-  const a = transformPosition([0, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, ipvMatrix: cachedPVI })
-  const b = transformPosition([100, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, ipvMatrix: cachedPVI })
+  const a = mapLocation([0, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, ipvMatrix: cachedPVI })
+  const b = mapLocation([100, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, ipvMatrix: cachedPVI })
   // ...
 }
 ```
@@ -223,7 +223,7 @@ function draw() {
   pop()
 
   // screen projection of the model origin
-  const s = transformPosition(p5.Tree.ORIGIN, { from: model, to: p5.Tree.SCREEN })
+  const s = mapLocation(p5.Tree.ORIGIN, { from: model, to: p5.Tree.SCREEN })
   beginHUD()
   bullsEye({ x: s.x, y: s.y, size: 30 })
   endHUD()
@@ -235,8 +235,8 @@ function draw() {
 1. Returned vectors are `p5.Vector` instances.
 2. `from` and `to` may be matrices or any of: `p5.Tree.WORLD`, `p5.Tree.EYE`, `p5.Tree.SCREEN`, `p5.Tree.NDC`, `p5.Tree.MODEL`.
 3. When no matrix params are passed, current renderer values are used.
-4. The default `transformPosition()` call (i.e. eye → world at origin) returns the camera world position.
-5. The default `transformDirection()` call returns the normalized camera viewing direction.
+4. The default `mapLocation()` call (i.e. eye → world at origin) returns the camera world position.
+5. The default `mapDirection()` call returns the normalized camera viewing direction.
 6. Useful vector constants: `p5.Tree.ORIGIN`, `p5.Tree._k`, `p5.Tree.i`, `p5.Tree.j`, `p5.Tree.k`, `p5.Tree._i`, `p5.Tree._j`.
 
 ## Heads Up Display
@@ -275,15 +275,19 @@ Debug / teaching primitives for visualizing common 3D concepts:
 
 # Releases
 
-- **Latest (v0.0.1):**  
+- **Latest (v0.0.2):**  
   These links always point to the latest published version on npm.
-  - [p5.tree.js (unminified)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js)
+  - [p5.tree.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js)
+  - [p5.tree.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.min.js)
+  - [p5.tree.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.esm.js)
   - [npm package](https://www.npmjs.com/package/p5.tree)
 
-- **Current tagged version (v0.0.1):**  
+- **Current tagged version (v0.0.2):**  
   Use these if you want to lock to a specific version.
-  - [p5.tree@0.0.1.js (unminified)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.1/dist/p5.tree.js)
-  - [npm package (v0.0.1)](https://www.npmjs.com/package/p5.tree/v/0.0.1)
+  - [p5.tree@0.0.2.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.2/dist/p5.tree.js)
+  - [p5.tree@0.0.2.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.2/dist/p5.tree.min.js)
+  - [p5.tree@0.0.2.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.2/dist/p5.tree.esm.js)
+  - [npm package (v0.0.2)](https://www.npmjs.com/package/p5.tree/v/0.0.2)
 
 ---
 

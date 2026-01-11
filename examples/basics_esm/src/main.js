@@ -10,8 +10,6 @@ new p5(p => {
     p.textFont(font)
     p.textSize(14)
     console.log(p5.Tree.VERSION)
-    console.log('eye position in world space: ', p.transformPosition())
-    console.log('eye view direction in world space', p.transformDirection())
   }
 
   p.draw = function () {
@@ -60,20 +58,10 @@ new p5(p => {
   }
 
   p.keyPressed = function () {
-    if (p.key === 'd') {
-      console.log('eye view direction in world space', p.transformDirection())
-    }
-    if (p.key === 'l') {
-      console.log('eye position in world space: ', p.transformPosition())
-    }
-    if (p.key === 'a') {
-      p.addPath()
-    }
-    if (p.key === 'p') {
-      p.playPath()
-    }
-    if (p.key === 'r') {
-      p.resetPath()
-    }
+    p.key === 'd' && console.log('eye view direction in world space', p.mapDirection())
+    p.key === 'l' && console.log('eye location in world space: ', p.mapLocation())
+    p.key === 'a' && p.addPath()
+    p.key === 'p' && p.playPath()
+    p.key === 'r' && p.resetPath()
   }
 }, document.getElementById('sketch'))

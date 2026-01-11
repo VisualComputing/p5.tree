@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.1
+ * @version 0.0.2
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -31,7 +31,7 @@
 /*
  TODO's
  i.   beginHUD / endHUD text() issue (seems like an upstream matter)
- ii.  treeLocation & treeDisplacement stress test
+ ii.  mapLocation & mapDirection stress test
  iii. Port p5.treegl parseGeometry?
  iii. Shader & effects handling
  iv.  p5.strands interface
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.1'),
+    VERSION: CONST('0.0.2'),
                           
     NONE: CONST(0),
   
@@ -311,7 +311,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * lMatrix({ from, to }):
-   * Location transform (mat4) mapping points from `from` space to `to` space.
+   * Position transform (mat4) mapping points from `from` space to `to` space.
    * treegl semantics: to^-1 * from.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.from=new p5.Matrix()] Source frame matrix.
@@ -327,7 +327,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * lMatrix({ from, to }):
-   * Location transform (mat4) mapping points from `from` space to `to` space.
+   * Position transform (mat4) mapping points from `from` space to `to` space.
    * Requires WEBGL.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.from]
@@ -841,7 +841,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * Interpolate camera pose at normalized global t in [0..1] along the whole path.
-   * Also updates internal seg/f so playPath resumes from that location.
+   * Also updates internal seg/f so playPath resumes from that position.
    */
   const seekGlobal = function (cam, t) {
     const path = ensurePath(cam);
@@ -1467,7 +1467,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   // ---------------------------------------------------------------------------
-  // Space transforms: transformPosition / transformDirection
+  // Space transforms: mapLocation / mapDirection
   // ---------------------------------------------------------------------------
   
   p5.RendererGL.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
@@ -1487,8 +1487,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Points (positions)
   // ---------------------------------------------------------------------------
   
-  fn.transformPosition = function (...args) {
-    return _rendererGL(this)?.transformPosition(...args);
+  fn.mapLocation = function (...args) {
+    return _rendererGL(this)?.mapLocation(...args);
   };
   
   /**
@@ -1505,12 +1505,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.ipvMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.transformPosition = function (...args) {
+  p5.RendererGL.prototype.mapLocation = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree.ORIGIN, ...args);
-    return this._position(mainArg, options);
+    return this._location(mainArg, options);
   };
   
-  p5.RendererGL.prototype._position = function (
+  p5.RendererGL.prototype._location = function (
     point = p5.Tree.ORIGIN,
     {
       from = p5.Tree.EYE,
@@ -1624,7 +1624,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (from == p5.Tree.EYE && to instanceof p5.Matrix) {
       return to.copy().invert(to).mult4((eMatrix ?? this.eMatrix()).mult4(point));
     }
-    console.error('couldn\'t parse your transformPosition query!');
+    console.error('couldn\'t parse your mapLocation query!');
     return point;
   };
   
@@ -1696,8 +1696,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // Directions (vector displacements)
   // ---------------------------------------------------------------------------
   
-  fn.transformDirection = function (...args) {
-    return _rendererGL(this)?.transformDirection(...args);
+  fn.mapDirection = function (...args) {
+    return _rendererGL(this)?.mapDirection(...args);
   };
   
   /**
@@ -1712,7 +1712,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.transformDirection = function (...args) {
+  p5.RendererGL.prototype.mapDirection = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree._k, ...args);
     return this._direction(mainArg, options);
   };
@@ -1807,7 +1807,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
         this._screenToWorldDirection(this._ndcToScreenDirection(vector), pMatrix)
       );
     }
-    console.error('[p5.tree] transformDirection: could not parse query.');
+    console.error('[p5.tree] mapDirection: could not parse query.');
     return vector;
   };
   
@@ -1818,7 +1818,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     let dy = eyeVector.y;
     const perspective = pMatrix.mat4[15] === 0;
     if (perspective) {
-      const zEye = this._position(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
+      const zEye = this._location(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
       const k = Math.abs(zEye * Math.tan(pMatrix.fov() / 2));
       dx /= 2 * k / this.height;
       dy /= 2 * k / this.height;
@@ -1840,7 +1840,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
     const perspective = pMatrix.mat4[15] === 0;
     if (perspective) {
-      const zEye = this._position(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
+      const zEye = this._location(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
       const k = Math.abs(zEye * Math.tan(pMatrix.fov() / 2));
       dx *= 2 * k / this.height;
       dy *= 2 * k / this.height;
@@ -1895,7 +1895,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return this.isOrtho()
       ? Math.abs(this.tPlane() - this.bPlane()) / this.height
       : 2 * Math.abs(
-        this.transformPosition(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
+        this.mapLocation(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
       ) * Math.tan(this.fov() / 2) / this.height;
   };
 
@@ -2184,10 +2184,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     // If target screen position not provided, derive it from mMatrix.
     // In that case, treat `size` as world units and convert to pixels locally.
     if (x == null || y == null) {
-      const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      const screen = this.mapLocation({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
       x = screen.x;
       y = screen.y;
-      const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      const world = this.mapLocation({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
     const r = size / 2.0;
@@ -2288,10 +2288,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (!p) return;
     
     if (x == null || y == null) {
-      const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      const screen = this.mapLocation({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
       x = screen.x;
       y = screen.y;
-      const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      const world = this.mapLocation({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
     const half = size / 2.0;
@@ -2341,10 +2341,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const p = this._pInst;
     if (!p) return;
     if (x == null || y == null) {
-      const screen = this.transformPosition({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      const screen = this.mapLocation({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
       x = screen.x;
       y = screen.y;
-      const world = this.transformPosition({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
+      const world = this.mapLocation({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(world);
     }
     const half = size / 2.0;
@@ -2692,7 +2692,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const normals = Array(6);
     const distances = Array(6);
     // Camera position and basis in world space.
-    const pos = this._position([0, 0, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, eMatrix });
+    const pos = this._location([0, 0, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, eMatrix });
     const viewDir = this._direction([0, 0, -1], { from: p5.Tree.EYE, to: p5.Tree.WORLD, vMatrix });
     const up = this._direction([0, 1, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, vMatrix });
     const right = this._direction([1, 0, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, vMatrix });
