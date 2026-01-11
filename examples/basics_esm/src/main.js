@@ -1,5 +1,5 @@
 import p5 from 'p5'
-import '../../../dist/p5.tree.esm.js'
+import 'p5.tree'
 
 let font
 
