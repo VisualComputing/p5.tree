@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.2
+ * @version 0.0.3
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.2'),
+    VERSION: CONST('0.0.3'),
                           
     NONE: CONST(0),
   
@@ -311,7 +311,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * lMatrix({ from, to }):
-   * Position transform (mat4) mapping points from `from` space to `to` space.
+   * Location transform (mat4) mapping points from `from` space to `to` space.
    * treegl semantics: to^-1 * from.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.from=new p5.Matrix()] Source frame matrix.
@@ -327,7 +327,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * lMatrix({ from, to }):
-   * Position transform (mat4) mapping points from `from` space to `to` space.
+   * Location transform (mat4) mapping points from `from` space to `to` space.
    * Requires WEBGL.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.from]
@@ -1532,25 +1532,25 @@ p5.registerAddon((p5, fn, lifecycles) => {
       to = this.mMatrix({ eMatrix });
     }
     if ((from == p5.Tree.WORLD) && (to == p5.Tree.SCREEN)) {
-      return this._worldToScreenPosition({ point, pMatrix, vMatrix, pvMatrix });
+      return this._worldToScreenLocation({ point, pMatrix, vMatrix, pvMatrix });
     }
     if ((from == p5.Tree.SCREEN) && (to == p5.Tree.WORLD)) {
-      return this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix });
+      return this._screenToWorldLocation({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix });
     }
     if (from == p5.Tree.SCREEN && to == p5.Tree.NDC) {
-      return this._screenToNDCPosition(point);
+      return this._screenToNDCLocation(point);
     }
     if (from == p5.Tree.NDC && to == p5.Tree.SCREEN) {
-      return this._ndcToScreenPosition(point);
+      return this._ndcToScreenLocation(point);
     }
     if (from == p5.Tree.WORLD && to == p5.Tree.NDC) {
-      return this._screenToNDCPosition(
-        this._worldToScreenPosition({ point, pMatrix, vMatrix, pvMatrix })
+      return this._screenToNDCLocation(
+        this._worldToScreenLocation({ point, pMatrix, vMatrix, pvMatrix })
       );
     }
     if (from == p5.Tree.NDC && to == p5.Tree.WORLD) {
-      return this._screenToWorldPosition({
-        point: this._ndcToScreenPosition(point),
+      return this._screenToWorldLocation({
+        point: this._ndcToScreenLocation(point),
         pMatrix,
         vMatrix,
         pvMatrix,
@@ -1562,8 +1562,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
         ? (vMatrix ?? this.vMatrix())
         : to.copy().invert(to)
       ).mult4(
-        this._screenToWorldPosition({
-          point: this._ndcToScreenPosition(point),
+        this._screenToWorldLocation({
+          point: this._ndcToScreenLocation(point),
           pMatrix,
           vMatrix,
           pvMatrix,
@@ -1572,8 +1572,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
       );
     }
     if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.NDC) {
-      return this._screenToNDCPosition(
-        this._worldToScreenPosition({
+      return this._screenToNDCLocation(
+        this._worldToScreenLocation({
           point: (from == p5.Tree.EYE
             ? (eMatrix ?? this.eMatrix())
             : from
@@ -1604,11 +1604,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
         ? (vMatrix ?? this.vMatrix())
         : to.copy().invert(to)
       ).mult4(
-        this._screenToWorldPosition({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix })
+        this._screenToWorldLocation({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix })
       );
     }
     if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.SCREEN) {
-      return this._worldToScreenPosition({
+      return this._worldToScreenLocation({
         point: (from == p5.Tree.EYE
           ? (eMatrix ?? this.eMatrix())
           : from
@@ -1628,7 +1628,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return point;
   };
   
-  p5.RendererGL.prototype._ndcToScreenPosition = function (point) {
+  p5.RendererGL.prototype._ndcToScreenLocation = function (point) {
     return new p5.Vector(
       p5.prototype.map(point.x, -1, 1, 0, this.width),
       p5.prototype.map(point.y, -1, 1, 0, this.height),
@@ -1636,7 +1636,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     );
   };
   
-  p5.RendererGL.prototype._screenToNDCPosition = function (point) {
+  p5.RendererGL.prototype._screenToNDCLocation = function (point) {
     return new p5.Vector(
       p5.prototype.map(point.x, 0, this.width, -1, 1),
       p5.prototype.map(point.y, 0, this.height, -1, 1),
@@ -1644,7 +1644,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     );
   };
   
-  p5.RendererGL.prototype._worldToScreenPosition = function ({
+  p5.RendererGL.prototype._worldToScreenLocation = function ({
     point = new p5.Vector(0, 0, 0.5),
     pMatrix,
     vMatrix,
@@ -1667,7 +1667,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return new p5.Vector(target[0], target[1], target[2]);
   };
   
-  p5.RendererGL.prototype._screenToWorldPosition = function ({
+  p5.RendererGL.prototype._screenToWorldLocation = function ({
     point = new p5.Vector(this.width / 2, this.height / 2, 0.5),
     pMatrix,
     vMatrix,
