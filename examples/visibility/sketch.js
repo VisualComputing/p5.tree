@@ -149,7 +149,7 @@ function draw() {
   rotateX(HALF_PI);
   strokeWeight(0.5);
   stroke('blue');
-  grid({ subdivisions: 20, size: 300, style: p5.Tree.SOLID });
+  grid({ subdivisions: 20, size: 300 });
   pop();
   models.forEach(model => {
     push();

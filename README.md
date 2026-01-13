@@ -266,7 +266,7 @@ A small collection of helpers commonly needed in interactive 3D sketches:
 Debug / teaching primitives for visualizing common 3D concepts:
 
 1. `axes({ size, colors, bits })`
-2. `grid({ size, subdivisions, style })`
+2. `grid({ size, subdivisions })`
 3. `cross({ mMatrix, x, y, size, ... })`
 4. `bullsEye({ mMatrix, x, y, size, shape, ... })`
 5. `viewFrustum({ pg, bits, viewer, eMatrix, pMatrix, vMatrix })`
@@ -295,12 +295,8 @@ Debug / teaching primitives for visualizing common 3D concepts:
 
 The library works in two setups:
 
-- **[CDN](#cdn)**: Use the [IIFE](https://developer.mozilla.org/en-US/docs/Glossary/IIFE)
-  (Immediately Invoked Function Expression) format with `<script>` tags directly in the browser,
-  along with [p5.js](https://beta.p5js.org/).
-- **[npm](#npm-esm)**: Use the
-  [ES module](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules)
-  version in modern projects with [Vite](https://vitejs.dev/) or another bundler.
+- **[CDN](#cdn)**: Use the [IIFE](https://developer.mozilla.org/en-US/docs/Glossary/IIFE) (Immediately Invoked Function Expression) format with `<script>` tags directly in the browser, along with [p5.js](https://beta.p5js.org/).
+- **[npm](#npm-esm)**: Use the [ES module](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules) version in modern projects with [Vite](https://vitejs.dev/) or another bundler.
 
 ## CDN
 
@@ -329,9 +325,7 @@ Include both libraries using `<script>` tags, which run in both [global](https:/
 </script>
 ````
 
-You can run the example, which uses global mode, by opening the `index.html` file in a browser, or by using
-[VSCodium](https://vscodium.com/) (recommended) or [Visual Studio Code](https://code.visualstudio.com/)
-with the [Live Server extension](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer).
+You can run the example, which uses global mode, by opening the `index.html` file in a browser, or by using [VSCodium](https://vscodium.com/) (recommended) or [Visual Studio Code](https://code.visualstudio.com/) with the [Live Server extension](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer).
 
 ## npm (ESM)
 
@@ -341,9 +335,7 @@ Install both [`p5`](https://www.npmjs.com/package/p5) and [`p5.tree`](https://ww
 npm i p5 p5.tree
 ```
 
-Then import them in your project’s entry file (e.g. `main.js`) using a
-modern bundler like [Vite](https://vitejs.dev/), which runs in
-[instance mode](https://github.com/processing/p5.js/wiki/Global-and-instance-mode) only:
+Then import them in your project’s entry file (e.g. `main.js`) using a modern bundler like [Vite](https://vitejs.dev/), which runs in [instance mode](https://github.com/processing/p5.js/wiki/Global-and-instance-mode) only:
 
 ```js
 // main.js

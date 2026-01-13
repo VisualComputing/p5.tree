@@ -58,6 +58,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     NDC: CONST('NDC'),
     SCREEN: CONST('SCREEN'),
     MODEL: CONST('MODEL'),
+    OBJECT: CONST('MODEL'), // alias of MODEL (shader terminology)
   
     // Points and vectors
     ORIGIN: CONST(Object.freeze([0, 0, 0])),
@@ -78,9 +79,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     Z: CONST(1 << 4),
     _Z: CONST(1 << 5),
     LABELS: CONST(1 << 6),
-    
-    DOTS: CONST(0),
-    SOLID: CONST(1),
                           
     // bullsEye
     CIRCLE: CONST(0),
@@ -1991,6 +1989,49 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return this;
   };
   
+  /**
+   * Draws 3D reference axes (X, Y, Z) centered at the origin in model space.
+   *
+   * Each axis can be enabled independently using bitwise flags, and optional
+   * axis labels (X, Y, Z) can be rendered near the positive ends.
+   *
+   * This is a WEBGL-only utility intended for debugging, teaching, and spatial
+   * orientation. Axes are drawn on the current Z=0 plane using the current
+   * stroke settings.
+   *
+   * @method axes
+   * @for p5.RendererGL
+   * @param {Object} [opts] Axes options.
+   * @param {Number} [opts.size=100] Length of each axis in world units.
+   * @param {Array<String>} [opts.colors=['Red','Lime','DodgerBlue']]
+   *        Stroke colors for X, Y, and Z axes respectively.
+   * @param {Number} [opts.bits=p5.Tree.LABELS | p5.Tree.X | p5.Tree.Y | p5.Tree.Z]
+   *        Bitmask controlling which axes and labels are drawn.
+   *
+   * @example
+   * function draw() {
+   *   background(30);
+   *   orbitControl();
+   *   axes({ size: 300 });
+   * }
+   *
+   * @example
+   * // Draw only X and Z axes, no labels
+   * axes({
+   *   size: 200,
+   *   bits: p5.Tree.X | p5.Tree.Z
+   * });
+   *
+   * @example
+   * // Draw full axes in both positive and negative directions
+   * axes({
+   *   size: 150,
+   *   bits: p5.Tree.X | p5.Tree._X |
+   *         p5.Tree.Y | p5.Tree._Y |
+   *         p5.Tree.Z | p5.Tree._Z |
+   *         p5.Tree.LABELS
+   * });
+   */
   p5.RendererGL.prototype.axes = function ({
     size = 100,
     colors = ['Red', 'Lime', 'DodgerBlue'],
@@ -2040,47 +2081,38 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return this;
   };
   
+  /**
+   * Draws a simple X/Y reference grid on the Z=0 plane in the current model space.
+   *
+   * The grid is centered at the origin and spans from `-size` to `+size` on both X and Y.
+   * It draws `subdivisions + 1` lines in each direction (including the borders).
+   *
+   * This is a WEBGL-only utility intended for debugging and spatial reference.
+   *
+   * @method grid
+   * @for p5.RendererGL
+   * @param {Object} [opts] Grid options.
+   * @param {Number} [opts.size=100] Half-extent of the grid in world units.
+   * @param {Number} [opts.subdivisions=10] Number of subdivisions per side (must be >= 1).
+   * @example
+   * function draw() {
+   *   background(30);
+   *   orbitControl();
+   *   grid({ size: 300, subdivisions: 20 });
+   * }
+   */
   p5.RendererGL.prototype.grid = function ({
     size = 100,
-    subdivisions = 10,
-    style = p5.Tree.SOLID,
-    weight = 1,
-    minorSubdivisions = 5
+    subdivisions = 10
   } = {}) {
     const p = this._pInst;
-    if (!p) return;
+    if (!p) return;  
+    subdivisions = Math.max(1, subdivisions);
     p.push();
-    if (style === p5.Tree.DOTS) {
-      let posi = 0;
-      let posj = 0;
-      p.strokeWeight(weight * 2);
-      p.beginShape(p.POINTS);
-      for (let i = 0; i <= subdivisions; ++i) {
-        posi = size * (2.0 * i / subdivisions - 1.0);
-        for (let j = 0; j <= subdivisions; ++j) {
-          posj = size * (2.0 * j / subdivisions - 1.0);
-          p.vertex(posi, posj, 0);
-        }
-      }
-      p.endShape();
-      const internalSub = Math.max(1, minorSubdivisions | 0);
-      const subSubdivisions = subdivisions * internalSub;
-      p.strokeWeight(weight);
-      p.beginShape(p.POINTS);
-      for (let i = 0; i <= subSubdivisions; ++i) {
-        posi = size * (2.0 * i / subSubdivisions - 1.0);
-        for (let j = 0; j <= subSubdivisions; ++j) {
-          posj = size * (2.0 * j / subSubdivisions - 1.0);
-          ((i % internalSub) !== 0 || (j % internalSub) !== 0) && p.vertex(posi, posj, 0);
-        }
-      }
-      p.endShape();
-    } else {
-      for (let i = 0; i <= subdivisions; ++i) {
-        const pos = size * (2.0 * i / subdivisions - 1.0);
-        p.line(pos, -size, 0, pos, +size, 0);
-        p.line(-size, pos, 0, size, pos, 0);
-      }
+    for (let i = 0; i <= subdivisions; ++i) {
+      const pos = size * (2.0 * i / subdivisions - 1.0);
+      p.line(pos, -size, 0, pos, +size, 0);
+      p.line(-size, pos, 0, +size, pos, 0);
     }
     p.pop();
   };

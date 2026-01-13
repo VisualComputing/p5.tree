@@ -133,7 +133,7 @@ function draw() {
   stroke('#CC8E0C')
   strokeWeight(0.6)
   rotateX(HALF_PI);
-  grid({ subdivisions: 25, size: 400, style: p5.Tree.SOLID })
+  grid({ subdivisions: 25, size: 400 })
   pop();
   scene();
   push();

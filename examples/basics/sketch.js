@@ -15,7 +15,7 @@ function draw() {
   axes( { size: 300 } )
   push()
   stroke('white')
-  grid({ size: 300, style: p5.Tree.SOLID })
+  grid({ size: 300 })
   pop()
   orbitControl()
   ambientLight(120)
