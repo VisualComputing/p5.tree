@@ -2811,204 +2811,230 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return p5.Vector.dot(point, new p5.Vector(eq.a, eq.b, eq.c)) - eq.d;
   };
   
+  /**
+   * Creates renderer-agnostic UI controls for shader parameters (GLSL/WebGPU/p5.strands).
+   * Core-only: no layout, no styling, no panels. You own presentation.
+   *
+   * Types supported (explicit or inferred):
+   * - 'float' (slider), 'int' (slider semantics), 'bool' (checkbox), 'color' (color picker)
+   * - 'vec2'/'vec3'/'vec4' (multiple sliders), 'select' (dropdown), 'button'
+   *
+   * Inference (when cfg.type is omitted):
+   * - cfg.options -> 'select'
+   * - cfg.onClick -> 'button'
+   * - boolean value -> 'bool'
+   * - array length 2/3/4 -> 'vec2/vec3/vec4'
+   * - string value -> 'color'
+   * - otherwise -> 'float'
+   *
+   * Returned API:
+   * - ui[name].elt : p5.Element (or Array<p5.Element> for vec*)
+   * - ui[name].value(), ui[name].set(v), ui[name].reset()
+   * - ui.each((name, control) => ...)
+   * - ui.elts() -> flat Array<p5.Element>
+   * - ui.mount(parent) : appends all elements into a p5.Element parent (no positioning)
+   * - ui.values() -> snapshot object of current values
+   * - ui.setValues(obj), ui.reset()
+   * - ui.applyTo(shader, map) : calls shader.setUniform
+   *
+   * Usage: GLSL/WebGPU (shader.setUniform)
+   * - ui.applyTo(shader)
+   * - or shader.setUniform('blurIntensity', ui.blurIntensity.value())
+   *
+   * Usage: p5.strands (call inside baseFilterShader().modify(cb))
+   * - const blurIntensity = uniformFloat(() => ui.blurIntensity.value())
+   * - const enabled = uniformBool(() => ui.enabled.value())
+   */
   fn.createControls = function (schema = {}, opt = {}) {
     const p = this;
-    const {
-      x = 0,
-      y = 0,
-      width = 120,
-      offset = 6,
-      color,
-      hidden = false,
-      // Optional: per-control label rendering (default true)
-      labels = true,
-      // Optional: vertical spacing between vec components (default offset)
-      componentOffset
-    } = opt;
-  
     const _schema = schema || {};
-    const _controls = {};
-    let cursorY = y;
+    const ui = {};
+    const _defaults = {};
+    const _order = Object.keys(_schema);
   
-    const commonStyle = (elt) => {
-      width && elt.style('width', `${width}px`);
-      color && (elt.elt.style.color = color);
+    const isBool = v => typeof v === 'boolean';
+    const isArr = Array.isArray;
+    const isVec = v => isArr(v) && (v.length === 2 || v.length === 3 || v.length === 4);
+    const isStr = v => typeof v === 'string';
+    const isNum = v => typeof v === 'number' && Number.isFinite(v);
+  
+    const toFloat = v => {
+      if (isNum(v)) return v;
+      const n = typeof v === 'string' ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : 0;
     };
   
-    const place = (elt, h) => {
-      elt.position(x, cursorY);
-      cursorY += h + offset;
+    const inferType = (cfg = {}) => {
+      if (cfg.type) return cfg.type;
+      if (cfg.options) return 'select';
+      if (typeof cfg.onClick === 'function') return 'button';
+      const v = cfg.value;
+      if (isBool(v)) return 'bool';
+      if (isVec(v)) return v.length === 2 ? 'vec2' : v.length === 3 ? 'vec3' : 'vec4';
+      if (isStr(v)) return 'color';
+      return 'float';
     };
   
-    const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-  
-    const toFloat = (v, fallback = 0) => {
-      const n = typeof v === 'string' ? parseFloat(v) : v;
-      return isNum(n) ? n : fallback;
-    };
-  
-    const mkLabel = (name) => {
-      const d = p.createDiv(name);
-      d.style('font-family', 'monospace');
-      d.style('font-size', '12px');
-      d.style('line-height', '1');
-      color && (d.elt.style.color = color);
-      place(d, 18);
-      return d;
-    };
-  
-    const mkSlider = (cfg = {}) => {
-      const min = toFloat(cfg.min, 0);
-      const max = toFloat(cfg.max, 1);
-      const isInt = cfg.type === 'int';
-      const step = toFloat(cfg.step, isInt ? 1 : 0.1);
-      const value = toFloat(cfg.value, min);
-      const s = p.createSlider(min, max, value, step);
-      commonStyle(s);
-      return s;
-    };
-  
-    const wrapSingle = ({ elt, value, type }) => {
-      return {
-        type,
-        elt,
-        value,
-        show: () => { elt.show(); },
-        hide: () => { elt.hide(); },
-        remove: () => { elt.remove(); }
-      };
-    };
-  
-    const wrapMany = ({ elts, value, type }) => {
-      return {
-        type,
-        elt: elts,
-        value,
-        show: () => { elts.forEach(e => e.show()); },
-        hide: () => { elts.forEach(e => e.hide()); },
-        remove: () => { elts.forEach(e => e.remove()); }
-      };
-    };
+    const wrap = (type, elt, value, set, reset) => ({
+      type,
+      elt,
+      value,
+      set,
+      reset
+    });
   
     const build = (name, cfg = {}) => {
-      const type = cfg.type || 'float';
-      const showLabel = labels && (cfg.label ?? true);
-      showLabel && mkLabel(cfg.name || name);
+      const type = inferType(cfg);
+  
+      const def =
+        type === 'vec2' ? (isArr(cfg.value) ? cfg.value.slice(0, 2) : [0, 0]) :
+        type === 'vec3' ? (isArr(cfg.value) ? cfg.value.slice(0, 3) : [0, 0, 0]) :
+        type === 'vec4' ? (isArr(cfg.value) ? cfg.value.slice(0, 4) : [0, 0, 0, 0]) :
+        cfg.value;
+  
+      _defaults[name] = def;
+  
+      if (type === 'button') {
+        const btn = p.createButton(cfg.text || cfg.name || name);
+        typeof cfg.onClick === 'function' && btn.mousePressed(() => cfg.onClick(ui, name));
+        return wrap('button', btn, () => true, () => {}, () => {});
+      }
+  
+      if (type === 'select') {
+        const sel = p.createSelect();
+        (cfg.options || []).forEach(o => {
+          if (typeof o === 'object') sel.option(o.label ?? String(o.value), o.value);
+          else sel.option(String(o), o);
+        });
+        cfg.value != null && sel.selected(cfg.value);
+        return wrap(
+          'select',
+          sel,
+          () => sel.value(),
+          v => sel.selected(v),
+          () => sel.selected(_defaults[name])
+        );
+      }
+  
       if (type === 'bool') {
-        const checkbox = p.createCheckbox(cfg.text || '', !!cfg.value);
-        commonStyle(checkbox);
-        place(checkbox, 30);
-        return wrapSingle({
-          type,
-          elt: checkbox,
-          value: () => checkbox.checked()
-        });
+        const cb = p.createCheckbox(cfg.text || '', !!cfg.value);
+        return wrap(
+          'bool',
+          cb,
+          () => cb.checked(),
+          v => cb.checked(!!v),
+          () => cb.checked(!!_defaults[name])
+        );
       }
+  
       if (type === 'color') {
-        const picker = p.createColorPicker(cfg.value ?? 'white');
-        commonStyle(picker);
-        place(picker, 40);
-        return wrapSingle({
-          type,
-          elt: picker,
-          value: () => {
-            const c = picker.color();
-            return [
-              p.red(c) / 255,
-              p.green(c) / 255,
-              p.blue(c) / 255,
-              p.alpha(c) / 255
-            ];
-          }
-        });
+        const cp = p.createColorPicker(cfg.value ?? 'white');
+        const val = () => {
+          const c = cp.color();
+          return [p.red(c) / 255, p.green(c) / 255, p.blue(c) / 255, p.alpha(c) / 255];
+        };
+        return wrap(
+          'color',
+          cp,
+          val,
+          v => cp.value(v),
+          () => cp.value(_defaults[name] ?? (cfg.value ?? 'white'))
+        );
       }
+  
       if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
         const n = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
-        const v0 = Array.isArray(cfg.value) ? cfg.value : [];
-        const min = toFloat(cfg.min, 0);
-        const max = toFloat(cfg.max, 1);
-        const step = toFloat(cfg.step, 0.01);
-        const cOff = isNum(componentOffset) ? componentOffset : offset;
+        const min = cfg.min ?? 0;
+        const max = cfg.max ?? 1;
+        const step = cfg.step ?? 0.01;
+        const v0 = isArr(cfg.value) ? cfg.value : [];
         const sliders = [];
         for (let i = 0; i < n; i++) {
-          const s = p.createSlider(min, max, toFloat(v0[i], min), step);
-          commonStyle(s);
-          // Use per-component spacing (but keep global cursor logic consistent)
-          s.position(x, cursorY);
-          cursorY += 35 + cOff;
-          sliders.push(s);
+          sliders.push(p.createSlider(min, max, v0[i] ?? min, step));
         }
-        return wrapMany({
-          type,
-          elts: sliders,
-          value: () => sliders.map(s => toFloat(s.value(), min))
-        });
+        const value = () => sliders.map(s => toFloat(s.value()));
+        const set = (arr) => {
+          const a = isArr(arr) ? arr : [];
+          for (let i = 0; i < n; i++) sliders[i].value(a[i] ?? (v0[i] ?? min));
+        };
+        const reset = () => set(_defaults[name]);
+        return wrap(type, sliders, value, set, reset);
       }
-      // float / int (slider)
-      if (type === 'float' || type === 'int') {
-        const s = mkSlider({ ...cfg, type });
-        place(s, 35);
-        return wrapSingle({
-          type,
-          elt: s,
-          value: () => (type === 'int' ? p.int(s.value()) : toFloat(s.value()))
-        });
-      }
-      // fallback: treat unknown types as float slider
-      const s = mkSlider({ ...cfg, type: 'float' });
-      place(s, 35);
-      return wrapSingle({
-        type: 'float',
-        elt: s,
-        value: () => toFloat(s.value())
+  
+      // float/int slider (slider stores float; int semantics are yours)
+      const min = cfg.min ?? 0;
+      const max = cfg.max ?? 1;
+      const step = cfg.step ?? (type === 'int' ? 1 : 0.1);
+      const value0 = cfg.value ?? min;
+      const s = p.createSlider(min, max, value0, step);
+      const value = () => toFloat(s.value());
+      const set = (v) => s.value(v);
+      const reset = () => s.value(_defaults[name] ?? value0);
+      return wrap(type, s, value, set, reset);
+    };
+  
+    for (const name of _order) ui[name] = build(name, _schema[name]);
+  
+    ui.each = function (fn) {
+      _order.forEach(name => fn(name, ui[name], ui));
+      return ui;
+    };
+  
+    ui.elts = function () {
+      const out = [];
+      ui.each((name, c) => {
+        if (!c || !c.elt) return;
+        Array.isArray(c.elt) ? c.elt.forEach(e => out.push(e)) : out.push(c.elt);
       });
+      return out;
     };
   
-    // Build all controls
-    for (const name in _schema) {
-      _controls[name] = build(name, _schema[name]);
-    }
-  
-    // Group helpers
-    _controls.show = function () {
-      for (const k in _schema) _controls[k]?.show?.();
-      return _controls;
+    // Appends all elements into a p5.Element parent (no positioning/styling)
+    ui.mount = function (parent) {
+      if (!parent || typeof parent.child !== 'function') return ui;
+      ui.elts().forEach(e => parent.child(e));
+      return ui;
     };
   
-    _controls.hide = function () {
-      for (const k in _schema) _controls[k]?.hide?.();
-      return _controls;
+    ui.values = function () {
+      const out = {};
+      ui.each((name, c) => { out[name] = c.value(); });
+      return out;
     };
   
-    _controls.remove = function () {
-      for (const k in _schema) _controls[k]?.remove?.();
+    ui.setValues = function (vals = {}) {
+      for (const k in vals) ui[k]?.set?.(vals[k]);
+      return ui;
     };
   
-    // Convenience for GLSL/WebGPU-style shaders that expose setUniform(name, value)
+    ui.reset = function () {
+      ui.each((name, c) => c.reset && c.reset());
+      return ui;
+    };
+  
+    // GLSL/WebGPU-style shaders that expose setUniform(name, value)
     // map[key] can be:
     // - string: uniform name
-    // - function: (value, key, controls) => mappedValue (uniform name stays key)
-    // - object: { uniform: 'uName', value: (value, key, controls) => mappedValue }
-    _controls.applyTo = function (shader, map = {}) {
-      if (!shader || typeof shader.setUniform !== 'function') return _controls;
-      for (const key in _schema) {
-        const ctrl = _controls[key];
-        if (!ctrl || typeof ctrl.value !== 'function') continue;
+    // - function: (raw, key, ui) => mappedValue (uniform name stays key)
+    // - object: { uniform: 'uName', value: (raw, key, ui) => mappedValue }
+    ui.applyTo = function (shader, map = {}) {
+      if (!shader || typeof shader.setUniform !== 'function') return ui;
+      ui.each((key, c) => {
+        const raw = c.value();
         const m = map[key];
         const uniform =
           typeof m === 'string' ? m :
           m && typeof m === 'object' && typeof m.uniform === 'string' ? m.uniform :
           key;
-        const raw = ctrl.value();
         const val =
-          typeof m === 'function' ? m(raw, key, _controls) :
-          m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, _controls) :
+          typeof m === 'function' ? m(raw, key, ui) :
+          m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, ui) :
           raw;
         shader.setUniform(uniform, val);
-      }
-      return _controls;
+      });
+      return ui;
     };
-    hidden ? _controls.hide() : _controls.show();
-    return _controls;
+  
+    return ui;
   };
 });
