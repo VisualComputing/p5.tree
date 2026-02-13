@@ -1,15 +1,15 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.3
+ * @version 0.0.4
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
  * @description
- * A p5.js WEBGL addon for shader development and space transformations.
+ * A p5.js 3D addon for matrix queries, shader workflows, and space transformations.
  * 
  * Camera path recording/playback section.
  *
- * Requires WEBGL (p5.Camera).
+ * Requires 3D renderer (p5.Camera).
  *
  * Camera API:
  *   camera.path : p5.Camera[]
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.3'),
+    VERSION: CONST('0.0.4'),
                           
     NONE: CONST(0),
   
@@ -107,13 +107,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * @private
-   * Returns the WEBGL renderer or undefined.
-   * @param {p5} pInst
-   * @returns {p5.RendererGL|undefined}
+   * Returns the active 3D renderer (WEBGL or WEBGPU) or undefined.
+   * @param {p5} pInst - The p5 instance.
+   * @returns {p5.Renderer3D|undefined} The active 3D renderer if available.
    */
-  const _rendererGL = function (pInst) {
-    const r = pInst._renderer;
-    return r instanceof p5.RendererGL ? r : undefined;
+  const _renderer3D = function (pInst) {
+    const r = pInst?._renderer;
+    return r instanceof p5.Renderer3D ? r : undefined;
   };
 
   // ---------------------------------------------------------------------------
@@ -226,34 +226,34 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Returns the current projection matrix (immutable copy).
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.pMatrix = function () {
+  p5.Renderer3D.prototype.pMatrix = function () {
     return this.states.uPMatrix.clone();
   };
 
   /**
    * Returns the current projection matrix (immutable copy).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {p5.Matrix}
    */
   fn.pMatrix = function () {
-    return _rendererGL(this).pMatrix();
+    return _renderer3D(this).pMatrix();
   };
 
   /**
    * Returns the current model matrix (immutable copy).
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.mMatrix = function () {
+  p5.Renderer3D.prototype.mMatrix = function () {
     return this.states.uModelMatrix.clone();
   };
 
   /**
    * Returns the current model matrix (immutable copy).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {p5.Matrix}
    */
   fn.mMatrix = function () {
-    return _rendererGL(this).mMatrix();
+    return _renderer3D(this).mMatrix();
   };
 
   /**
@@ -277,34 +277,34 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Prefers the renderer cached view matrix when available.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.vMatrix = function () {
+  p5.Renderer3D.prototype.vMatrix = function () {
     return (this.states.uViewMatrix || this.states.curCamera.cameraMatrix).clone();
   };
 
   /**
    * Returns the current view matrix (world -> camera) (immutable copy).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {p5.Matrix}
    */
   fn.vMatrix = function () {
-    return _rendererGL(this).vMatrix();
+    return _renderer3D(this).vMatrix();
   };
 
   /**
    * Returns the current eye matrix (camera -> world) (immutable).
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.eMatrix = function () {
+  p5.Renderer3D.prototype.eMatrix = function () {
     return _invert(this.states.uViewMatrix || this.states.curCamera.cameraMatrix);
   };
 
   /**
    * Returns the current eye matrix (camera -> world) (immutable).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {p5.Matrix}
    */
   fn.eMatrix = function () {
-    return _rendererGL(this).eMatrix();
+    return _renderer3D(this).eMatrix();
   };
 
   /**
@@ -316,7 +316,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.to=this.eMatrix()] Target frame matrix.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.lMatrix = function ({
+  p5.Renderer3D.prototype.lMatrix = function ({
     from = new p5.Matrix(4),
     to = this.eMatrix()
   } = {}) {
@@ -326,14 +326,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * lMatrix({ from, to }):
    * Location transform (mat4) mapping points from `from` space to `to` space.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.from]
    * @param {p5.Matrix} [opts.to]
    * @returns {p5.Matrix}
    */
   fn.lMatrix = function (opts = {}) {
-    return _rendererGL(this).lMatrix(opts);
+    return _renderer3D(this).lMatrix(opts);
   };
 
   /**
@@ -347,7 +347,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.matrix] Precomputed mat4 override.
    * @returns {p5.Matrix} mat3
    */
-  p5.RendererGL.prototype.dMatrix = function ({
+  p5.Renderer3D.prototype.dMatrix = function ({
     from = new p5.Matrix(4),
     to = this.eMatrix(),
     matrix
@@ -365,7 +365,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * dMatrix({ from, to, matrix }):
    * Direction transform (mat3) mapping vectors from `from` space to `to` space.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.from]
    * @param {p5.Matrix} [opts.to]
@@ -373,7 +373,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix} mat3
    */
   fn.dMatrix = function (opts = {}) {
-    return _rendererGL(this).dMatrix(opts);
+    return _renderer3D(this).dMatrix(opts);
   };
 
   /**
@@ -384,7 +384,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.mMatrix=this.mMatrix()] Model matrix.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.mvMatrix = function ({
+  p5.Renderer3D.prototype.mvMatrix = function ({
     vMatrix = this.vMatrix(),
     mMatrix
   } = {}) {
@@ -394,14 +394,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * mvMatrix({ vMatrix, mMatrix }):
    * ModelView matrix (mat4) = M * V (p5-v2 convention).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.vMatrix]
    * @param {p5.Matrix} [opts.mMatrix]
    * @returns {p5.Matrix}
    */
   fn.mvMatrix = function (opts = {}) {
-    return _rendererGL(this).mvMatrix(opts);
+    return _renderer3D(this).mvMatrix(opts);
   };
 
   /**
@@ -413,7 +413,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.mvMatrix=this.mvMatrix({ mMatrix, vMatrix })] Optional MV matrix override.
    * @returns {p5.Matrix} mat3
    */
-  p5.RendererGL.prototype.nMatrix = function ({
+  p5.Renderer3D.prototype.nMatrix = function ({
     vMatrix,
     mMatrix,
     mvMatrix = this.mvMatrix({ mMatrix, vMatrix })
@@ -424,7 +424,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * nMatrix({ vMatrix, mMatrix, mvMatrix }):
    * Normal matrix (mat3) = inverseTranspose(linear_part(MV)).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.vMatrix]
    * @param {p5.Matrix} [opts.mMatrix]
@@ -432,7 +432,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix} mat3
    */
   fn.nMatrix = function (opts = {}) {
-    return _rendererGL(this).nMatrix(opts);
+    return _renderer3D(this).nMatrix(opts);
   };
 
   /**
@@ -445,7 +445,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.mvMatrix=this.mvMatrix({ mMatrix, vMatrix })] Optional MV matrix override.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.pmvMatrix = function ({
+  p5.Renderer3D.prototype.pmvMatrix = function ({
     pMatrix = this.pMatrix(),
     vMatrix,
     mMatrix,
@@ -457,7 +457,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * pmvMatrix({ pMatrix, vMatrix, mMatrix, mvMatrix }):
    * PMV (mat4) = M * V * P (p5-v2 convention).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.pMatrix]
    * @param {p5.Matrix} [opts.vMatrix]
@@ -466,7 +466,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.pmvMatrix = function (opts = {}) {
-    return _rendererGL(this).pmvMatrix(opts);
+    return _renderer3D(this).pmvMatrix(opts);
   };
 
   /**
@@ -477,7 +477,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] View matrix.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.pvMatrix = function ({
+  p5.Renderer3D.prototype.pvMatrix = function ({
     pMatrix = this.pMatrix(),
     vMatrix
   } = {}) {
@@ -487,14 +487,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * pvMatrix({ pMatrix, vMatrix }):
    * PV (mat4) = V * P (p5-v2 convention).
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.pMatrix]
    * @param {p5.Matrix} [opts.vMatrix]
    * @returns {p5.Matrix}
    */
   fn.pvMatrix = function (opts = {}) {
-    return _rendererGL(this).pvMatrix(opts);
+    return _renderer3D(this).pvMatrix(opts);
   };
   
   /**
@@ -506,7 +506,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix=this.pvMatrix({ pMatrix, vMatrix })] Optional PV matrix override.
    * @returns {p5.Matrix}
    */
-  p5.RendererGL.prototype.ipvMatrix = function ({
+  p5.Renderer3D.prototype.ipvMatrix = function ({
     pMatrix,
     vMatrix,
     pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
@@ -516,12 +516,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
   /**
    * ipvMatrix({ pMatrix, vMatrix, pvMatrix }):
-   * Inverse(PV) (mat4). Requires WEBGL.
+   * Inverse(PV) (mat4). Requires 3D renderer.
    * @param {object} [opts]
    * @returns {p5.Matrix}
    */
   fn.ipvMatrix = function (opts = {}) {
-    return _rendererGL(this).ipvMatrix(opts);
+    return _renderer3D(this).ipvMatrix(opts);
   };
 
   // ---------------------------------------------------------------------------
@@ -540,17 +540,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Returns true if the current projection is orthographic.
    * @returns {boolean}
    */
-  p5.RendererGL.prototype.isOrtho = function () {
+  p5.Renderer3D.prototype.isOrtho = function () {
     return this.pMatrix().isOrtho();
   };
 
   /**
    * Returns true if the current projection is orthographic.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {boolean}
    */
   fn.isOrtho = function () {
-    return _rendererGL(this).isOrtho();
+    return _renderer3D(this).isOrtho();
   };
 
   /**
@@ -611,7 +611,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Near plane distance for the current projection.
    * @returns {number}
    */
-  p5.RendererGL.prototype.nPlane = function () {
+  p5.Renderer3D.prototype.nPlane = function () {
     return this.pMatrix().nPlane();
   };
 
@@ -619,7 +619,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Far plane distance for the current projection.
    * @returns {number}
    */
-  p5.RendererGL.prototype.fPlane = function () {
+  p5.Renderer3D.prototype.fPlane = function () {
     return this.pMatrix().fPlane();
   };
 
@@ -627,7 +627,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Left plane for the current projection.
    * @returns {number}
    */
-  p5.RendererGL.prototype.lPlane = function () {
+  p5.Renderer3D.prototype.lPlane = function () {
     return this.pMatrix().lPlane();
   };
 
@@ -635,7 +635,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Right plane for the current projection.
    * @returns {number}
    */
-  p5.RendererGL.prototype.rPlane = function () {
+  p5.Renderer3D.prototype.rPlane = function () {
     return this.pMatrix().rPlane();
   };
 
@@ -643,7 +643,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Top plane for the current projection.
    * @returns {number}
    */
-  p5.RendererGL.prototype.tPlane = function () {
+  p5.Renderer3D.prototype.tPlane = function () {
     return this.pMatrix().tPlane();
   };
 
@@ -651,62 +651,62 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Bottom plane for the current projection.
    * @returns {number}
    */
-  p5.RendererGL.prototype.bPlane = function () {
+  p5.Renderer3D.prototype.bPlane = function () {
     return this.pMatrix().bPlane();
   };
 
   /**
    * Near plane distance for the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number}
    */
   fn.nPlane = function () {
-    return _rendererGL(this).nPlane();
+    return _renderer3D(this).nPlane();
   };
 
   /**
    * Far plane distance for the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number}
    */
   fn.fPlane = function () {
-    return _rendererGL(this).fPlane();
+    return _renderer3D(this).fPlane();
   };
 
   /**
    * Left plane for the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number}
    */
   fn.lPlane = function () {
-    return _rendererGL(this).lPlane();
+    return _renderer3D(this).lPlane();
   };
 
   /**
    * Right plane for the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number}
    */
   fn.rPlane = function () {
-    return _rendererGL(this).rPlane();
+    return _renderer3D(this).rPlane();
   };
 
   /**
    * Top plane for the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number}
    */
   fn.tPlane = function () {
-    return _rendererGL(this).tPlane();
+    return _renderer3D(this).tPlane();
   };
 
   /**
    * Bottom plane for the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number}
    */
   fn.bPlane = function () {
-    return _rendererGL(this).bPlane();
+    return _renderer3D(this).bPlane();
   };
 
   /**
@@ -737,7 +737,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Vertical field of view (radians) of the current projection.
    * @returns {number|undefined}
    */
-  p5.RendererGL.prototype.fov = function () {
+  p5.Renderer3D.prototype.fov = function () {
     return this.pMatrix().fov();
   };
 
@@ -745,26 +745,26 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Horizontal field of view (radians) of the current projection.
    * @returns {number|undefined}
    */
-  p5.RendererGL.prototype.hfov = function () {
+  p5.Renderer3D.prototype.hfov = function () {
     return this.pMatrix().hfov();
   };
 
   /**
    * Vertical field of view (radians) of the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number|undefined}
    */
   fn.fov = function () {
-    return _rendererGL(this).fov();
+    return _renderer3D(this).fov();
   };
 
   /**
    * Horizontal field of view (radians) of the current projection.
-   * Requires WEBGL.
+   * Requires 3D renderer.
    * @returns {number|undefined}
    */
   fn.hfov = function () {
-    return _rendererGL(this).hfov();
+    return _renderer3D(this).hfov();
   };
 
   // --- private keys (shared internal state across protos) ---
@@ -1363,7 +1363,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
   /*
   // treegl approach:
-  p5.RendererGL.prototype.beginHUD = function () {
+  p5.Renderer3D.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
     const p = this._pInst;
     const gl = this.drawingContext;
@@ -1400,7 +1400,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     this._hudActive = true;
   };
   
-  p5.RendererGL.prototype.endHUD = function () {
+  p5.Renderer3D.prototype.endHUD = function () {
     if (this._hudActive !== true) return;
     const p = this._pInst;
     const gl = this.drawingContext;
@@ -1421,54 +1421,62 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   */
   
-  p5.RendererGL.prototype.beginHUD = function () {
+  p5.Renderer3D.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
     const p = this._pInst;
-    if (!p) return;
-    const gl = this.drawingContext;
     const states = this.states;
-    if (!gl || !states) return;
-    p.push(); // isolate all subsequent HUD drawing from caller state
+    if (!p || !states) return;
+    p.push();
     p.resetShader();
-    // Ensure HUD space does NOT inherit the user's current model transforms
-    // (e.g. push()/translate()
     p.resetMatrix();
-    // ---------------------
-    // --- HUD setup ---
     this._hudPrevCam = states.curCamera;
-    this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
-    gl.flush();
-    gl.disable(gl.DEPTH_TEST);
+    this._hudDepthMode = undefined;
+    this._hudDepthWasEnabled = undefined;
+    if (typeof this.clearDepth === 'function') {
+      this.flushDraw?.();
+      this.clearDepth(1);
+      this._hudDepthMode = 'clearDepth';
+    } else {
+      const gl = this.drawingContext;
+      if (gl && typeof gl.isEnabled === 'function' && gl.DEPTH_TEST !== undefined) {
+        this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
+        gl.flush?.();
+        gl.disable(gl.DEPTH_TEST);
+        this._hudDepthMode = 'depthTestToggle';
+      }
+    }
     if (this._hudCam === undefined) this._hudCam = p.createCamera();
     const z = 1e6;
-    // HUD coordinates: x in [0, width], y in [0, height]
     this._hudCam.ortho(0, p.width, -p.height, 0, -z, z);
-    // this._hudCam.ortho(0, p.width, 0, -p.height, -z, z); // <- flipped
     this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
     p.setCamera(this._hudCam);
     this._hudActive = true;
-  };
+  }
   
-  p5.RendererGL.prototype.endHUD = function () {
+  p5.Renderer3D.prototype.endHUD = function () {
     if (this._hudActive !== true) return;
     const p = this._pInst;
-    const gl = this.drawingContext;
-    const states = this.states;
-    if (p === undefined || gl === undefined || states === undefined) return;
-    gl.flush();
-    this._hudDepthWasEnabled ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
-    p.pop(); // calls: this.pop(this._rendererState);
+    if (!p) return;
+    if (this._hudDepthMode === 'depthTestToggle') {
+      const gl = this.drawingContext;
+      if (gl && gl.DEPTH_TEST !== undefined) {
+        gl.flush?.();
+        this._hudDepthWasEnabled ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+      }
+    }
+    p.pop();
     this._hudPrevCam !== undefined && p.setCamera(this._hudPrevCam);
     this._hudPrevCam = undefined;
     this._hudDepthWasEnabled = undefined;
+    this._hudDepthMode = undefined;
     this._hudActive = false;
-  };
+  }
   
   // ---------------------------------------------------------------------------
   // Space transforms: mapLocation / mapDirection
   // ---------------------------------------------------------------------------
   
-  p5.RendererGL.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
+  p5.Renderer3D.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
     let mainArg = defaultMainArg;
     const options = {};
     for (const arg of args) {
@@ -1486,7 +1494,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   
   fn.mapLocation = function (...args) {
-    return _rendererGL(this)?.mapLocation(...args);
+    return _renderer3D(this)?.mapLocation(...args);
   };
   
   /**
@@ -1503,12 +1511,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.ipvMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.mapLocation = function (...args) {
+  p5.Renderer3D.prototype.mapLocation = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree.ORIGIN, ...args);
     return this._location(mainArg, options);
   };
   
-  p5.RendererGL.prototype._location = function (
+  p5.Renderer3D.prototype._location = function (
     point = p5.Tree.ORIGIN,
     {
       from = p5.Tree.EYE,
@@ -1626,7 +1634,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return point;
   };
   
-  p5.RendererGL.prototype._ndcToScreenLocation = function (point) {
+  p5.Renderer3D.prototype._ndcToScreenLocation = function (point) {
     return new p5.Vector(
       p5.prototype.map(point.x, -1, 1, 0, this.width),
       p5.prototype.map(point.y, -1, 1, 0, this.height),
@@ -1634,7 +1642,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     );
   };
   
-  p5.RendererGL.prototype._screenToNDCLocation = function (point) {
+  p5.Renderer3D.prototype._screenToNDCLocation = function (point) {
     return new p5.Vector(
       p5.prototype.map(point.x, 0, this.width, -1, 1),
       p5.prototype.map(point.y, 0, this.height, -1, 1),
@@ -1642,7 +1650,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     );
   };
   
-  p5.RendererGL.prototype._worldToScreenLocation = function ({
+  p5.Renderer3D.prototype._worldToScreenLocation = function ({
     point = new p5.Vector(0, 0, 0.5),
     pMatrix,
     vMatrix,
@@ -1665,7 +1673,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return new p5.Vector(target[0], target[1], target[2]);
   };
   
-  p5.RendererGL.prototype._screenToWorldLocation = function ({
+  p5.Renderer3D.prototype._screenToWorldLocation = function ({
     point = new p5.Vector(this.width / 2, this.height / 2, 0.5),
     pMatrix,
     vMatrix,
@@ -1695,7 +1703,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   
   fn.mapDirection = function (...args) {
-    return _rendererGL(this)?.mapDirection(...args);
+    return _renderer3D(this)?.mapDirection(...args);
   };
   
   /**
@@ -1710,12 +1718,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pMatrix]
    * @returns {p5.Vector}
    */
-  p5.RendererGL.prototype.mapDirection = function (...args) {
+  p5.Renderer3D.prototype.mapDirection = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree._k, ...args);
     return this._direction(mainArg, options);
   };
   
-  p5.RendererGL.prototype._direction = function (
+  p5.Renderer3D.prototype._direction = function (
     vector = p5.Tree._k,
     {
       from = p5.Tree.EYE,
@@ -1809,7 +1817,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return vector;
   };
   
-  p5.RendererGL.prototype._worldToScreenDirection = function (vector, pMatrix) {
+  p5.Renderer3D.prototype._worldToScreenDirection = function (vector, pMatrix) {
     pMatrix = pMatrix ?? this.pMatrix();
     const eyeVector = this._direction(vector, { from: p5.Tree.WORLD, to: p5.Tree.EYE });
     let dx = eyeVector.x;
@@ -1830,7 +1838,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return new p5.Vector(dx, dy, dz);
   };
   
-  p5.RendererGL.prototype._screenToWorldDirection = function (vector, pMatrix) {
+  p5.Renderer3D.prototype._screenToWorldDirection = function (vector, pMatrix) {
     pMatrix = pMatrix ?? this.pMatrix();
   
     let dx = vector.x;
@@ -1854,11 +1862,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return this._direction(new p5.Vector(dx, dy, dz), { from: p5.Tree.EYE, to: p5.Tree.WORLD });
   };
   
-  p5.RendererGL.prototype._ndcToScreenDirection = function (vector) {
+  p5.Renderer3D.prototype._ndcToScreenDirection = function (vector) {
     return new p5.Vector(this.width * vector.x / 2, this.height * vector.y / 2, vector.z / 2);
   };
   
-  p5.RendererGL.prototype._screenToNDCDirection = function (vector) {
+  p5.Renderer3D.prototype._screenToNDCDirection = function (vector) {
     return new p5.Vector(2 * vector.x / this.width, 2 * vector.y / this.height, 2 * vector.z);
   };
   
@@ -1875,13 +1883,13 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - In orthographic projection, the ratio is constant.
    * - In perspective projection, the ratio depends on eye-space depth.
    *
-   * Requires WEBGL.
+   * Requires 3D renderer.
    *
    * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN] World-space point.
    * @returns {number|undefined} World units per pixel at the given point.
    */
   fn.pixelRatio = function (point) {
-    return _rendererGL(this)?.pixelRatio(point);
+    return _renderer3D(this)?.pixelRatio(point);
   };
   
   /**
@@ -1889,7 +1897,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
    * @returns {number}
    */
-  p5.RendererGL.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
+  p5.Renderer3D.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
     return this.isOrtho()
       ? Math.abs(this.tPlane() - this.bPlane()) / this.height
       : 2 * Math.abs(
@@ -1922,27 +1930,27 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * Returns a pointer position in *pixel* coordinates from an arbitrary (x, y) pair.
-   * Delegates to the WEBGL renderer.
+   * Delegates to the active 3D renderer.
    *
    * Accepts parameters in any order:
    * - `number, number` → pointerX, pointerY
    * - optional `boolean` → `flip`
    *
    * @param  {...(number|boolean)} args
-   * @returns {number[]|undefined} `[x, y]` in pixels, or undefined if not in WEBGL.
+   * @returns {number[]|undefined} `[x, y]` in pixels, or undefined if no 3D renderer is active.
    */
   fn.pointerPosition = function (...args) {
-    return _rendererGL(this)?.pointerPosition(...args);
+    return _renderer3D(this)?.pointerPosition(...args);
   };
 
   /**
    * Returns the canvas resolution in *pixel* coordinates.
-   * Delegates to the WEBGL renderer.
+   * Delegates to the active 3D renderer.
    *
-   * @returns {number[]|undefined} `[width, height]` in pixels, or undefined if not in WEBGL.
+   * @returns {number[]|undefined} `[width, height]` in pixels, or undefined if no 3D renderer is active.
    */
   fn.resolution = function () {
-    return _rendererGL(this)?.resolution();
+    return _renderer3D(this)?.resolution();
   };
 
   /**
@@ -1955,7 +1963,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param  {...(number|boolean)} args
    * @returns {number[]} `[x, y]` in pixels (includes pixelDensity scaling).
    */
-  p5.RendererGL.prototype.pointerPosition = function (...args) {
+  p5.Renderer3D.prototype.pointerPosition = function (...args) {
     let pointerX;
     let pointerY;
     let flip = true;
@@ -1975,7 +1983,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Returns the canvas resolution in *pixel* coordinates.
    * @returns {number[]} `[width, height]` in pixels (includes pixelDensity scaling).
    */
-  p5.RendererGL.prototype.resolution = function () {
+  p5.Renderer3D.prototype.resolution = function () {
     const pd = this.pixelDensity();
     return [pd * this.width, pd * this.height];
   };
@@ -1985,22 +1993,19 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // -------------------------------------------------------------------------
   
   fn.axes = function (opts) {
-    _rendererGL(this)?.axes(opts);
+    _renderer3D(this)?.axes(opts);
     return this;
   };
   
   /**
-   * Draws 3D reference axes (X, Y, Z) centered at the origin in model space.
+   * Draws 3D reference axes (X, Y, Z) centered at the origin in model space,
+   * using the current stroke settings.
    *
    * Each axis can be enabled independently using bitwise flags, and optional
    * axis labels (X, Y, Z) can be rendered near the positive ends.
    *
-   * This is a WEBGL-only utility intended for debugging, teaching, and spatial
-   * orientation. Axes are drawn on the current Z=0 plane using the current
-   * stroke settings.
-   *
    * @method axes
-   * @for p5.RendererGL
+   * @for p5.Renderer3D
    * @param {Object} [opts] Axes options.
    * @param {Number} [opts.size=100] Length of each axis in world units.
    * @param {Array<String>} [opts.colors=['Red','Lime','DodgerBlue']]
@@ -2032,7 +2037,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *         p5.Tree.LABELS
    * });
    */
-  p5.RendererGL.prototype.axes = function ({
+  p5.Renderer3D.prototype.axes = function ({
     size = 100,
     colors = ['Red', 'Lime', 'DodgerBlue'],
     bits = p5.Tree.LABELS | p5.Tree.X | p5.Tree.Y | p5.Tree.Z
@@ -2077,7 +2082,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   fn.grid = function (opts) {
-    _rendererGL(this)?.grid(opts);
+    _renderer3D(this)?.grid(opts);
     return this;
   };
   
@@ -2087,10 +2092,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * The grid is centered at the origin and spans from `-size` to `+size` on both X and Y.
    * It draws `subdivisions + 1` lines in each direction (including the borders).
    *
-   * This is a WEBGL-only utility intended for debugging and spatial reference.
-   *
    * @method grid
-   * @for p5.RendererGL
+   * @for p5.Renderer3D
    * @param {Object} [opts] Grid options.
    * @param {Number} [opts.size=100] Half-extent of the grid in world units.
    * @param {Number} [opts.subdivisions=10] Number of subdivisions per side (must be >= 1).
@@ -2101,7 +2104,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   grid({ size: 300, subdivisions: 20 });
    * }
    */
-  p5.RendererGL.prototype.grid = function ({
+  p5.Renderer3D.prototype.grid = function ({
     size = 100,
     subdivisions = 10
   } = {}) {
@@ -2128,7 +2131,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * `p5.Tree.SCREEN`. In that case, `size` is interpreted in *world units* and
    * converted to pixels using `pixelRatio()` at the corresponding world point.
    *
-   * Requires WEBGL.
+   * Requires 3D renderer.
    *
    * @param {object} [opts]
    * @param {p5.Matrix} [opts.mMatrix] Model-space matrix origin to compute (x, y) from.
@@ -2143,7 +2146,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {boolean|undefined}
    */
   fn.mousePicking = function (opts) {
-    return _rendererGL(this)?.mousePicking(opts);
+    return _renderer3D(this)?.mousePicking(opts);
   };
   
   /**
@@ -2153,16 +2156,16 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * `p5.Tree.SCREEN`. In that case, `size` is interpreted in *world units* and
    * converted to pixels using `pixelRatio()` at the corresponding world point.
    *
-   * Requires WEBGL.
+   * Requires 3D renderer.
    *
    * @param {...any} args
    * @returns {boolean|undefined}
    */
   fn.pointerPicking = function (...args) {
-    return _rendererGL(this)?.pointerPicking(...args);
+    return _renderer3D(this)?.pointerPicking(...args);
   };
   
-  p5.RendererGL.prototype.mousePicking = function ({
+  p5.Renderer3D.prototype.mousePicking = function ({
     mMatrix = this.mMatrix(),
     x,
     y,
@@ -2188,7 +2191,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {...any} args
    * @returns {boolean}
    */
-  p5.RendererGL.prototype.pointerPicking = function (...args) {
+  p5.Renderer3D.prototype.pointerPicking = function (...args) {
     let pointerX;
     let pointerY;
     const config = {};
@@ -2250,7 +2253,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {number} [opts.radius=100] Radius in current space.
    * @param {number} [opts.detail=50] Segment count.
    */
-  p5.RendererGL.prototype._circle = function ({
+  p5.Renderer3D.prototype._circle = function ({
     filled = false,
     x = this.width / 2,
     y = this.height / 2,
@@ -2302,11 +2305,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
    */
   fn.cross = function (opts) {
-    _rendererGL(this)?.cross(opts);
+    _renderer3D(this)?.cross(opts);
     return this;
   };
   
-  p5.RendererGL.prototype.cross = function ({
+  p5.Renderer3D.prototype.cross = function ({
     mMatrix = this.mMatrix(),
     x,
     y,
@@ -2355,11 +2358,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
    */
   fn.bullsEye = function (opts) {
-    _rendererGL(this)?.bullsEye(opts);
+    _renderer3D(this)?.bullsEye(opts);
     return this;
   };
   
-  p5.RendererGL.prototype.bullsEye = function ({
+  p5.Renderer3D.prototype.bullsEye = function ({
     mMatrix = this.mMatrix(),
     x,
     y,
@@ -2406,22 +2409,22 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   
   fn.viewFrustum = function (opts) {
-    _rendererGL(this)?.viewFrustum(opts);
+    _renderer3D(this)?.viewFrustum(opts);
     return this;
   };
   
   /**
-   * Displays a view frustum, either from a pg (p5.Graphics / p5.RendererGL) or from eMatrix/pMatrix.
+   * Displays a view frustum, either from a pg (p5.Graphics / p5.Renderer3D) or from eMatrix/pMatrix.
    *
    * @param {Object} [opts]
    * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] desired view matrix (world -> this eye) for drawing the frustum.
-   * @param {p5.RendererGL|p5.Graphics} [opts.pg] renderer/pg whose frustum is to be displayed.
+   * @param {p5.Renderer3D|p5.Graphics} [opts.pg] renderer/pg whose frustum is to be displayed.
    * @param {p5.Matrix} [opts.eMatrix=pg?.eMatrix()] eye matrix defining frustum pose (eye -> world).
    * @param {p5.Matrix} [opts.pMatrix=pg?.pMatrix()] projection matrix defining frustum projection.
    * @param {number} [opts.bits=p5.Tree.NEAR|p5.Tree.FAR] bitmask (NEAR/FAR/BODY/APEX).
    * @param {Function|false|null} [opts.viewer=...] callback drawn at the frustum origin (in frustum space).
    */
-  p5.RendererGL.prototype.viewFrustum = function ({
+  p5.Renderer3D.prototype.viewFrustum = function ({
     vMatrix = this.vMatrix(),
     pg,
     eMatrix = pg?.eMatrix(),
@@ -2552,7 +2555,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number} One of p5.Tree.VISIBLE, p5.Tree.INVISIBLE, p5.Tree.SEMIVISIBLE.
    */
   fn.visibility = function (...args) {
-    return _rendererGL(this).visibility(...args);
+    return _renderer3D(this).visibility(...args);
   };
   
   /**
@@ -2560,7 +2563,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {Object}
    */
   fn.bounds = function (opts = {}) {
-    return _rendererGL(this).bounds(opts);
+    return _renderer3D(this).bounds(opts);
   };
   
   /**
@@ -2568,7 +2571,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.distanceToBound = function (...args) {
-    return _rendererGL(this).distanceToBound(...args);
+    return _renderer3D(this).distanceToBound(...args);
   };
   
   /**
@@ -2580,7 +2583,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *
    * @private
    */
-  p5.RendererGL.prototype._parseVisibilityArgs = function (...args) {
+  p5.Renderer3D.prototype._parseVisibilityArgs = function (...args) {
     let corner1;
     let corner2;
     let center;
@@ -2649,7 +2652,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {Object} [opts.bounds] Frustum plane equations (defaults to this.bounds()).
    * @returns {number} One of p5.Tree.VISIBLE, p5.Tree.INVISIBLE, p5.Tree.SEMIVISIBLE.
    */
-  p5.RendererGL.prototype.visibility = function (...args) {
+  p5.Renderer3D.prototype.visibility = function (...args) {
     const { corner1, corner2, center, radius, bounds } = this._parseVisibilityArgs(...args);
     const b = bounds ?? this.bounds();
     return center ? (radius ? this._ballVisibility(center, radius, b) : this._pointVisibility(center, b))
@@ -2657,7 +2660,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
         : (console.error('[p5.tree] visibility: could not parse query.'), p5.Tree.INVISIBLE));
   };
   
-  p5.RendererGL.prototype._pointVisibility = function (point, bounds = this.bounds()) {
+  p5.Renderer3D.prototype._pointVisibility = function (point, bounds = this.bounds()) {
     for (const key in bounds) {
       const d = this.distanceToBound(point, key, bounds);
       if (d > 0) return p5.Tree.INVISIBLE;
@@ -2666,7 +2669,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return p5.Tree.VISIBLE;
   };
   
-  p5.RendererGL.prototype._ballVisibility = function (center, radius, bounds = this.bounds()) {
+  p5.Renderer3D.prototype._ballVisibility = function (center, radius, bounds = this.bounds()) {
     let allInForAllPlanes = true;
     for (const key in bounds) {
       const d = this.distanceToBound(center, key, bounds);
@@ -2676,7 +2679,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return allInForAllPlanes ? p5.Tree.VISIBLE : p5.Tree.SEMIVISIBLE;
   };
   
-  p5.RendererGL.prototype._boxVisibility = function (corner1, corner2, bounds = this.bounds()) {
+  p5.Renderer3D.prototype._boxVisibility = function (corner1, corner2, bounds = this.bounds()) {
     const asVec3 = v =>
       v instanceof p5.Vector ? v : new p5.Vector(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
     corner1 = asVec3(corner1);
@@ -2711,7 +2714,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.eMatrix] Eye matrix (eye -> world).
    * @returns {Object} Object keyed by p5.Tree.LEFT/RIGHT/NEAR/FAR/TOP/BOTTOM.
    */
-  p5.RendererGL.prototype.bounds = function ({
+  p5.Renderer3D.prototype.bounds = function ({
     vMatrix,
     eMatrix
   } = {}) {
@@ -2783,7 +2786,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {Object} [bounds] Plane equations (defaults to this.bounds()).
    * @returns {number}
    */
-  p5.RendererGL.prototype.distanceToBound = function (...args) {
+  p5.Renderer3D.prototype.distanceToBound = function (...args) {
     let point;
     let key;
     let bounds = this.bounds();

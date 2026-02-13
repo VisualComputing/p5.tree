@@ -1,7 +1,7 @@
 # p5.tree
 [![npm version](https://img.shields.io/npm/v/p5.tree)](https://www.npmjs.com/package/p5.tree)
 
-Shader development, camera keyframes interpolation and space transformations for [WEBGL](https://p5js.org/reference/#/p5/WEBGL) / WebGPU-ready [p5.js v2](https://beta.p5js.org/).
+Shader development, camera keyframe interpolation, and space transformations for 3D rendering in [p5.js v2](https://beta.p5js.org/) ([WEBGL](https://beta.p5js.org/reference/p5/constants/webgl/) / [WEBGL2](https://beta.p5js.org/reference/p5/constants/webgl2/) / [WebGPU](https://beta.p5js.org/reference/p5/constants/webgpu/)).
 
 ![A non-Euclidean geometry cube with faces showcasing teapot, bunny, and Buddha models.](p5.tree.png)
 
@@ -275,19 +275,19 @@ Debug / teaching primitives for visualizing common 3D concepts:
 
 # Releases
 
-- **Latest (v0.0.3):**  
+- **Latest (v0.0.4):**  
   These links always point to the latest published version on npm.
   - [p5.tree.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js)
   - [p5.tree.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.min.js)
   - [p5.tree.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.esm.js)
   - [npm package](https://www.npmjs.com/package/p5.tree)
 
-- **Current tagged version (v0.0.3):**  
+- **Current tagged version (v0.0.4):**  
   Use these if you want to lock to a specific version.
-  - [p5.tree@0.0.3.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.3/dist/p5.tree.js)
-  - [p5.tree@0.0.3.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.3/dist/p5.tree.min.js)
-  - [p5.tree@0.0.3.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.3/dist/p5.tree.esm.js)
-  - [npm package (v0.0.3)](https://www.npmjs.com/package/p5.tree/v/0.0.3)
+  - [p5.tree@0.0.4.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.4/dist/p5.tree.js)
+  - [p5.tree@0.0.4.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.4/dist/p5.tree.min.js)
+  - [p5.tree@0.0.4.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.4/dist/p5.tree.esm.js)
+  - [npm package (v0.0.4)](https://www.npmjs.com/package/p5.tree/v/0.0.4)
 
 ---
 
