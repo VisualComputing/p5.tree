@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.4
+ * @version 0.05
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.4'),
+    VERSION: CONST('0.05'),
                           
     NONE: CONST(0),
   
@@ -1635,18 +1635,20 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   p5.Renderer3D.prototype._ndcToScreenLocation = function (point) {
-    return new p5.Vector(
-      p5.prototype.map(point.x, -1, 1, 0, this.width),
-      p5.prototype.map(point.y, -1, 1, 0, this.height),
-      p5.prototype.map(point.z, -1, 1, 0, 1)
+    const p = this._pInst;
+    return p.createVector(
+      p.map(point.x, -1, 1, 0, this.width),
+      p.map(point.y, -1, 1, 0, this.height),
+      p.map(point.z, -1, 1, 0, 1)
     );
   };
   
   p5.Renderer3D.prototype._screenToNDCLocation = function (point) {
-    return new p5.Vector(
-      p5.prototype.map(point.x, 0, this.width, -1, 1),
-      p5.prototype.map(point.y, 0, this.height, -1, 1),
-      p5.prototype.map(point.z, 0, 1, -1, 1)
+    const p = this._pInst;
+    return p.createVector(
+      p.map(point.x, 0, this.width, -1, 1),
+      p.map(point.y, 0, this.height, -1, 1),
+      p.map(point.z, 0, 1, -1, 1)
     );
   };
   
@@ -2477,7 +2479,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       this.vertex(_r, _t, f);
       this.vertex(_r, _b, f);
       this.vertex(_l, _b, f);
-      this.endShape(p5.prototype.CLOSE);
+      this.endShape(p.CLOSE);
     } else {
       this.line(_l, _t, f, _r, _t, f);
       this.line(_r, _t, f, _r, _b, f);
@@ -2529,7 +2531,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       this.vertex(r, t, n);
       this.vertex(r, b, n);
       this.vertex(l, b, n);
-      this.endShape(p5.prototype.CLOSE);
+      this.endShape(p.CLOSE);
     } else {
       this.line(l, t, n, r, t, n);
       this.line(r, t, n, r, b, n);
@@ -2807,5 +2809,206 @@ p5.registerAddon((p5, fn, lifecycles) => {
     }
     const eq = bounds[key];
     return p5.Vector.dot(point, new p5.Vector(eq.a, eq.b, eq.c)) - eq.d;
+  };
+  
+  fn.createControls = function (schema = {}, opt = {}) {
+    const p = this;
+    const {
+      x = 0,
+      y = 0,
+      width = 120,
+      offset = 6,
+      color,
+      hidden = false,
+      // Optional: per-control label rendering (default true)
+      labels = true,
+      // Optional: vertical spacing between vec components (default offset)
+      componentOffset
+    } = opt;
+  
+    const _schema = schema || {};
+    const _controls = {};
+    let cursorY = y;
+  
+    const commonStyle = (elt) => {
+      width && elt.style('width', `${width}px`);
+      color && (elt.elt.style.color = color);
+    };
+  
+    const place = (elt, h) => {
+      elt.position(x, cursorY);
+      cursorY += h + offset;
+    };
+  
+    const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  
+    const toFloat = (v, fallback = 0) => {
+      const n = typeof v === 'string' ? parseFloat(v) : v;
+      return isNum(n) ? n : fallback;
+    };
+  
+    const mkLabel = (name) => {
+      const d = p.createDiv(name);
+      d.style('font-family', 'monospace');
+      d.style('font-size', '12px');
+      d.style('line-height', '1');
+      color && (d.elt.style.color = color);
+      place(d, 18);
+      return d;
+    };
+  
+    const mkSlider = (cfg = {}) => {
+      const min = toFloat(cfg.min, 0);
+      const max = toFloat(cfg.max, 1);
+      const isInt = cfg.type === 'int';
+      const step = toFloat(cfg.step, isInt ? 1 : 0.1);
+      const value = toFloat(cfg.value, min);
+      const s = p.createSlider(min, max, value, step);
+      commonStyle(s);
+      return s;
+    };
+  
+    const wrapSingle = ({ elt, value, type }) => {
+      return {
+        type,
+        elt,
+        value,
+        show: () => { elt.show(); },
+        hide: () => { elt.hide(); },
+        remove: () => { elt.remove(); }
+      };
+    };
+  
+    const wrapMany = ({ elts, value, type }) => {
+      return {
+        type,
+        elt: elts,
+        value,
+        show: () => { elts.forEach(e => e.show()); },
+        hide: () => { elts.forEach(e => e.hide()); },
+        remove: () => { elts.forEach(e => e.remove()); }
+      };
+    };
+  
+    const build = (name, cfg = {}) => {
+      const type = cfg.type || 'float';
+      const showLabel = labels && (cfg.label ?? true);
+      showLabel && mkLabel(cfg.name || name);
+      if (type === 'bool') {
+        const checkbox = p.createCheckbox(cfg.text || '', !!cfg.value);
+        commonStyle(checkbox);
+        place(checkbox, 30);
+        return wrapSingle({
+          type,
+          elt: checkbox,
+          value: () => checkbox.checked()
+        });
+      }
+      if (type === 'color') {
+        const picker = p.createColorPicker(cfg.value ?? 'white');
+        commonStyle(picker);
+        place(picker, 40);
+        return wrapSingle({
+          type,
+          elt: picker,
+          value: () => {
+            const c = picker.color();
+            return [
+              p.red(c) / 255,
+              p.green(c) / 255,
+              p.blue(c) / 255,
+              p.alpha(c) / 255
+            ];
+          }
+        });
+      }
+      if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
+        const n = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
+        const v0 = Array.isArray(cfg.value) ? cfg.value : [];
+        const min = toFloat(cfg.min, 0);
+        const max = toFloat(cfg.max, 1);
+        const step = toFloat(cfg.step, 0.01);
+        const cOff = isNum(componentOffset) ? componentOffset : offset;
+        const sliders = [];
+        for (let i = 0; i < n; i++) {
+          const s = p.createSlider(min, max, toFloat(v0[i], min), step);
+          commonStyle(s);
+          // Use per-component spacing (but keep global cursor logic consistent)
+          s.position(x, cursorY);
+          cursorY += 35 + cOff;
+          sliders.push(s);
+        }
+        return wrapMany({
+          type,
+          elts: sliders,
+          value: () => sliders.map(s => toFloat(s.value(), min))
+        });
+      }
+      // float / int (slider)
+      if (type === 'float' || type === 'int') {
+        const s = mkSlider({ ...cfg, type });
+        place(s, 35);
+        return wrapSingle({
+          type,
+          elt: s,
+          value: () => (type === 'int' ? p.int(s.value()) : toFloat(s.value()))
+        });
+      }
+      // fallback: treat unknown types as float slider
+      const s = mkSlider({ ...cfg, type: 'float' });
+      place(s, 35);
+      return wrapSingle({
+        type: 'float',
+        elt: s,
+        value: () => toFloat(s.value())
+      });
+    };
+  
+    // Build all controls
+    for (const name in _schema) {
+      _controls[name] = build(name, _schema[name]);
+    }
+  
+    // Group helpers
+    _controls.show = function () {
+      for (const k in _schema) _controls[k]?.show?.();
+      return _controls;
+    };
+  
+    _controls.hide = function () {
+      for (const k in _schema) _controls[k]?.hide?.();
+      return _controls;
+    };
+  
+    _controls.remove = function () {
+      for (const k in _schema) _controls[k]?.remove?.();
+    };
+  
+    // Convenience for GLSL/WebGPU-style shaders that expose setUniform(name, value)
+    // map[key] can be:
+    // - string: uniform name
+    // - function: (value, key, controls) => mappedValue (uniform name stays key)
+    // - object: { uniform: 'uName', value: (value, key, controls) => mappedValue }
+    _controls.applyTo = function (shader, map = {}) {
+      if (!shader || typeof shader.setUniform !== 'function') return _controls;
+      for (const key in _schema) {
+        const ctrl = _controls[key];
+        if (!ctrl || typeof ctrl.value !== 'function') continue;
+        const m = map[key];
+        const uniform =
+          typeof m === 'string' ? m :
+          m && typeof m === 'object' && typeof m.uniform === 'string' ? m.uniform :
+          key;
+        const raw = ctrl.value();
+        const val =
+          typeof m === 'function' ? m(raw, key, _controls) :
+          m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, _controls) :
+          raw;
+        shader.setUniform(uniform, val);
+      }
+      return _controls;
+    };
+    hidden ? _controls.hide() : _controls.show();
+    return _controls;
   };
 });

@@ -275,19 +275,19 @@ Debug / teaching primitives for visualizing common 3D concepts:
 
 # Releases
 
-- **Latest (v0.0.4):**  
+- **Latest (v0.05):**  
   These links always point to the latest published version on npm.
   - [p5.tree.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js)
   - [p5.tree.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.min.js)
   - [p5.tree.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.esm.js)
   - [npm package](https://www.npmjs.com/package/p5.tree)
 
-- **Current tagged version (v0.0.4):**  
+- **Current tagged version (v0.05):**  
   Use these if you want to lock to a specific version.
-  - [p5.tree@0.0.4.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.4/dist/p5.tree.js)
-  - [p5.tree@0.0.4.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.4/dist/p5.tree.min.js)
-  - [p5.tree@0.0.4.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree@0.0.4/dist/p5.tree.esm.js)
-  - [npm package (v0.0.4)](https://www.npmjs.com/package/p5.tree/v/0.0.4)
+  - [p5.tree@0.05.js (unminified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.05/dist/p5.tree.js)
+  - [p5.tree@0.05.min.js (minified, IIFE)](https://cdn.jsdelivr.net/npm/p5.tree@0.05/dist/p5.tree.min.js)
+  - [p5.tree@0.05.esm.js (ES module)](https://cdn.jsdelivr.net/npm/p5.tree@0.05/dist/p5.tree.esm.js)
+  - [npm package (v0.05)](https://www.npmjs.com/package/p5.tree/v/0.05)
 
 ---
 
