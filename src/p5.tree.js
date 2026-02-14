@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.05
+ * @version 0.0.5
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.05'),
+    VERSION: CONST('0.0.5'),
                           
     NONE: CONST(0),
   
@@ -2813,9 +2813,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
   /**
    * Creates renderer-agnostic UI controls for shader parameters (GLSL/WebGPU/p5.strands).
-   * Core-only: no layout, no styling, no panels. You own presentation.
+   * Core-only + optional default vertical layout (show/hide/config) for 99% use cases.
+   * No panel, no background, no drag, no grouping; you own styling beyond basics.
    *
-   * Types supported (explicit or inferred):
+   * Supported control types (explicit or inferred):
    * - 'float' (slider), 'int' (slider semantics), 'bool' (checkbox), 'color' (color picker)
    * - 'vec2'/'vec3'/'vec4' (multiple sliders), 'select' (dropdown), 'button'
    *
@@ -2827,43 +2828,70 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - string value -> 'color'
    * - otherwise -> 'float'
    *
-   * Returned API:
-   * - ui[name].elt : p5.Element (or Array<p5.Element> for vec*)
-   * - ui[name].value(), ui[name].set(v), ui[name].reset()
-   * - ui.each((name, control) => ...)
-   * - ui.elts() -> flat Array<p5.Element>
-   * - ui.mount(parent) : appends all elements into a p5.Element parent (no positioning)
-   * - ui.values() -> snapshot object of current values
-   * - ui.setValues(obj), ui.reset()
-   * - ui.applyTo(shader, map) : calls shader.setUniform
+   * Labels:
+   * - Per-uniform: enabled by opt.labels (default false). If cfg.label is missing, uses the uniform key name.
+   * - Per-container: opt.title (optional). Rendered above controls when provided.
    *
-   * Usage: GLSL/WebGPU (shader.setUniform)
-   * - ui.applyTo(shader)
-   * - or shader.setUniform('blurIntensity', ui.blurIntensity.value())
+   * Layout:
+   * - Default vertical stacking in a container div (opt.x/opt.y anchor).
+   * - You can ignore layout entirely and style manually via ui.container() and ui[name].elt.
    *
-   * Usage: p5.strands (call inside baseFilterShader().modify(cb))
-   * - const blurIntensity = uniformFloat(() => ui.blurIntensity.value())
-   * - const enabled = uniformBool(() => ui.enabled.value())
+   * @method createUniformUI
+   * @memberof p5
+   * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform name.
+   * @param {Object} [opt={}] Layout/options.
+   * @param {number} [opt.x=0] Container x position.
+   * @param {number} [opt.y=0] Container y position.
+   * @param {number} [opt.width=120] Width for sliders/selects/buttons (applied to each element).
+   * @param {number} [opt.offset=6] Vertical spacing between rows (labels and controls).
+   * @param {string} [opt.color] Text color applied to container (inherits to label text).
+   * @param {boolean} [opt.hidden=false] If true, starts hidden.
+   * @param {boolean} [opt.labels=false] If true, renders per-uniform labels.
+   * @param {string} [opt.title] Optional container title.
+   * @returns {p5.UniformUI} A UniformUI object holding controls and helpers.
+   *
+   * @example
+   * // GLSL/WebGPU (setUniform path)
+   * const ui = createUniformUI({ blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 } }, { x: 10, y: 10, labels: true, title: 'Post FX' });
+   * // later in draw:
+   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value())
+   *
+   * @example
+   * // p5.strands (graph-build callback): read values via closures
+   * function blurCallback () {
+   *   const blurIntensity = uniformFloat(() => ui.blurIntensity.value());
+   *   // ...
+   * }
    */
-  fn.createControls = function (schema = {}, opt = {}) {
+  fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
     const _schema = schema || {};
     const ui = {};
     const _defaults = {};
     const _order = Object.keys(_schema);
-  
+    const _layout = {
+      x: opt.x ?? 0,
+      y: opt.y ?? 0,
+      width: opt.width ?? 120,
+      offset: opt.offset ?? 6,
+      color: opt.color,
+      hidden: !!opt.hidden,
+      labels: !!opt.labels,
+      title: opt.title
+    };
+    let _container = p.createDiv();
+    let _titleElt = null;
+    const _labelElts = {};
     const isBool = v => typeof v === 'boolean';
     const isArr = Array.isArray;
     const isVec = v => isArr(v) && (v.length === 2 || v.length === 3 || v.length === 4);
     const isStr = v => typeof v === 'string';
     const isNum = v => typeof v === 'number' && Number.isFinite(v);
-  
     const toFloat = v => {
       if (isNum(v)) return v;
       const n = typeof v === 'string' ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : 0;
     };
-  
     const inferType = (cfg = {}) => {
       if (cfg.type) return cfg.type;
       if (cfg.options) return 'select';
@@ -2874,32 +2902,20 @@ p5.registerAddon((p5, fn, lifecycles) => {
       if (isStr(v)) return 'color';
       return 'float';
     };
-  
-    const wrap = (type, elt, value, set, reset) => ({
-      type,
-      elt,
-      value,
-      set,
-      reset
-    });
-  
+    const wrap = (type, elt, value, set, reset) => ({ type, elt, value, set, reset });
     const build = (name, cfg = {}) => {
       const type = inferType(cfg);
-  
       const def =
         type === 'vec2' ? (isArr(cfg.value) ? cfg.value.slice(0, 2) : [0, 0]) :
         type === 'vec3' ? (isArr(cfg.value) ? cfg.value.slice(0, 3) : [0, 0, 0]) :
         type === 'vec4' ? (isArr(cfg.value) ? cfg.value.slice(0, 4) : [0, 0, 0, 0]) :
         cfg.value;
-  
       _defaults[name] = def;
-  
       if (type === 'button') {
         const btn = p.createButton(cfg.text || cfg.name || name);
         typeof cfg.onClick === 'function' && btn.mousePressed(() => cfg.onClick(ui, name));
         return wrap('button', btn, () => true, () => {}, () => {});
       }
-  
       if (type === 'select') {
         const sel = p.createSelect();
         (cfg.options || []).forEach(o => {
@@ -2907,41 +2923,20 @@ p5.registerAddon((p5, fn, lifecycles) => {
           else sel.option(String(o), o);
         });
         cfg.value != null && sel.selected(cfg.value);
-        return wrap(
-          'select',
-          sel,
-          () => sel.value(),
-          v => sel.selected(v),
-          () => sel.selected(_defaults[name])
-        );
+        return wrap('select', sel, () => sel.value(), v => sel.selected(v), () => sel.selected(_defaults[name]));
       }
-  
       if (type === 'bool') {
         const cb = p.createCheckbox(cfg.text || '', !!cfg.value);
-        return wrap(
-          'bool',
-          cb,
-          () => cb.checked(),
-          v => cb.checked(!!v),
-          () => cb.checked(!!_defaults[name])
-        );
+        return wrap('bool', cb, () => cb.checked(), v => cb.checked(!!v), () => cb.checked(!!_defaults[name]));
       }
-  
       if (type === 'color') {
         const cp = p.createColorPicker(cfg.value ?? 'white');
         const val = () => {
           const c = cp.color();
           return [p.red(c) / 255, p.green(c) / 255, p.blue(c) / 255, p.alpha(c) / 255];
         };
-        return wrap(
-          'color',
-          cp,
-          val,
-          v => cp.value(v),
-          () => cp.value(_defaults[name] ?? (cfg.value ?? 'white'))
-        );
+        return wrap('color', cp, val, v => cp.value(v), () => cp.value(_defaults[name] ?? (cfg.value ?? 'white')));
       }
-  
       if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
         const n = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
         const min = cfg.min ?? 0;
@@ -2949,9 +2944,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
         const step = cfg.step ?? 0.01;
         const v0 = isArr(cfg.value) ? cfg.value : [];
         const sliders = [];
-        for (let i = 0; i < n; i++) {
-          sliders.push(p.createSlider(min, max, v0[i] ?? min, step));
-        }
+        for (let i = 0; i < n; i++) sliders.push(p.createSlider(min, max, v0[i] ?? min, step));
         const value = () => sliders.map(s => toFloat(s.value()));
         const set = (arr) => {
           const a = isArr(arr) ? arr : [];
@@ -2960,8 +2953,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
         const reset = () => set(_defaults[name]);
         return wrap(type, sliders, value, set, reset);
       }
-  
-      // float/int slider (slider stores float; int semantics are yours)
       const min = cfg.min ?? 0;
       const max = cfg.max ?? 1;
       const step = cfg.step ?? (type === 'int' ? 1 : 0.1);
@@ -2972,14 +2963,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const reset = () => s.value(_defaults[name] ?? value0);
       return wrap(type, s, value, set, reset);
     };
-  
     for (const name of _order) ui[name] = build(name, _schema[name]);
-  
+    /**
+     * Iterate controls in schema order.
+     * @memberof p5.UniformUI
+     * @param {function(string, Object, p5.UniformUI):void} fn (name, control, ui) callback.
+     * @returns {p5.UniformUI} this.
+     */
     ui.each = function (fn) {
       _order.forEach(name => fn(name, ui[name], ui));
       return ui;
     };
-  
+    /**
+     * Returns a flat list of p5.Elements for all controls (vec* expands to multiple elements).
+     * Does not include labels/title (use ui.container() for full DOM access).
+     * @memberof p5.UniformUI
+     * @returns {p5.Element[]} elements.
+     */
     ui.elts = function () {
       const out = [];
       ui.each((name, c) => {
@@ -2988,35 +2988,57 @@ p5.registerAddon((p5, fn, lifecycles) => {
       });
       return out;
     };
-  
-    // Appends all elements into a p5.Element parent (no positioning/styling)
-    ui.mount = function (parent) {
-      if (!parent || typeof parent.child !== 'function') return ui;
-      ui.elts().forEach(e => parent.child(e));
-      return ui;
+    /**
+     * Returns the container p5.Element holding the default layout (title, labels, controls).
+     * You can style it freely (background/padding/border/etc.).
+     * @memberof p5.UniformUI
+     * @returns {p5.Element} container element.
+     */
+    ui.container = function () {
+      return _container;
     };
-  
+    /**
+     * Snapshot current values by uniform key.
+     * @memberof p5.UniformUI
+     * @returns {Object<string, any>} values.
+     */
     ui.values = function () {
       const out = {};
       ui.each((name, c) => { out[name] = c.value(); });
       return out;
     };
-  
+    /**
+     * Set multiple control values by key.
+     * @memberof p5.UniformUI
+     * @param {Object<string, any>} vals values keyed by uniform.
+     * @returns {p5.UniformUI} this.
+     */
     ui.setValues = function (vals = {}) {
       for (const k in vals) ui[k]?.set?.(vals[k]);
       return ui;
     };
-  
+    /**
+     * Reset all controls to their defaults (from schema.value or inferred defaults).
+     * @memberof p5.UniformUI
+     * @returns {p5.UniformUI} this.
+     */
     ui.reset = function () {
       ui.each((name, c) => c.reset && c.reset());
       return ui;
     };
-  
-    // GLSL/WebGPU-style shaders that expose setUniform(name, value)
-    // map[key] can be:
-    // - string: uniform name
-    // - function: (raw, key, ui) => mappedValue (uniform name stays key)
-    // - object: { uniform: 'uName', value: (raw, key, ui) => mappedValue }
+    /**
+     * Apply all control values to a shader exposing setUniform(name, value).
+     * Useful for GLSL/WebGPU shader-like APIs.
+     * @memberof p5.UniformUI
+     * @param {Object} shader An object with setUniform(uniformName, value).
+     * @param {Object<string, (string|function|Object)>} [map={}] Optional mapping per key.
+     * @returns {p5.UniformUI} this.
+     *
+     * @example
+     * ui.applyTo(blurShader);
+     * @example
+     * ui.applyTo(blurShader, { blurIntensity: 'uBlur', tint: { uniform: 'uTint', value: v => v } });
+     */
     ui.applyTo = function (shader, map = {}) {
       if (!shader || typeof shader.setUniform !== 'function') return ui;
       ui.each((key, c) => {
@@ -3034,7 +3056,92 @@ p5.registerAddon((p5, fn, lifecycles) => {
       });
       return ui;
     };
-  
+    /**
+     * Show the entire UI container (and thus title/labels/controls).
+     * @memberof p5.UniformUI
+     * @returns {p5.UniformUI} this.
+     */
+    ui.show = function () {
+      _container && _container.show();
+      return ui;
+    };
+    /**
+     * Hide the entire UI container (and thus title/labels/controls).
+     * @memberof p5.UniformUI
+     * @returns {p5.UniformUI} this.
+     */
+    ui.hide = function () {
+      _container && _container.hide();
+      return ui;
+    };
+    /**
+     * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.
+     * @memberof p5.UniformUI
+     */
+    ui.remove = function () {
+      _container && _container.remove();
+      _container = null;
+      _titleElt = null;
+      for (const k in _labelElts) _labelElts[k] = null;
+    };
+    const _applyWidth = (elt) => {
+      if (!elt) return;
+      const w = _layout.width;
+      if (!(typeof w === 'number' && Number.isFinite(w))) return;
+      elt.style && elt.style('width', `${w}px`);
+    };
+    const _rebuildLayout = () => {
+      if (!_container) _container = p.createDiv();
+      _container.html('');
+      _labelElts && Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
+      _container.position(_layout.x, _layout.y);
+      if (_layout.color) _container.elt.style.color = _layout.color;
+      if (_layout.title) {
+        _titleElt = p.createDiv(_layout.title);
+        _container.child(_titleElt);
+      }
+      ui.each((name, c) => {
+        if (_layout.labels) {
+          const cfg = _schema[name] || {};
+          const text = (cfg.label != null ? cfg.label : name);
+          const lab = p.createDiv(String(text));
+          _labelElts[name] = lab;
+          _container.child(lab);
+        }
+        const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
+        elts.forEach(e => {
+          _applyWidth(e);
+          _container.child(e);
+        });
+      });
+      _container.style('display', 'flex');
+      _container.style('flex-direction', 'column');
+      _container.style('gap', `${_layout.offset}px`);
+      _layout.hidden ? _container.hide() : _container.show();
+    };
+    /**
+     * Configure default layout parameters (position/width/spacing/color/labels/title/hidden) and rebuild layout.
+     * Layout-only: does not change values.
+     * @memberof p5.UniformUI
+     * @param {Object} [next={}] Layout options (same as createUniformUI opt).
+     * @returns {p5.UniformUI} this.
+     *
+     * @example
+     * ui.config({ x: 20, y: 20, labels: true, title: 'Lighting' });
+     */
+    ui.config = function (next = {}) {
+      _layout.x = next.x ?? _layout.x;
+      _layout.y = next.y ?? _layout.y;
+      _layout.width = next.width ?? _layout.width;
+      _layout.offset = next.offset ?? _layout.offset;
+      _layout.color = next.color ?? _layout.color;
+      _layout.hidden = next.hidden ?? _layout.hidden;
+      _layout.labels = next.labels ?? _layout.labels;
+      _layout.title = next.title ?? _layout.title;
+      _rebuildLayout();
+      return ui;
+    };
+    _rebuildLayout();
     return ui;
   };
 });
