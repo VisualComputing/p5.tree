@@ -363,8 +363,6 @@ A lightweight multi-pass post-processing pipeline for `p5.Framebuffer`, `p5.stra
 
 Framebuffers are **lazily allocated and cached**, and automatically released when the sketch is removed.
 
----
-
 ## `pipe`
 
 ```js
@@ -390,8 +388,6 @@ pipe(source, passes, options)
 | `clearDisplayFn` | `clearFn`             | Clear strategy for display stage.                               |
 | `draw`           | full-canvas blit      | Custom draw strategy per pass.                                  |
 
----
-
 ### Basic example
 
 ```js
@@ -406,8 +402,6 @@ pipe(layer, [noiseFilter, pixelFilter, blurFilter], {
 })
 ```
 
----
-
 ### Using multiple independent pipelines
 
 ```js
@@ -416,8 +410,6 @@ pipe(minimapFbo, miniPasses, { key: 'mini', display: false })
 ```
 
 Each `key` maintains its own cached ping/pong pair.
-
----
 
 ### Transparent canvas display
 
@@ -430,8 +422,6 @@ pipe(layer, passes, {
 })
 ```
 
----
-
 ### Custom draw strategy
 
 ```js
@@ -442,16 +432,12 @@ pipe(layer, passes, {
 })
 ```
 
----
-
 ### Behavior notes
 
 * Internal ping/pong buffers are **lazily resized** to match the source.
 * If only one pass is provided and no ping/pong are available, it falls back to `filter()`.
 * When `display: false`, `pipe()` returns the final framebuffer.
 * User-provided `ping/pong` are never stored internally.
-
----
 
 ## `releasePipe`
 
