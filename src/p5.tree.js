@@ -951,10 +951,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
       getState(cam).playing || players.delete(cam);
     });
   };
-
+  
   lifecycles.remove = function () {
     const players = this[PLAYERS_KEY];
     players && players.clear();
+    this.releasePipe(true);
   };
 
   // ----------
@@ -3146,83 +3147,141 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   /**
-   * Apply a chain of post-processing passes.
+   * Pipes a source through one or more post-processing passes (filters), optionally displaying
+   * the final output on the main canvas.
    *
-   * Strands-first: each entry in `passes` is a filter produced by
-   * `baseFilterShader().modify(...)`.
-   *
-   * Multi-pass post needs ping–pong framebuffers (you can’t sample and write to the
-   * same texture in one pass). Provide them via `opt.ping` and `opt.pong` for
-   * user-owned caching.
+   * By default, pipe allocates and caches internal ping/pong framebuffers (keyed) and lazily
+   * resizes them to match the source. Advanced users may override ping/pong explicitly.
    *
    * @method pipe
-   * @memberof p5
-   * @param {p5.Framebuffer|p5.Image|p5.Graphics|any} source Source framebuffer (preferred) or texture-like.
-   * @param {Array<any>} passes Array of post passes (e.g. strands filter shaders).
+   * @for p5
+   * @param {p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics} source Source to process. If a p5.Framebuffer is provided, its .color is used.
+   * @param {Array<*>} [passes=[]] Array of filters (e.g. baseFilterShader().modify(...)). Falsy entries are ignored.
    * @param {Object} [opt={}] Options.
-   * @param {p5.Framebuffer} [opt.ping] Ping framebuffer (user-owned).
-   * @param {p5.Framebuffer} [opt.pong] Pong framebuffer (user-owned).
-   * @param {boolean} [opt.present=true] Whether to draw final output to the main canvas.
-   * @param {boolean} [opt.clear=true] Whether to clear target before each pass.
-   * @param {Function} [opt.draw] Custom drawer: (tex, p) => void. Defaults to screen-space image().
-   * @param {boolean} [opt.allocate=false] If true, allocate missing ping/pong (convenient, but not cache-friendly).
-   * @returns {p5.Framebuffer|null} Final framebuffer when passes are non-empty and ping/pong are provided/allocated; otherwise null.
+   * @param {boolean} [opt.display=true] If true, draw the final output to the main canvas.
+   * @param {boolean} [opt.allocate=true] If true, allocate internal ping/pong when missing (cached per key).
+   * @param {string} [opt.key='default'] Cache key for internal ping/pong (advanced; useful for multiple independent pipelines).
+   * @param {p5.Framebuffer} [opt.ping] Optional user-provided ping framebuffer (advanced override; not cached internally).
+   * @param {p5.Framebuffer} [opt.pong] Optional user-provided pong framebuffer (advanced override; not cached internally).
+   * @param {boolean} [opt.clear=true] If true, clear each ping/pong pass target before drawing into it.
+   * @param {boolean} [opt.clearDisplay=true] If true and opt.display is true, clear the main canvas before drawing final output.
+   * @param {function} [opt.clearFn] Clear strategy for ping/pong passes. Defaults to () => this.background(0).
+   * @param {function} [opt.clearDisplayFn] Clear strategy for display stage. Defaults to opt.clearFn.
+   * @param {function} [opt.draw] Draw strategy used to place the current texture on the current render target. Defaults to full-canvas blit.
+   * @returns {p5.Framebuffer|null} The final framebuffer used (ping or pong) when ping/pong are available; otherwise null.
    */
   fn.pipe = function (source, passes = [], opt = {}) {
     const p = this;
     const _passes = (passes || []).filter(Boolean);
     const _opt = opt || {};
-  
-    const _defaultDraw = (tex) => {
+    const display = _opt.display ?? true;
+    const allocate = _opt.allocate ?? true;
+    const key = _opt.key ?? 'default';
+    const clearPasses = _opt.clear ?? true;
+    const clearDisplay = _opt.clearDisplay ?? true;
+    const defaultClear = () => p.background(0);
+    const clearFn = typeof _opt.clearFn === 'function' ? _opt.clearFn : defaultClear;
+    const clearDisplayFn = typeof _opt.clearDisplayFn === 'function' ? _opt.clearDisplayFn : clearFn;
+    const defaultDraw = (tex) => {
       p.imageMode(p.CORNER);
       p.image(tex, -p.width / 2, -p.height / 2, p.width, p.height);
     };
-  
-    const draw = typeof _opt.draw === 'function' ? _opt.draw : _defaultDraw;
-    const present = _opt.present ?? true;
-    const clear = _opt.clear ?? true;
-    const allocate = _opt.allocate ?? false;
-  
+    const draw = typeof _opt.draw === 'function' ? _opt.draw : defaultDraw;
     const srcTex = source?.color ?? source;
-  
     if (!_passes.length) {
-      present && srcTex && (clear && p.background(0), draw(srcTex));
+      if (display && srcTex) {
+        clearDisplay && clearDisplayFn();
+        draw(srcTex);
+      }
       return null;
     }
-  
-    let ping = _opt.ping;
-    let pong = _opt.pong;
-  
-    if ((!ping || !pong) && allocate) {
-      ping ||= p.createFramebuffer();
-      pong ||= p.createFramebuffer();
+    const sizeFrom = (s) => {
+      const w = s?.width ?? s?.color?.width ?? p.width;
+      const h = s?.height ?? s?.color?.height ?? p.height;
+      return [w, h];
+    };
+    const [w, h] = sizeFrom(source);
+    const ensureSize = (fb) => {
+      fb && (fb.width !== w || fb.height !== h) && fb.resize(w, h);
+    };
+    const applyPassClear = () => {
+      clearPasses && clearFn();
+    };
+    const applyDisplayClear = () => {
+      clearDisplay && clearDisplayFn();
+    };
+    const hasPing = Object.prototype.hasOwnProperty.call(_opt, 'ping');
+    const hasPong = Object.prototype.hasOwnProperty.call(_opt, 'pong');
+    p._tree ||= {};
+    p._tree._pipe ||= {};
+    p._tree._pipe[key] ||= {};
+    const store = p._tree._pipe[key];
+    let ping = hasPing ? _opt.ping : store.ping;
+    let pong = hasPong ? _opt.pong : store.pong;
+    if (allocate) {
+      !ping && !hasPing && (ping = p.createFramebuffer());
+      !pong && !hasPong && (pong = p.createFramebuffer());
+      !hasPing && (store.ping = ping);
+      !hasPong && (store.pong = pong);
     }
-  
+    if (ping && pong) {
+      ensureSize(ping);
+      ensureSize(pong);
+    }
     if (!ping || !pong) {
-      // No buffers to ping–pong; fallback to single-pass if possible.
-      present && srcTex && (clear && p.background(0), draw(srcTex), p.filter(_passes[0]));
+      if (display && srcTex) {
+        applyDisplayClear();
+        draw(srcTex);
+        p.filter(_passes[0]);
+      }
       return null;
     }
-  
     let readTex = srcTex;
     let out = null;
-  
     for (let i = 0; i < _passes.length; i++) {
       const dst = (i % 2 === 0) ? ping : pong;
       dst.begin();
-      clear && p.background(0);
+      applyPassClear();
       draw(readTex);
       p.filter(_passes[i]);
       dst.end();
       readTex = dst.color;
       out = dst;
     }
-  
-    if (present && readTex) {
-      clear && p.background(0);
+    if (display && readTex) {
+      applyDisplayClear();
       draw(readTex);
     }
-  
     return out;
+  };
+  
+  /**
+   * Release internal cached pipe framebuffers created by pipe() when opt.allocate is true.
+   * Does NOT remove user-provided ping/pong passed via opt.ping/opt.pong.
+   *
+   * @method releasePipe
+   * @for p5
+   * @param {string|boolean} [key] If omitted, releases the default key ('default').
+   *                              If a string, releases only that key.
+   *                              If true, releases all keys.
+   */
+  fn.releasePipe = function (key) {
+    const p = this;
+    const store = p._tree?._pipe;
+    if (!store) return;
+    const releasePair = (pair) => {
+      pair?.ping && pair.ping.remove();
+      pair?.pong && pair.pong.remove();
+    };
+    if (key === true) {
+      Object.keys(store).forEach(k => {
+        releasePair(store[k]);
+        delete store[k];
+      });
+      return;
+    }
+    const k = typeof key === 'string' ? key : 'default';
+    releasePair(store[k]);
+    delete store[k];
   };
 });

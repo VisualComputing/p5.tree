@@ -21,6 +21,9 @@ Shader development, camera keyframe interpolation, space transformations, and un
   * [Accessing values](#accessing-values)
   * [Applying to shaders](#applying-to-shaders)
   * [Default panel](#default-panel)
+* [Post-processing](#post-processing)
+  * [pipe](#pipe)
+  * [releasePipe](#releasepipe)
 * [Utilities](#utilities)
 * [Drawing stuff](#drawing-stuff)
 * [Releases](#releases)
@@ -349,6 +352,124 @@ Labels:
 * omitted → uniform key
 * `label: false` → no label
 * `label: 'Custom'` → custom text
+
+---
+
+# Post-processing
+
+A lightweight multi-pass post-processing pipeline for `p5.Framebuffer`, `p5.strands`, and standard WebGL rendering.
+
+`pipe()` lets you chain one or more filter shaders (or strand-based filters), optionally display the result, and reuse internal ping/pong framebuffers efficiently.
+
+Framebuffers are **lazily allocated and cached**, and automatically released when the sketch is removed.
+
+---
+
+## `pipe`
+
+```js
+pipe(source, passes, options)
+```
+
+### Parameters
+
+* `source` → `p5.Framebuffer`, texture, image, or graphics.
+* `passes` → array of filters (e.g. `baseFilterShader().modify(...)`).
+  Falsy entries are ignored.
+* `options` (optional):
+
+| Option           | Default               | Description                                                     |
+| ---------------- | --------------------- | --------------------------------------------------------------- |
+| `display`        | `true`                | Draw final result to the main canvas.                           |
+| `allocate`       | `true`                | Allocate internal ping/pong framebuffers when missing.          |
+| `key`            | `'default'`           | Cache key for internal ping/pong (advanced multi-pipeline use). |
+| `ping`, `pong`   | —                     | User-provided framebuffers (advanced override).                 |
+| `clear`          | `true`                | Clear ping/pong passes before drawing into them.                |
+| `clearDisplay`   | `true`                | Clear canvas before final display.                              |
+| `clearFn`        | `() => background(0)` | Clear strategy for passes.                                      |
+| `clearDisplayFn` | `clearFn`             | Clear strategy for display stage.                               |
+| `draw`           | full-canvas blit      | Custom draw strategy per pass.                                  |
+
+---
+
+### Basic example
+
+```js
+pipe(layer, [noiseFilter, pixelFilter, blurFilter])
+```
+
+Equivalent to:
+
+```js
+pipe(layer, [noiseFilter, pixelFilter, blurFilter], {
+  display: true
+})
+```
+
+---
+
+### Using multiple independent pipelines
+
+```js
+pipe(sceneFbo, scenePasses, { key: 'scene' })
+pipe(minimapFbo, miniPasses, { key: 'mini', display: false })
+```
+
+Each `key` maintains its own cached ping/pong pair.
+
+---
+
+### Transparent canvas display
+
+Opaque passes + transparent final composite:
+
+```js
+pipe(layer, passes, {
+  clearFn: () => background(0),
+  clearDisplayFn: () => clear()
+})
+```
+
+---
+
+### Custom draw strategy
+
+```js
+pipe(layer, passes, {
+  draw: tex => {
+    image(tex, -200, -150, 400, 300)
+  }
+})
+```
+
+---
+
+### Behavior notes
+
+* Internal ping/pong buffers are **lazily resized** to match the source.
+* If only one pass is provided and no ping/pong are available, it falls back to `filter()`.
+* When `display: false`, `pipe()` returns the final framebuffer.
+* User-provided `ping/pong` are never stored internally.
+
+---
+
+## `releasePipe`
+
+Release internally allocated ping/pong framebuffers.
+
+```js
+releasePipe()
+releasePipe('mini')
+releasePipe(true)
+```
+
+| Call                 | Effect                              |
+| -------------------- | ----------------------------------- |
+| `releasePipe()`      | Releases the default pipeline.      |
+| `releasePipe('key')` | Releases a specific keyed pipeline. |
+| `releasePipe(true)`  | Releases **all** cached pipelines.  |
+
+Internal resources are automatically released when the sketch is removed.
 
 ---
 
