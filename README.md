@@ -1,6 +1,6 @@
 # p5.tree
 
-[![npm version](https://img.shields.io/npm/v/p5.tree)](https://www.npmjs.com/package/p5.tree)
+[![npm version](https://img.shields.io/npm/v/p5.tree?color=green)](https://www.npmjs.com/package/p5.tree)
 
 Shader development, camera keyframe interpolation, space transformations, and uniform UI controls for 3D rendering in [p5.js v2](https://beta.p5js.org/) ([WEBGL](https://beta.p5js.org/reference/p5/constants/webgl/) / [WEBGL2](https://beta.p5js.org/reference/p5/constants/webgl2/) / [WebGPU](https://beta.p5js.org/reference/p5/constants/webgpu/)).
 
@@ -346,6 +346,18 @@ ui.hide()
 ui.remove()
 ui.config({ x: 20, y: 20, width: 160, offset: 8 })
 ```
+
+You can mount the UI into a specific container (useful for Vue / Slidev / component setups):
+
+```js
+const ui = createUniformUI(schema, {
+  parent: document.getElementById('sketch'),
+  x: 10,
+  y: 10
+})
+```
+
+When `parent` is provided, `createUniformUI` ensures the container has a proper positioning context so `x/y` anchoring behaves predictably.
 
 Labels:
 
