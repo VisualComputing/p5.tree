@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.6
+ * @version 0.0.7
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.6'),
+    VERSION: CONST('0.0.7'),
                           
     NONE: CONST(0),
   
@@ -2837,6 +2837,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - Default vertical stacking in a container div (opt.x/opt.y anchor).
    * - You can ignore layout entirely and style manually via ui.container() and ui[name].elt.
    *
+   * Parent mounting:
+   * - By default, the container is created via createDiv() and lives under document.body (p5 default).
+   * - If opt.parent is provided (HTMLElement or p5.Element), the container is mounted into that parent.
+   * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed),
+   *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
+   *
    * @method createUniformUI
    * @memberof p5
    * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform name.
@@ -2849,13 +2855,14 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {boolean} [opt.hidden=false] If true, starts hidden.
    * @param {boolean} [opt.labels=false] If true, renders per-uniform labels.
    * @param {string} [opt.title] Optional container title.
+   * @param {(HTMLElement|p5.Element)} [opt.parent] Optional DOM parent to mount the container into.
    * @returns {p5.UniformUI} A UniformUI object holding controls and helpers.
    *
    * @example
    * // GLSL/WebGPU (setUniform path)
    * const ui = createUniformUI({ blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 } }, { x: 10, y: 10, labels: true, title: 'Post FX' });
    * // later in draw:
-   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value())
+   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value());
    *
    * @example
    * // p5.strands (graph-build callback): read values via closures
@@ -2863,6 +2870,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   const blurIntensity = uniformFloat(() => ui.blurIntensity.value());
    *   // ...
    * }
+   *
+   * @example
+   * // Mount into a specific container (e.g. Vue/Slidev component)
+   * const ui = createUniformUI(schema, { parent: document.getElementById('sketch'), x: 10, y: 10, labels: true });
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
@@ -2880,6 +2891,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
       labels: !!opt.labels,
       title: opt.title
     };
+    let _parent = opt.parent;
+    let _parentElt = _parent && (_parent.elt || _parent);
     let _container = p.createDiv();
     let _titleElt = null;
     const _labelElts = {};
@@ -3083,7 +3096,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       _container && _container.remove();
       _container = null;
       _titleElt = null;
-      for (const k in _labelElts) _labelElts[k] = null;
+      Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
     };
     const _applyWidth = (elt) => {
       if (!elt) return;
@@ -3091,15 +3104,29 @@ p5.registerAddon((p5, fn, lifecycles) => {
       if (!(typeof w === 'number' && Number.isFinite(w))) return;
       elt.style && elt.style('width', `${w}px`);
     };
+    const _ensurePositioningContext = (elt) => {
+      if (!elt || typeof getComputedStyle !== 'function') return;
+      const cs = getComputedStyle(elt);
+      if (cs && cs.position === 'static') elt.style.position = 'relative';
+    };
     const _rebuildLayout = () => {
       if (!_container) _container = p.createDiv();
-      _container.html('');
-      _labelElts && Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
-      _container.position(_layout.x, _layout.y);
-      if (_layout.color) _container.elt.style.color = _layout.color;
+      _container.elt && (_container.elt.innerHTML = '');
+      Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
+      if (_parentElt) {
+        try {
+          _ensurePositioningContext(_parentElt);
+          _container.parent(_parentElt);
+        } catch (e) {
+        }
+      }
+      _container && _container.position(_layout.x, _layout.y);
+      _layout.color && _container.elt && _container.elt.style && (_container.elt.style.color = _layout.color);
       if (_layout.title) {
         _titleElt = p.createDiv(_layout.title);
         _container.child(_titleElt);
+      } else {
+        _titleElt = null;
       }
       ui.each((name, c) => {
         if (_layout.labels) {
@@ -3121,14 +3148,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
       _layout.hidden ? _container.hide() : _container.show();
     };
     /**
-     * Configure default layout parameters (position/width/spacing/color/labels/title/hidden) and rebuild layout.
+     * Configure default layout parameters (position/width/spacing/color/labels/title/hidden/parent) and rebuild layout.
      * Layout-only: does not change values.
      * @memberof p5.UniformUI
      * @param {Object} [next={}] Layout options (same as createUniformUI opt).
+     * @param {(HTMLElement|p5.Element)} [next.parent] Optional DOM parent to (re)mount the container into.
      * @returns {p5.UniformUI} this.
      *
      * @example
      * ui.config({ x: 20, y: 20, labels: true, title: 'Lighting' });
+     * @example
+     * ui.config({ parent: document.getElementById('sketch') });
      */
     ui.config = function (next = {}) {
       _layout.x = next.x ?? _layout.x;
@@ -3139,6 +3169,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
       _layout.hidden = next.hidden ?? _layout.hidden;
       _layout.labels = next.labels ?? _layout.labels;
       _layout.title = next.title ?? _layout.title;
+      if (next.parent != null) {
+        _parent = next.parent;
+        _parentElt = _parent && (_parent.elt || _parent);
+      }
       _rebuildLayout();
       return ui;
     };
