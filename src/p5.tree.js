@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.5
+ * @version 0.0.6
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.5'),
+    VERSION: CONST('0.0.6'),
                           
     NONE: CONST(0),
   
@@ -3143,5 +3143,86 @@ p5.registerAddon((p5, fn, lifecycles) => {
     };
     _rebuildLayout();
     return ui;
+  };
+  
+  /**
+   * Apply a chain of post-processing passes.
+   *
+   * Strands-first: each entry in `passes` is a filter produced by
+   * `baseFilterShader().modify(...)`.
+   *
+   * Multi-pass post needs ping–pong framebuffers (you can’t sample and write to the
+   * same texture in one pass). Provide them via `opt.ping` and `opt.pong` for
+   * user-owned caching.
+   *
+   * @method pipe
+   * @memberof p5
+   * @param {p5.Framebuffer|p5.Image|p5.Graphics|any} source Source framebuffer (preferred) or texture-like.
+   * @param {Array<any>} passes Array of post passes (e.g. strands filter shaders).
+   * @param {Object} [opt={}] Options.
+   * @param {p5.Framebuffer} [opt.ping] Ping framebuffer (user-owned).
+   * @param {p5.Framebuffer} [opt.pong] Pong framebuffer (user-owned).
+   * @param {boolean} [opt.present=true] Whether to draw final output to the main canvas.
+   * @param {boolean} [opt.clear=true] Whether to clear target before each pass.
+   * @param {Function} [opt.draw] Custom drawer: (tex, p) => void. Defaults to screen-space image().
+   * @param {boolean} [opt.allocate=false] If true, allocate missing ping/pong (convenient, but not cache-friendly).
+   * @returns {p5.Framebuffer|null} Final framebuffer when passes are non-empty and ping/pong are provided/allocated; otherwise null.
+   */
+  fn.pipe = function (source, passes = [], opt = {}) {
+    const p = this;
+    const _passes = (passes || []).filter(Boolean);
+    const _opt = opt || {};
+  
+    const _defaultDraw = (tex) => {
+      p.imageMode(p.CORNER);
+      p.image(tex, -p.width / 2, -p.height / 2, p.width, p.height);
+    };
+  
+    const draw = typeof _opt.draw === 'function' ? _opt.draw : _defaultDraw;
+    const present = _opt.present ?? true;
+    const clear = _opt.clear ?? true;
+    const allocate = _opt.allocate ?? false;
+  
+    const srcTex = source?.color ?? source;
+  
+    if (!_passes.length) {
+      present && srcTex && (clear && p.background(0), draw(srcTex));
+      return null;
+    }
+  
+    let ping = _opt.ping;
+    let pong = _opt.pong;
+  
+    if ((!ping || !pong) && allocate) {
+      ping ||= p.createFramebuffer();
+      pong ||= p.createFramebuffer();
+    }
+  
+    if (!ping || !pong) {
+      // No buffers to ping–pong; fallback to single-pass if possible.
+      present && srcTex && (clear && p.background(0), draw(srcTex), p.filter(_passes[0]));
+      return null;
+    }
+  
+    let readTex = srcTex;
+    let out = null;
+  
+    for (let i = 0; i < _passes.length; i++) {
+      const dst = (i % 2 === 0) ? ping : pong;
+      dst.begin();
+      clear && p.background(0);
+      draw(readTex);
+      p.filter(_passes[i]);
+      dst.end();
+      readTex = dst.color;
+      out = dst;
+    }
+  
+    if (present && readTex) {
+      clear && p.background(0);
+      draw(readTex);
+    }
+  
+    return out;
   };
 });
