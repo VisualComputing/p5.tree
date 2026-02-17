@@ -41,7 +41,7 @@ let i = iMatrix(matrix)
 // i !== matrix
 ```
 
-Most functions are available both as **p5 helpers** (global-style) and as **renderer methods** (`p5.RendererGL`).
+Most functions are available both as **p5 helpers** (global-style) and as **renderer methods** (`p5.Renderer3D`).
 Camera path methods live on `p5.Camera` and are also exposed as `p5` helpers that forward to the active camera.
 
 Parameters may be provided in any order unless specified otherwise.
