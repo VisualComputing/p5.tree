@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.7
+ * @version 0.0.8
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.7'),
+    VERSION: CONST('0.0.8'),
                           
     NONE: CONST(0),
   
@@ -3190,7 +3190,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @method pipe
    * @for p5
    * @param {p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics} source Source to process. If a p5.Framebuffer is provided, its .color is used.
-   * @param {Array<*>} [passes=[]] Array of filters (e.g. baseFilterShader().modify(...)). Falsy entries are ignored.
+   * @param {*|Array<*>} [passes=[]] Pass or array of passes (e.g. baseFilterShader().modify(...)). Falsy entries are ignored.
    * @param {Object} [opt={}] Options.
    * @param {boolean} [opt.display=true] If true, draw the final output to the main canvas.
    * @param {boolean} [opt.allocate=true] If true, allocate internal ping/pong when missing (cached per key).
@@ -3206,7 +3206,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
    */
   fn.pipe = function (source, passes = [], opt = {}) {
     const p = this;
-    const _passes = (passes || []).filter(Boolean);
+    const _rawPasses = Array.isArray(passes) ? passes : [passes];
+    const _passes = (_rawPasses || []).filter(Boolean);
     const _opt = opt || {};
     const display = _opt.display ?? true;
     const allocate = _opt.allocate ?? true;

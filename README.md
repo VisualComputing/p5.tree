@@ -509,9 +509,9 @@ Latest:
 
 Tagged example:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.7/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.7/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.7/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.7/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.7/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.7/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.esm.js)
 
 ---
 
