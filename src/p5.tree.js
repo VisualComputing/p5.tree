@@ -3187,11 +3187,16 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * By default, pipe allocates and caches internal ping/pong framebuffers (keyed) and lazily
    * resizes them to match the source. Advanced users may override ping/pong explicitly.
    *
+   * Args may be provided in any order (source, pass(es), opt).
+   *
+   * Logical args:
+   * - source: p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics (if a p5.Framebuffer is provided, its .color is used)
+   * - passes: a pass or array of passes (e.g. baseFilterShader().modify(...)); falsy entries ignored
+   * - opt: options object
+   *
    * @method pipe
    * @for p5
-   * @param {p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics} source Source to process. If a p5.Framebuffer is provided, its .color is used.
-   * @param {*|Array<*>} [passes=[]] Pass or array of passes (e.g. baseFilterShader().modify(...)). Falsy entries are ignored.
-   * @param {Object} [opt={}] Options.
+   * @param {...*} args Source, pass(es), and options in any order.
    * @param {boolean} [opt.display=true] If true, draw the final output to the main canvas.
    * @param {boolean} [opt.allocate=true] If true, allocate internal ping/pong when missing (cached per key).
    * @param {string} [opt.key='default'] Cache key for internal ping/pong (advanced; useful for multiple independent pipelines).
@@ -3204,8 +3209,24 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {function} [opt.draw] Draw strategy used to place the current texture on the current render target. Defaults to full-canvas blit.
    * @returns {p5.Framebuffer|null} The final framebuffer used (ping or pong) when ping/pong are available; otherwise null.
    */
-  fn.pipe = function (source, passes = [], opt = {}) {
+  fn.pipe = function (...args) {
     const p = this;
+    let source;
+    let passes = [];
+    let opt = {};
+    args.forEach(arg => {
+      if (Array.isArray(arg) || arg instanceof p5.Shader) {
+        passes = arg;
+      } else if (arg && typeof arg === 'object') {
+        const isFramebuffer = typeof p5.Framebuffer !== 'undefined' && arg instanceof p5.Framebuffer;
+        const isGraphics = arg instanceof p5.Graphics;
+        const isImage = arg instanceof p5.Image;
+        const isTexture = typeof p5.Texture !== 'undefined' && arg instanceof p5.Texture;
+        (isFramebuffer || isGraphics || isImage || isTexture) ? (source = arg) : (opt = arg);
+      } else if (arg) {
+        source = arg;
+      }
+    });
     const _rawPasses = Array.isArray(passes) ? passes : [passes];
     const _passes = (_rawPasses || []).filter(Boolean);
     const _opt = opt || {};

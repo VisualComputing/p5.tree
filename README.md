@@ -1,6 +1,6 @@
 # p5.tree
 
-[![npm version](https://img.shields.io/npm/v/p5.tree?color=green)](https://www.npmjs.com/package/p5.tree)
+[![npm version](https://img.shields.io/npm/v/p5.tree?color=1f6feb)](https://www.npmjs.com/package/p5.tree)
 
 Shader development, camera keyframe interpolation, space transformations, and uniform UI controls for 3D rendering in [p5.js v2](https://beta.p5js.org/) ([WEBGL](https://beta.p5js.org/reference/p5/constants/webgl/) / [WEBGL2](https://beta.p5js.org/reference/p5/constants/webgl2/) / [WebGPU](https://beta.p5js.org/reference/p5/constants/webgpu/)).
 
@@ -384,8 +384,7 @@ pipe(source, passes, options)
 ### Parameters
 
 * `source` → `p5.Framebuffer`, texture, image, or graphics.
-* `passes` → array of filters (e.g. `baseFilterShader().modify(...)`).
-  Falsy entries are ignored.
+* `passes` → an array of filters or a single filter instance (e.g. `baseFilterShader().modify(...)`).
 * `options` (optional):
 
 | Option           | Default               | Description                                                     |
