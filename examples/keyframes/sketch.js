@@ -110,7 +110,6 @@ function drawHud () {
     'Keyframes / Path',
     '  [A] add keyframe (addPath snapshot)',
     '  [I] import [cam0, cam1, cam2] (reset)',
-    '',
     `  [P] play/stop   loop=${pathLoop ? 'on' : 'off'}   rate=${pathRate}`,
     '  [R] resetPath()',
     '  [L] toggle loop',
