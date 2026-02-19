@@ -2,18 +2,32 @@
 
 let font
 
+// reference cameras for quick import
 let cam0, cam1, cam2
 
-let btnImport, btnAddCurrent, btnPlay, btnRev, btnStop, btnResetAll
+// toggles
+let showAxes = true
+let showGrid = true
+
+// camera path UI state (we keep it ourselves; no _renderer access)
+let pathLoop = true
+let pathPlaying = false
+let pathDuration = 45 // frames per segment
+let pathRate = 1
+let pathKeyframes = 0 // we update on add/reset; no introspection
+
+// bulk view-matrix capture/import (stress addPath(view) + addPath(viewBulk))
+let viewBulk = []
+
+// seek slider (DOM)
 let sSeek
 
-async function setup() {
-  font = await loadFont('/fonts/noto_sans.ttf')
-
+async function setup () {
   createCanvas(700, 450, WEBGL)
+  font = await loadFont('/fonts/noto_sans.ttf')
   textFont(font)
 
-  // Three reference cameras (same projection)
+  // three reference cameras (same projection)
   cam0 = createCamera()
   cam0.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
 
@@ -23,59 +37,34 @@ async function setup() {
   cam2 = createCamera()
   cam2.camera(-480, 250, 660, 0, 0, 0, 0, 1, 0)
 
-  // --- UI ----------------------------------------------------
-
-  btnImport = createButton('addPath([cam0, cam1, cam2], reset)')
-  btnImport.mousePressed(() => {
-    addPath([cam0, cam1, cam2], { reset: true })
-    seekPath(0)
-    sSeek.value(0)
-  })
-
-  btnAddCurrent = createButton('addPath() (snapshot)')
-  btnAddCurrent.mousePressed(() => addPath())
-
-  btnPlay = createButton('playPath(loop)')
-  btnPlay.mousePressed(() => playPath({ duration: 45, loop: true, rate: 1 }))
-
-  btnRev = createButton('playPath(reverse)')
-  btnRev.mousePressed(() => playPath({ duration: 45, loop: true, rate: -1 }))
-
-  btnStop = createButton('stopPath()')
-  btnStop.mousePressed(() => stopPath())
-
-  btnResetAll = createButton('resetPath()')
-  btnResetAll.mousePressed(() => {
-    resetPath()
-    seekPath(0)
-    sSeek.value(0)
-  })
+  pathPlaying = false
+  pathKeyframes = 0
+  viewBulk = []
 
   sSeek = createSlider(0, 1, 0, 0.001)
-  sSeek.input(() => seekPath(sSeek.value()))
+  sSeek.input(() => {
+    stopPath()
+    pathPlaying = false
+    seekPath(sSeek.value())
+  })
+  sSeek.position(10, height - 25)
+  sSeek.style('width', '280px')
 
-  // Layout
-  btnImport.position(10, 10)
-  btnAddCurrent.position(10, 40)
-  btnPlay.position(10, 70)
-  btnRev.position(10, 100)
-  btnStop.position(10, 130)
-  btnResetAll.position(10, 160)
-  sSeek.position(10, 200)
-  sSeek.style('width', '260px')
-
-  console.log('p5.Tree.VERSION =', p5.Tree.VERSION)
-  console.log('p5.Tree.EYE =', p5.Tree.EYE)
+  syncSeekUI()
 }
 
-function draw() {
+function draw () {
   background(75)
-
-  // Optional manual inspection (disable if it fights playback)
   orbitControl()
+
+  // hints
+  stroke(180, 90)
+  showGrid && grid({ size: 500, subdivisions: 20 })
+  showAxes && axes({ size: 220 })
 
   // --- Scene -------------------------------------------------
 
+  noStroke()
   ambientLight(120)
   directionalLight(255, 255, 255, 0.25, 0.3, -1)
 
@@ -95,56 +84,212 @@ function draw() {
   push()
   translate(-250, 0, 0)
   normalMaterial()
-  box(140)
-  // torus(70, 22)
+  torus(50, 30)
   pop()
 
   // --- HUD ---------------------------------------------------
 
-  // TODO fix hud with text() (but we do this afterwards)
+  drawHud()
+}
+
+function drawHud () {
+  const pad = 10
+  const panelW = 300
+  const x0 = pad
+  const y0 = pad
+  const lh = 16
+
+  const lines = [
+    'p5.tree keyframes stress test',
+    '',
+    'Hints',
+    `  [G] grid: ${showGrid ? 'on' : 'off'}`,
+    `  [X] axes: ${showAxes ? 'on' : 'off'}`,
+    '',
+    'Keyframes / Path',
+    '  [A] add keyframe (addPath snapshot)',
+    '  [I] import [cam0, cam1, cam2] (reset)',
+    '  [V] push vMatrix() to bulk',
+    '  [B] addPath(viewBulk)',
+    '  [C] clear bulk + resetPath()',
+    '',
+    `  [P] play/stop   loop=${pathLoop ? 'on' : 'off'}   rate=${pathRate}`,
+    '  [R] resetPath()',
+    '  [L] toggle loop',
+    '  [<] reverse rate',
+    '  [>] forward rate',
+    `  duration: ${pathDuration} f/seg`,
+    `  keyframes: ${pathKeyframes}`,
+    `  state: ${pathPlaying ? 'playing' : pathKeyframes === 1 ? 'single keyframe' : 'stopped'}`
+  ]
+
   beginHUD()
-
+  push()
   noStroke()
-  fill(0, 160)
-  rect(10, height - 90, 320, 70, 6)
-
+  fill(0, 180)
+  rect(x0, y0, panelW, pad + lines.length * lh + pad, 8)
   fill(255)
   textSize(12)
-  text(
-    'Camera Path / KeyFrames demo\n' +
-    '• addPath(): snapshot current camera\n' +
-    '• play / reverse / scrub\n' +
-    '• HUD uses beginHUD / endHUD',
-    20,
-    height - 75
-  )
-
+  textAlign(LEFT, TOP)
+  let y = y0 + pad
+  for (let i = 0; i < lines.length; i++) {
+    text(lines[i], x0 + pad, y)
+    y += lh
+  }
+  pop()
   endHUD()
 }
 
-let viewBulk = []
+function syncSeekUI () {
+  if (pathKeyframes < 2) {
+    sSeek && sSeek.hide()
+    return
+  }
+  sSeek && sSeek.show()
+  sSeek.value(constrain(sSeek.value(), 0, 1))
+}
 
-function keyPressed() {
-  key === 'a' && addPath(vMatrix())
+function onPathChanged (opt = {}) {
+  const { keepPose = true } = opt
 
-  key === 'p' && (
-    console.log(mapLocation({ from: p5.Tree.EYE, to: p5.Tree.WORLD }, p5.Tree.ORIGIN)),
-    console.log(mapLocation(p5.Tree.ORIGIN, { from: p5.Tree.EYE, to: p5.Tree.WORLD })),
-    console.log(mapLocation())
-  )
+  // stop playback, but (optionally) keep current camera pose (no seek-to-0)
+  stopPath()
+  pathPlaying = false
 
-  key === 'd' && (
-    console.log(mapDirection({ from: p5.Tree.EYE, to: p5.Tree.WORLD }, p5.Tree._k)),
-    console.log(mapDirection(p5.Tree._k, { from: p5.Tree.EYE, to: p5.Tree.WORLD })),
-    console.log(mapDirection())
-  )
+  // if we want to keep pose, keep slider where it was; otherwise snap to start
+  if (!keepPose) {
+    sSeek && sSeek.value(0)
+    pathKeyframes >= 1 && seekPath(0)
+  }
 
-  key === 'v' && viewBulk.push(vMatrix())
+  syncSeekUI()
+}
 
-  key === 'b' && addPath(viewBulk)
+function keyPressed () {
+  const k = key
 
-  key === 'c' && (
-    viewBulk = [],
+  // hints
+  if (k === 'g' || k === 'G') showGrid = !showGrid
+  if (k === 'x' || k === 'X') showAxes = !showAxes
+
+  // add keyframe snapshot (DO NOT seek to 0)
+  if (k === 'a' || k === 'A') {
+    addPath()
+    pathKeyframes++
+    // keep current pose; if we now have 2 keyframes, initialize slider to end (1)
+    if (pathKeyframes === 2) sSeek && sSeek.value(1)
+    onPathChanged({ keepPose: true })
+  }
+
+  // import 3 reference cameras (reset) -> deterministic: seek to 0 and slider to 0
+  if (k === 'i' || k === 'I') {
+    addPath([cam0, cam1, cam2], { reset: true })
+    pathKeyframes = 3
+    sSeek && sSeek.value(0)
+    onPathChanged({ keepPose: false })
+  }
+
+  // bulk: collect current view matrix
+  if (k === 'v' || k === 'V') {
+    viewBulk.push(vMatrix())
+  }
+
+  // bulk: import the collected views as keyframes (do not seek to 0)
+  if (k === 'b' || k === 'B') {
+    if (viewBulk.length > 0) {
+      addPath(viewBulk)
+      pathKeyframes += viewBulk.length
+      // if we just crossed from <2 to >=2, default slider to end
+      if (pathKeyframes >= 2 && sSeek && sSeek.value() === 0) sSeek.value(1)
+      onPathChanged({ keepPose: true })
+    }
+  }
+
+  // clear bulk and reset path
+  if (k === 'c' || k === 'C') {
+    viewBulk = []
     resetPath()
-  )
+    pathKeyframes = 0
+    sSeek && sSeek.value(0)
+    onPathChanged({ keepPose: false })
+  }
+
+  // loop toggle
+  if (k === 'l' || k === 'L') {
+    pathLoop = !pathLoop
+    if (pathPlaying) {
+      playPath({
+        duration: pathDuration,
+        loop: pathLoop,
+        rate: pathRate,
+        onEnd: () => { pathPlaying = false }
+      })
+    }
+  }
+
+  // forward/back rate quick toggle
+  if (k === '>') {
+    pathRate = 1
+    if (pathPlaying) {
+      playPath({
+        duration: pathDuration,
+        loop: pathLoop,
+        rate: pathRate,
+        onEnd: () => { pathPlaying = false }
+      })
+    }
+  }
+
+  if (k === '<') {
+    pathRate = -1
+    if (pathPlaying) {
+      playPath({
+        duration: pathDuration,
+        loop: pathLoop,
+        rate: pathRate,
+        onEnd: () => { pathPlaying = false }
+      })
+    }
+  }
+
+  // play/stop
+  if (k === 'p' || k === 'P') {
+    if (pathKeyframes === 0) return false
+
+    // 1 keyframe: snap to it; don't enter playing state
+    if (pathKeyframes === 1) {
+      stopPath()
+      pathPlaying = false
+      playPath({ duration: pathDuration, loop: false, rate: 1 })
+      syncSeekUI()
+      return false
+    }
+
+    if (!pathPlaying) {
+      playPath({
+        duration: pathDuration,
+        loop: pathLoop,
+        rate: pathRate,
+        onEnd: () => { pathPlaying = false }
+      })
+      pathPlaying = true
+    } else {
+      stopPath()
+      pathPlaying = false
+    }
+  }
+
+  // reset path
+  if (k === 'r' || k === 'R') {
+    resetPath()
+    pathKeyframes = 0
+    sSeek && sSeek.value(0)
+    onPathChanged({ keepPose: false })
+  }
+
+  return false
+}
+
+function mouseWheel () {
+  return false
 }

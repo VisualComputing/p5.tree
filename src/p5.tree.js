@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.8
+ * @version 0.0.9
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.8'),
+    VERSION: CONST('0.0.9'),
                           
     NONE: CONST(0),
   
@@ -1315,6 +1315,32 @@ p5.registerAddon((p5, fn, lifecycles) => {
     seekGlobal(this, t);
     return this;
   };
+  
+  /**
+   * Returns the normalized playback time of the current path cursor.
+   *
+   * - Range: [0..1]
+   * - If the path has fewer than 2 keyframes, returns 0.
+   * - Pure query: does not move the camera.
+   *
+   * Notes:
+   * - Tracks the internal path cursor (seg/f), not the camera pose if the user
+   *   moves the camera manually after stopping.
+   * - Direction is reflected (reverse playback decreases the value).
+   *
+   * @returns {number}
+   */
+  p5.Camera.prototype.pathTime = function () {
+    const path = ensurePath(this);
+    const nSeg = segmentCount(path);
+    if (nSeg === 0) return 0;
+    const st = getState(this);
+    const dur = Math.max(1, st.duration | 0);
+    const dir = st.rate >= 0 ? 1 : -1;
+    const local = (st.f / dur);
+    const amt = dir > 0 ? local : (1 - local);
+    return clamp01((st.seg + amt) / nSeg);
+  };
 
   // ------------------------------------------------------------
   // p5 wrappers (same names, forward to active camera)
@@ -1348,6 +1374,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const cam = getActiveCamera(this);
     cam && cam.stopPath(...args);
     return this;
+  };
+  
+  fn.pathTime = function () {
+    const cam = getActiveCamera(this);
+    return cam ? cam.pathTime() : 0;
   };
   
   // HUD

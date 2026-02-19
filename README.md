@@ -9,7 +9,7 @@ Shader development, camera keyframe interpolation, space transformations, and un
 * [Keyframes interpolation](#keyframes-interpolation)
   * [Recording keyframes](#recording-keyframes)
   * [Playback](#playback)
-  * [Seek, stop, reset](#seek-stop-reset)
+  * [Seek, stop, reset, time](#seek-stop-reset-time)
 * [Space transformations](#space-transformations)
   * [Matrix operations](#matrix-operations)
   * [Matrix queries](#matrix-queries)
@@ -139,15 +139,21 @@ function setup() {
 > Projection safety: `p5.Camera.slerp()` requires identical projection matrices across keyframes.
 > `p5.tree` checks compatibility while recording.
 
-## Seek, stop, reset
+## Seek, stop, reset, time
 
 ```js
 camera.seekPath(t)   // t ∈ [0, 1]
+camera.pathTime()    // ∈ [0, 1]
 camera.stopPath()
 camera.resetPath()
 ```
 
-Global helpers (`seekPath`, `stopPath`, `resetPath`) forward to the active camera.
+* `seekPath(t)` moves the camera along the path.
+* `pathTime()` returns the current normalized path time.
+* `stopPath()` stops playback.
+* `resetPath()` clears keyframes.
+
+Global helpers (`seekPath`, `pathTime`, `stopPath`, `resetPath`) forward to the active camera.
 
 ---
 
@@ -508,9 +514,9 @@ Latest:
 
 Tagged example:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.8/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.9/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.9/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.9/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.9/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.9/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.9/dist/p5.tree.esm.js)
 
 ---
 
