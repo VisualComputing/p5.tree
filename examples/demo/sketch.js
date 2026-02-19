@@ -131,15 +131,11 @@ async function setup () {
 
   layer = createFramebuffer()
 
-  // left panel: post FX
   ui = createUniformUI({
-    // noise
     frequency: { min: 0, max: 10, value: 0, step: 0.1, label: 'frequency' },
     amplitude: { min: 0, max: 1, value: 0, step: 0.01, label: 'amplitude' },
     speed: { min: 0, max: 1, value: 0, step: 0.01, label: 'speed' },
-    // pixel
     level: { min: 1, max: 900, value: 900, step: 1, label: 'level' },
-    // blur
     blurIntensity: { min: 0, max: 4, value: 0, step: 0.1, label: 'blur' }
   }, {
     x: 10, y: 10, width: 170, labels: true, title: 'Post FX', color: 'white'
@@ -149,12 +145,9 @@ async function setup () {
   pixelFilter = baseFilterShader().modify(pixelCallback)
   blurFilter = baseFilterShader().modify(blurCallback)
 
-  // explicit scene camera (THIS is the one we animate)
   sceneCam = createCamera()
   sceneCam.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
-  setCamera(sceneCam)
 
-  // reference cameras for quick import (same projection)
   cam0 = createCamera()
   cam0.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
 
@@ -167,7 +160,6 @@ async function setup () {
   pathPlaying = false
   pathKeyframes = 0
 
-  // seek slider (bottom-left)
   sSeek = createSlider(0, 1, 0, 0.001)
   sSeek.input(() => {
     sceneCam.stopPath()
@@ -179,7 +171,6 @@ async function setup () {
 
   syncSeekUI()
 
-  // keep key commands working even if UI inputs are focused
   window.addEventListener('keydown', (e) => {
     const el = document.activeElement
     const tag = el && el.tagName
@@ -188,7 +179,6 @@ async function setup () {
     if (handleKey(e.key)) e.preventDefault()
   }, true)
 
-  // scene models
   const trange = 200
   models = []
   for (let i = 0; i < 50; i++) {
@@ -210,18 +200,12 @@ async function setup () {
 function draw () {
   background(10)
 
-  // ensure the real scene camera is active every frame (robust across FBO passes)
-  setCamera(sceneCam)
-
-  // keep seek slider synced to playback cursor
   if (pathKeyframes >= 2 && pathPlaying) {
     sSeek.value(sceneCam.pathTime())
   }
 
-  // render scene into layer (color + depth)
+  // 1) render 3D scene into framebuffer using sceneCam
   layer.begin()
-
-  // layer.begin may mess with the active camera, reassert it inside
   setCamera(sceneCam)
 
   background(0)
@@ -257,10 +241,15 @@ function draw () {
 
   layer.end()
 
-  // display post FX
+  // 2) present post FX in screen space (HUD), so it doesn't become a 3D plane
+  beginHUD()
+  push()
+  translate(width / 2, height / 2)
   pipe(layer, [noiseFilter, pixelFilter, blurFilter])
+  pop()
+  endHUD()
 
-  // right panel HUD
+  // 3) draw right panel HUD text
   drawHud()
 }
 
