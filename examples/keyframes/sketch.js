@@ -16,9 +16,6 @@ let pathDuration = 45 // frames per segment
 let pathRate = 1
 let pathKeyframes = 0 // we update on add/reset; no introspection
 
-// bulk view-matrix capture/import (stress addPath(view) + addPath(viewBulk))
-let viewBulk = []
-
 // seek slider (DOM)
 let sSeek
 
@@ -39,7 +36,6 @@ async function setup () {
 
   pathPlaying = false
   pathKeyframes = 0
-  viewBulk = []
 
   sSeek = createSlider(0, 1, 0, 0.001)
   sSeek.input(() => {
@@ -56,6 +52,11 @@ async function setup () {
 function draw () {
   background(75)
   orbitControl()
+
+  // keep slider synced to playback cursor (no drag tracking needed because scrubbing stops playback)
+  if (pathKeyframes >= 2 && pathPlaying) {
+    sSeek.value(pathTime())
+  }
 
   // hints
   stroke(180, 90)
@@ -109,9 +110,6 @@ function drawHud () {
     'Keyframes / Path',
     '  [A] add keyframe (addPath snapshot)',
     '  [I] import [cam0, cam1, cam2] (reset)',
-    '  [V] push vMatrix() to bulk',
-    '  [B] addPath(viewBulk)',
-    '  [C] clear bulk + resetPath()',
     '',
     `  [P] play/stop   loop=${pathLoop ? 'on' : 'off'}   rate=${pathRate}`,
     '  [R] resetPath()',
@@ -152,11 +150,9 @@ function syncSeekUI () {
 function onPathChanged (opt = {}) {
   const { keepPose = true } = opt
 
-  // stop playback, but (optionally) keep current camera pose (no seek-to-0)
   stopPath()
   pathPlaying = false
 
-  // if we want to keep pose, keep slider where it was; otherwise snap to start
   if (!keepPose) {
     sSeek && sSeek.value(0)
     pathKeyframes >= 1 && seekPath(0)
@@ -176,7 +172,6 @@ function keyPressed () {
   if (k === 'a' || k === 'A') {
     addPath()
     pathKeyframes++
-    // keep current pose; if we now have 2 keyframes, initialize slider to end (1)
     if (pathKeyframes === 2) sSeek && sSeek.value(1)
     onPathChanged({ keepPose: true })
   }
@@ -189,31 +184,6 @@ function keyPressed () {
     onPathChanged({ keepPose: false })
   }
 
-  // bulk: collect current view matrix
-  if (k === 'v' || k === 'V') {
-    viewBulk.push(vMatrix())
-  }
-
-  // bulk: import the collected views as keyframes (do not seek to 0)
-  if (k === 'b' || k === 'B') {
-    if (viewBulk.length > 0) {
-      addPath(viewBulk)
-      pathKeyframes += viewBulk.length
-      // if we just crossed from <2 to >=2, default slider to end
-      if (pathKeyframes >= 2 && sSeek && sSeek.value() === 0) sSeek.value(1)
-      onPathChanged({ keepPose: true })
-    }
-  }
-
-  // clear bulk and reset path
-  if (k === 'c' || k === 'C') {
-    viewBulk = []
-    resetPath()
-    pathKeyframes = 0
-    sSeek && sSeek.value(0)
-    onPathChanged({ keepPose: false })
-  }
-
   // loop toggle
   if (k === 'l' || k === 'L') {
     pathLoop = !pathLoop
@@ -222,7 +192,7 @@ function keyPressed () {
         duration: pathDuration,
         loop: pathLoop,
         rate: pathRate,
-        onEnd: () => { pathPlaying = false }
+        onEnd: () => { pathPlaying = false; sSeek.value(pathTime()); }
       })
     }
   }
@@ -235,7 +205,7 @@ function keyPressed () {
         duration: pathDuration,
         loop: pathLoop,
         rate: pathRate,
-        onEnd: () => { pathPlaying = false }
+        onEnd: () => { pathPlaying = false; sSeek.value(pathTime()); }
       })
     }
   }
@@ -247,7 +217,7 @@ function keyPressed () {
         duration: pathDuration,
         loop: pathLoop,
         rate: pathRate,
-        onEnd: () => { pathPlaying = false }
+        onEnd: () => { pathPlaying = false; sSeek.value(pathTime()); }
       })
     }
   }
@@ -270,7 +240,7 @@ function keyPressed () {
         duration: pathDuration,
         loop: pathLoop,
         rate: pathRate,
-        onEnd: () => { pathPlaying = false }
+        onEnd: () => { pathPlaying = false; sSeek.value(pathTime()); }
       })
       pathPlaying = true
     } else {

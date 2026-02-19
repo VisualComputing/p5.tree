@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.9
+ * @version 0.0.10
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.9'),
+    VERSION: CONST('0.0.10'),
                           
     NONE: CONST(0),
   
@@ -1336,7 +1336,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (nSeg === 0) return 0;
     const st = getState(this);
     const dur = Math.max(1, st.duration | 0);
-    const dir = st.rate >= 0 ? 1 : -1;
+    const dir = (st.playing && st.rate < 0) ? -1 : 1;
     const local = (st.f / dur);
     const amt = dir > 0 ? local : (1 - local);
     return clamp01((st.seg + amt) / nSeg);
