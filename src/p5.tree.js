@@ -107,14 +107,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   /**
    * @private
-   * Returns the active 3D renderer (WEBGL or WEBGPU) or undefined.
+   * Returns the active 3D renderer (WEBGL or WEBGPU) if available.
    * @param {p5} pInst - The p5 instance.
-   * @returns {p5.Renderer3D|undefined} The active 3D renderer if available.
+   * @returns {p5.Renderer3D|undefined}
    */
-  const _renderer3D = function (pInst) {
-    const r = pInst?._renderer;
-    return r instanceof p5.Renderer3D ? r : undefined;
-  };
+  const _renderer3D = pInst => pInst?._renderer instanceof p5.Renderer3D ? pInst._renderer : undefined;
 
   // ---------------------------------------------------------------------------
   // p5.Matrix operations (immutable)
@@ -273,12 +270,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
 
   /**
-   * Returns the current view matrix (world -> camera) (immutable copy).
-   * Prefers the renderer cached view matrix when available.
+   * Returns the current view matrix (world → camera) as an immutable copy.
    * @returns {p5.Matrix}
    */
   p5.Renderer3D.prototype.vMatrix = function () {
-    return (this.states.uViewMatrix || this.states.curCamera.cameraMatrix).clone();
+    return this.states.curCamera.vMatrix();
   };
 
   /**
@@ -295,7 +291,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   p5.Renderer3D.prototype.eMatrix = function () {
-    return _invert(this.states.uViewMatrix || this.states.curCamera.cameraMatrix);
+    return this.states.curCamera.eMatrix();
   };
 
   /**
@@ -375,20 +371,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
   fn.dMatrix = function (opts = {}) {
     return _renderer3D(this).dMatrix(opts);
   };
-
+  
   /**
    * mvMatrix({ vMatrix, mMatrix }):
    * ModelView matrix (mat4) = M * V (p5-v2 convention).
    * @param {object} [opts]
-   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] View matrix.
-   * @param {p5.Matrix} [opts.mMatrix=this.mMatrix()] Model matrix.
+   * @param {p5.Matrix} [opts.vMatrix] View matrix override.
+   * @param {p5.Matrix} [opts.mMatrix] Model matrix override.
    * @returns {p5.Matrix}
    */
-  p5.Renderer3D.prototype.mvMatrix = function ({
-    vMatrix = this.vMatrix(),
-    mMatrix
-  } = {}) {
-    return (mMatrix || this.states.uModelMatrix).clone().mult(vMatrix);
+  p5.Renderer3D.prototype.mvMatrix = function ({ vMatrix, mMatrix } = {}) {
+    return (mMatrix || this.states.uModelMatrix).clone().mult(vMatrix || this.states.curCamera.cameraMatrix);
   };
 
   /**
@@ -612,7 +605,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Renderer3D.prototype.nPlane = function () {
-    return this.pMatrix().nPlane();
+    return this.states.uPMatrix.nPlane();
   };
 
   /**
@@ -620,7 +613,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Renderer3D.prototype.fPlane = function () {
-    return this.pMatrix().fPlane();
+    return this.states.uPMatrix.fPlane();
   };
 
   /**
@@ -628,7 +621,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Renderer3D.prototype.lPlane = function () {
-    return this.pMatrix().lPlane();
+    return this.states.uPMatrix.lPlane();
   };
 
   /**
@@ -636,7 +629,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Renderer3D.prototype.rPlane = function () {
-    return this.pMatrix().rPlane();
+    return this.states.uPMatrix.rPlane();
   };
 
   /**
@@ -644,7 +637,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Renderer3D.prototype.tPlane = function () {
-    return this.pMatrix().tPlane();
+    return this.states.uPMatrix.tPlane();
   };
 
   /**
@@ -652,7 +645,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Renderer3D.prototype.bPlane = function () {
-    return this.pMatrix().bPlane();
+    return this.states.uPMatrix.bPlane();
   };
 
   /**
@@ -738,7 +731,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number|undefined}
    */
   p5.Renderer3D.prototype.fov = function () {
-    return this.pMatrix().fov();
+    return this.states.uPMatrix.fov();
   };
 
   /**
@@ -746,7 +739,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number|undefined}
    */
   p5.Renderer3D.prototype.hfov = function () {
-    return this.pMatrix().hfov();
+    return this.states.uPMatrix.hfov();
   };
 
   /**
@@ -819,22 +812,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       (r && (r._curCamera || r.curCamera || r._camera)) || // fallbacks
       undefined
     );
-  };
-
-  /**
-   * Build a stable projection signature from camera.projMatrix.mat4.
-   * Returns undefined if unavailable (in which case we warn and do not reject).
-   */
-  const projSig = function (cam) {
-    const pm = cam && cam.projMatrix;
-    const m = pm && pm.mat4;
-    if (!m || m.length !== 16) return undefined;
-    let s = '';
-    for (let i = 0; i < 16; i++) {
-      const v = Math.round(m[i] * 1e6) / 1e6;
-      s += (i ? ',' : '') + v;
-    }
-    return s;
   };
 
   /**
@@ -3027,7 +3004,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
      */
     ui.elts = function () {
       const out = [];
-      ui.each((name, c) => {
+      ui.each((_, c) => {
         if (!c || !c.elt) return;
         Array.isArray(c.elt) ? c.elt.forEach(e => out.push(e)) : out.push(c.elt);
       });
@@ -3068,7 +3045,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
      * @returns {p5.UniformUI} this.
      */
     ui.reset = function () {
-      ui.each((name, c) => c.reset && c.reset());
+      ui.each((_, c) => c.reset && c.reset());
       return ui;
     };
     /**
