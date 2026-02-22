@@ -9,10 +9,10 @@ let blurFilter, pixelFilter, noiseFilter
 
 let font
 
-// explicit scene camera (the one we animate)
+// explicit scene camera (the one we animate) — MUST belong to the framebuffer renderer
 let sceneCam
 
-// reference cameras for quick import
+// reference cameras for quick import — keep them in the same renderer (framebuffer)
 let cam0, cam1, cam2
 
 // toggles
@@ -131,6 +131,20 @@ async function setup () {
 
   layer = createFramebuffer()
 
+  // IMPORTANT: framebuffer cameras must be created between begin()/end()
+  layer.begin()
+  sceneCam = layer.createCamera()
+  cam0 = layer.createCamera()
+  cam1 = layer.createCamera()
+  cam2 = layer.createCamera()
+  layer.end()
+
+  // initialize camera poses (all of these cameras live in the framebuffer renderer)
+  sceneCam.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
+  cam0.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
+  cam1.camera(420, -200, 720, 0, 0, 0, 0, 1, 0)
+  cam2.camera(-480, 250, 660, 0, 0, 0, 0, 1, 0)
+
   ui = createUniformUI({
     frequency: { min: 0, max: 10, value: 0, step: 0.1, label: 'frequency' },
     amplitude: { min: 0, max: 1, value: 0, step: 0.01, label: 'amplitude' },
@@ -144,18 +158,6 @@ async function setup () {
   noiseFilter = baseFilterShader().modify(noiseCallback)
   pixelFilter = baseFilterShader().modify(pixelCallback)
   blurFilter = baseFilterShader().modify(blurCallback)
-
-  sceneCam = createCamera()
-  sceneCam.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
-
-  cam0 = createCamera()
-  cam0.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
-
-  cam1 = createCamera()
-  cam1.camera(420, -200, 720, 0, 0, 0, 0, 1, 0)
-
-  cam2 = createCamera()
-  cam2.camera(-480, 250, 660, 0, 0, 0, 0, 1, 0)
 
   pathPlaying = false
   pathKeyframes = 0
@@ -204,9 +206,10 @@ function draw () {
     sSeek.value(sceneCam.pathTime())
   }
 
-  // 1) render 3D scene into framebuffer using sceneCam
+  // 1) render 3D scene into framebuffer using framebuffer-owned sceneCam
   layer.begin()
   setCamera(sceneCam)
+  resetMatrix()
 
   background(0)
 
@@ -242,14 +245,7 @@ function draw () {
   layer.end()
 
   // 2) present post FX in screen space (HUD), so it doesn't become a 3D plane
-  beginHUD()
-  push()
-  translate(width / 2, height / 2)
   pipe(layer, [noiseFilter, pixelFilter, blurFilter])
-  pop()
-  endHUD()
-
-  // 3) draw right panel HUD text
   drawHud()
 }
 
