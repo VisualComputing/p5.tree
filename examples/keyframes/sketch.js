@@ -195,6 +195,11 @@ function keyPressed () {
       })
     }
   }
+  
+  // info
+  if (k === 'n' || k === 'N') {
+    console.log(pathInfo())
+  }
 
   // forward/back rate quick toggle
   if (k === '>') {

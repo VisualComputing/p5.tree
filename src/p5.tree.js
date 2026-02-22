@@ -752,9 +752,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return this._renderer.hfov();
   };
 
-  // --- private keys (shared internal state across protos) ---
-  const STATE_KEY = Symbol.for('tree.camera.path.state');
-  const PLAYERS_KEY = Symbol.for('tree.camera.path.players');
+  // --- private storage (WeakMap avoids mutating p5/p5.Camera instances) ---
+  const PATH_STATE = new WeakMap();
+  const PATH_PLAYERS = new WeakMap();
 
   const clamp01 = function (x) {
     return x < 0 ? 0 : (x > 1 ? 1 : x);
@@ -778,7 +778,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
 
   const getState = function (cam) {
-    cam[STATE_KEY] || (cam[STATE_KEY] = {
+    let st = PATH_STATE.get(cam);
+    if (!st) {
+      st = {
       playing: false,
       loop: false,
       pingPong: false,
@@ -788,14 +790,19 @@ p5.registerAddon((p5, fn, lifecycles) => {
       seg: 0,
       f: 0,
       pathIsOrtho: undefined
-    });
-    return cam[STATE_KEY];
+      };
+      PATH_STATE.set(cam, st);
+    }
+    return st;
   };
-
-  // TODO requires improvement to fix paths in pipe
+  
   const getPlayers = function (pInst) {
-    pInst[PLAYERS_KEY] || (pInst[PLAYERS_KEY] = new Set());
-    return pInst[PLAYERS_KEY];
+    let players = PATH_PLAYERS.get(pInst);
+    if (!players) {
+      players = new Set();
+      PATH_PLAYERS.set(pInst, players);
+    }
+    return players;
   };
 
   /**
@@ -920,7 +927,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   lifecycles.remove = function () {
-    const players = this[PLAYERS_KEY];
+    const players = PATH_PLAYERS.get(this);
     players && players.clear();
     this.releasePipe(true);
   };
@@ -1308,6 +1315,41 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const amt = dir > 0 ? local : (1 - local);
     return clamp01((st.seg + amt) / nSeg);
   };
+  
+  /**
+   * Returns a snapshot of the current path playback state for this camera.
+   * This is a pure query: it does not expose the internal path array
+   * nor allow mutation of internal state.
+   *
+   * Returned object fields:
+   * - keyframes {number} Total keyframes in path.
+   * - segments {number} Total segments (keyframes - 1).
+   * - playing {boolean} Whether playback is active.
+   * - loop {boolean} Whether looping is enabled.
+   * - pingPong {boolean} Whether ping-pong mode is enabled.
+   * - rate {number} Playback rate (signed).
+   * - duration {number} Frames per segment.
+   * - time {number} Normalized time in [0,1] across entire path.
+   *
+   * @method pathInfo
+   * @return {Object} Immutable snapshot of path state.
+   */
+  p5.Camera.prototype.pathInfo = function () {
+    const path = ensurePath(this);
+    const st = getState(this);
+    const keyframes = path.length;
+    const segments = keyframes > 0 ? keyframes - 1 : 0;
+    return {
+      keyframes,
+      segments,
+      playing: st.playing,
+      loop: st.loop,
+      pingPong: st.pingPong,
+      rate: st.rate,
+      duration: st.duration,
+      time: segments > 0 ? this.pathTime() : 0
+    };
+  };
 
   // ------------------------------------------------------------
   // p5 wrappers (same names, forward to active camera)
@@ -1345,7 +1387,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
   
   fn.pathTime = function () {
     const cam = this._renderer.states.curCamera;
-    return cam ? cam.pathTime() : 0;
+    return cam && cam.pathTime();
+  };
+  
+  fn.pathInfo = function () {
+    const cam = this._renderer.states.curCamera;
+    return cam && cam.pathInfo();
   };
   
   // HUD
