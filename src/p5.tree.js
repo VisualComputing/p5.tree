@@ -772,6 +772,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
     cam.path || (cam.path = []);
     return cam.path;
   };
+  
+  const EMPTY_PATH = [];
+
+  const peekPath = function (cam) {
+    return cam.path || EMPTY_PATH;
+  };
 
   const segmentCount = function (path) {
     return Math.max(0, path.length - 1);
@@ -1305,7 +1311,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   p5.Camera.prototype.pathTime = function () {
-    const path = ensurePath(this);
+    const path = peekPath(this);
     const nSeg = segmentCount(path);
     if (nSeg === 0) return 0;
     const st = getState(this);
@@ -1335,7 +1341,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @return {Object} Immutable snapshot of path state.
    */
   p5.Camera.prototype.pathInfo = function () {
-    const path = ensurePath(this);
+    const path = peekPath(this);
     const st = getState(this);
     const keyframes = path.length;
     const segments = keyframes > 0 ? keyframes - 1 : 0;
