@@ -101,17 +101,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
   });
   
   // ---------------------------------------------------------------------------
-  // Matrix queries (p5.treegl -> p5.tree, p5-v2)
+  // Matrix queries
   // Rely on p5-v2, minimal safeties, cache-friendly.
   // ---------------------------------------------------------------------------
-
-  /**
-   * @private
-   * Returns the active 3D renderer (WEBGL or WEBGPU) if available.
-   * @param {p5} pInst - The p5 instance.
-   * @returns {p5.Renderer3D|undefined}
-   */
-  const _renderer3D = pInst => pInst?._renderer instanceof p5.Renderer3D ? pInst._renderer : undefined;
 
   // ---------------------------------------------------------------------------
   // p5.Matrix operations (immutable)
@@ -233,7 +225,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.pMatrix = function () {
-    return _renderer3D(this).pMatrix();
+    return this._renderer.pMatrix();
   };
 
   /**
@@ -250,7 +242,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.mMatrix = function () {
-    return _renderer3D(this).mMatrix();
+    return this._renderer.mMatrix();
   };
 
   /**
@@ -283,7 +275,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.vMatrix = function () {
-    return _renderer3D(this).vMatrix();
+    return this._renderer.vMatrix();
   };
 
   /**
@@ -300,7 +292,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.eMatrix = function () {
-    return _renderer3D(this).eMatrix();
+    return this._renderer.eMatrix();
   };
 
   /**
@@ -329,7 +321,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.lMatrix = function (opts = {}) {
-    return _renderer3D(this).lMatrix(opts);
+    return this._renderer.lMatrix(opts);
   };
 
   /**
@@ -369,7 +361,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix} mat3
    */
   fn.dMatrix = function (opts = {}) {
-    return _renderer3D(this).dMatrix(opts);
+    return this._renderer.dMatrix(opts);
   };
   
   /**
@@ -394,7 +386,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.mvMatrix = function (opts = {}) {
-    return _renderer3D(this).mvMatrix(opts);
+    return this._renderer.mvMatrix(opts);
   };
 
   /**
@@ -425,7 +417,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix} mat3
    */
   fn.nMatrix = function (opts = {}) {
-    return _renderer3D(this).nMatrix(opts);
+    return this._renderer.nMatrix(opts);
   };
 
   /**
@@ -459,7 +451,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.pmvMatrix = function (opts = {}) {
-    return _renderer3D(this).pmvMatrix(opts);
+    return this._renderer.pmvMatrix(opts);
   };
 
   /**
@@ -487,7 +479,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.pvMatrix = function (opts = {}) {
-    return _renderer3D(this).pvMatrix(opts);
+    return this._renderer.pvMatrix(opts);
   };
   
   /**
@@ -514,7 +506,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {p5.Matrix}
    */
   fn.ipvMatrix = function (opts = {}) {
-    return _renderer3D(this).ipvMatrix(opts);
+    return this._renderer.ipvMatrix(opts);
   };
 
   // ---------------------------------------------------------------------------
@@ -543,7 +535,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {boolean}
    */
   fn.isOrtho = function () {
-    return _renderer3D(this).isOrtho();
+    return this._renderer.isOrtho();
   };
 
   /**
@@ -654,7 +646,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.nPlane = function () {
-    return _renderer3D(this).nPlane();
+    return this._renderer.nPlane();
   };
 
   /**
@@ -663,7 +655,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.fPlane = function () {
-    return _renderer3D(this).fPlane();
+    return this._renderer.fPlane();
   };
 
   /**
@@ -672,7 +664,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.lPlane = function () {
-    return _renderer3D(this).lPlane();
+    return this._renderer.lPlane();
   };
 
   /**
@@ -681,7 +673,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.rPlane = function () {
-    return _renderer3D(this).rPlane();
+    return this._renderer.rPlane();
   };
 
   /**
@@ -690,7 +682,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.tPlane = function () {
-    return _renderer3D(this).tPlane();
+    return this._renderer.tPlane();
   };
 
   /**
@@ -699,7 +691,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.bPlane = function () {
-    return _renderer3D(this).bPlane();
+    return this._renderer.bPlane();
   };
 
   /**
@@ -748,7 +740,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number|undefined}
    */
   fn.fov = function () {
-    return _renderer3D(this).fov();
+    return this._renderer.fov();
   };
 
   /**
@@ -757,7 +749,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number|undefined}
    */
   fn.hfov = function () {
-    return _renderer3D(this).hfov();
+    return this._renderer.hfov();
   };
 
   // --- private keys (shared internal state across protos) ---
@@ -800,6 +792,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return cam[STATE_KEY];
   };
 
+  // TODO these two require improvement to fix paths in pipe
   const getPlayers = function (pInst) {
     pInst[PLAYERS_KEY] || (pInst[PLAYERS_KEY] = new Set());
     return pInst[PLAYERS_KEY];
@@ -917,9 +910,15 @@ p5.registerAddon((p5, fn, lifecycles) => {
     cam.slerp(path[st.seg], path[st.seg + 1], amt);
   };
 
-  // -----------------------
-  // v2 addon lifecycle hook
-  // -----------------------
+  // ------------------------
+  // v2 addon lifecycle hooks
+  // ------------------------
+  
+  lifecycles.postsetup = function () {
+    if (!(this._renderer instanceof p5.Renderer3D)) {
+      throw new Error('p5.tree requires WEBGL or WEBGPU. Use createCanvas(w, h, WEBGL) or WEBGPU.');
+    }
+  };
 
   lifecycles.predraw = function () {
     const players = getPlayers(this);
@@ -1503,7 +1502,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   
   fn.mapLocation = function (...args) {
-    return _renderer3D(this)?.mapLocation(...args);
+    return this._renderer.mapLocation(...args);
   };
   
   /**
@@ -1714,7 +1713,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   
   fn.mapDirection = function (...args) {
-    return _renderer3D(this)?.mapDirection(...args);
+    return this._renderer.mapDirection(...args);
   };
   
   /**
@@ -1900,7 +1899,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number|undefined} World units per pixel at the given point.
    */
   fn.pixelRatio = function (point) {
-    return _renderer3D(this)?.pixelRatio(point);
+    return this._renderer.pixelRatio(point);
   };
   
   /**
@@ -1951,7 +1950,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number[]|undefined} `[x, y]` in pixels, or undefined if no 3D renderer is active.
    */
   fn.pointerPosition = function (...args) {
-    return _renderer3D(this)?.pointerPosition(...args);
+    return this._renderer.pointerPosition(...args);
   };
 
   /**
@@ -1961,7 +1960,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number[]|undefined} `[width, height]` in pixels, or undefined if no 3D renderer is active.
    */
   fn.resolution = function () {
-    return _renderer3D(this)?.resolution();
+    return this._renderer.resolution();
   };
 
   /**
@@ -2004,7 +2003,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // -------------------------------------------------------------------------
   
   fn.axes = function (opts) {
-    _renderer3D(this)?.axes(opts);
+    this._renderer.axes(opts);
     return this;
   };
   
@@ -2093,7 +2092,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   fn.grid = function (opts) {
-    _renderer3D(this)?.grid(opts);
+    this._renderer.grid(opts);
     return this;
   };
   
@@ -2157,7 +2156,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {boolean|undefined}
    */
   fn.mousePicking = function (opts) {
-    return _renderer3D(this)?.mousePicking(opts);
+    return this._renderer.mousePicking(opts);
   };
   
   /**
@@ -2173,7 +2172,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {boolean|undefined}
    */
   fn.pointerPicking = function (...args) {
-    return _renderer3D(this)?.pointerPicking(...args);
+    return this._renderer.pointerPicking(...args);
   };
   
   p5.Renderer3D.prototype.mousePicking = function ({
@@ -2316,7 +2315,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
    */
   fn.cross = function (opts) {
-    _renderer3D(this)?.cross(opts);
+    this._renderer.cross(opts);
     return this;
   };
   
@@ -2369,7 +2368,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {p5.Matrix} [opts.pvMatrix] Projection-view matrix override.
    */
   fn.bullsEye = function (opts) {
-    _renderer3D(this)?.bullsEye(opts);
+    this._renderer.bullsEye(opts);
     return this;
   };
   
@@ -2420,7 +2419,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ---------------------------------------------------------------------------
   
   fn.viewFrustum = function (opts) {
-    _renderer3D(this)?.viewFrustum(opts);
+    this._renderer.viewFrustum(opts);
     return this;
   };
   
@@ -2566,7 +2565,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number} One of p5.Tree.VISIBLE, p5.Tree.INVISIBLE, p5.Tree.SEMIVISIBLE.
    */
   fn.visibility = function (...args) {
-    return _renderer3D(this).visibility(...args);
+    return this._renderer.visibility(...args);
   };
   
   /**
@@ -2574,7 +2573,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {Object}
    */
   fn.bounds = function (opts = {}) {
-    return _renderer3D(this).bounds(opts);
+    return this._renderer.bounds(opts);
   };
   
   /**
@@ -2582,7 +2581,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @returns {number}
    */
   fn.distanceToBound = function (...args) {
-    return _renderer3D(this).distanceToBound(...args);
+    return this._renderer.distanceToBound(...args);
   };
   
   /**
