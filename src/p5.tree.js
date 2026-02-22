@@ -792,19 +792,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
     return cam[STATE_KEY];
   };
 
-  // TODO these two require improvement to fix paths in pipe
+  // TODO requires improvement to fix paths in pipe
   const getPlayers = function (pInst) {
     pInst[PLAYERS_KEY] || (pInst[PLAYERS_KEY] = new Set());
     return pInst[PLAYERS_KEY];
-  };
-  
-  const getActiveCamera = function (pInst) {
-    const r = pInst && pInst._renderer;
-    return (
-      (r && r.states && r.states.curCamera) || // p5-v2 canonical
-      (r && (r._curCamera || r.curCamera || r._camera)) || // fallbacks
-      undefined
-    );
   };
 
   /**
@@ -1323,37 +1314,37 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // ------------------------------------------------------------
 
   fn.addPath = function (...args) {
-    const cam = getActiveCamera(this);
+    const cam = this._renderer.states.curCamera;
     cam && cam.addPath(...args);
     return this;
   };
 
   fn.playPath = function (...args) {
-    const cam = getActiveCamera(this);
+    const cam = this._renderer.states.curCamera;
     cam && cam.playPath(...args);
     return this;
   };
   
   fn.seekPath = function (...args) {
-    const cam = getActiveCamera(this);
+    const cam = this._renderer.states.curCamera;
     cam && cam.seekPath(...args);
     return this;
   };
   
   fn.resetPath = function (...args) {
-    const cam = getActiveCamera(this);
+    const cam = this._renderer.states.curCamera;
     cam && cam.resetPath(...args);
     return this;
   };
   
   fn.stopPath = function (...args) {
-    const cam = getActiveCamera(this);
+    const cam = this._renderer.states.curCamera;
     cam && cam.stopPath(...args);
     return this;
   };
   
   fn.pathTime = function () {
-    const cam = getActiveCamera(this);
+    const cam = this._renderer.states.curCamera;
     return cam ? cam.pathTime() : 0;
   };
   
