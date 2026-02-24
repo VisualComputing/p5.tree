@@ -328,6 +328,13 @@ ui.blurIntensity.reset()
 const values = ui.values()
 ```
 
+Toggle visibility of a specific control:
+
+```js
+ui.visible('blurIntensity', false)
+ui.visible('blurIntensity', true)
+```
+
 ## Applying to shaders
 
 ```js
