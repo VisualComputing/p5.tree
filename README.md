@@ -328,11 +328,11 @@ ui.blurIntensity.reset()
 const values = ui.values()
 ```
 
-Toggle visibility of a specific control:
+Set the visibility of a specific control:
 
 ```js
-ui.visible('blurIntensity', false)
-ui.visible('blurIntensity', true)
+ui.blurIntensity.visible = false
+ui.blurIntensity.visible = true
 ```
 
 ## Applying to shaders
@@ -531,9 +531,9 @@ Latest:
 
 Tagged example:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.11/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.11/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.11/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.11/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.11/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.11/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.12/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.12/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.12/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.12/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.12/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.12/dist/p5.tree.esm.js)
 
 ---
 

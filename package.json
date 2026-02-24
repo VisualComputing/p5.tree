@@ -1,6 +1,6 @@
 {
     "name": "p5.tree",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "description": "Shader development and space transformations WEBGL addon library.",
     "type": "module",
     "main": "dist/p5.tree.esm.js",

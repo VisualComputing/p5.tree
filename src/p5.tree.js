@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.11
+ * @version 0.0.12
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.11'),
+    VERSION: CONST('0.0.12'),
                           
     NONE: CONST(0),
   
@@ -2887,7 +2887,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - 'button' : button (createButton) for actions (reset/randomize/etc.)
    *
    * Inference (when cfg.type is omitted):
-   * - cfg.options                 -> 'select'
+   * - cfg.options                       -> 'select'
    * - typeof cfg.onClick === 'function' -> 'button'
    * - typeof cfg.value === 'boolean'    -> 'bool'
    * - Array cfg.value length 2/3/4      -> 'vec2'/'vec3'/'vec4'
@@ -2925,7 +2925,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
    *
    * Per-control visibility:
-   * - ui.visible(name, visible) toggles a single control (and its label when labels are enabled).
+   * - Each control exposes a boolean property ui[name].visible (default true).
+   * - When set to false, the control UI is hidden (and its label when opt.labels=true).
    *
    * @method createUniformUI
    * @memberof p5
@@ -2986,7 +2987,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *
    * @example
    * // Toggle a single control's UI (and label when labels=true)
-   * ui.visible('blurIntensity', false);
+   * ui.blurIntensity.visible = false;
+   * ui.blurIntensity.visible = true;
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
@@ -3030,6 +3032,29 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return 'float';
     };
     const wrap = (type, elt, value, set, reset) => ({ type, elt, value, set, reset });
+    const _applyControlVisibility = (name) => {
+      const c = ui[name];
+      if (!c) return;
+      const show = c._visible !== false;
+      const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
+      elts.forEach(e => { e && (show ? e.show() : e.hide()); });
+      const lab = _labelElts[name];
+      lab && (show ? lab.show() : lab.hide());
+    };
+    const _defineVisibleProp = (name, c) => {
+      c._visible = true;
+      Object.defineProperty(c, 'visible', {
+        get () {
+          return c._visible !== false;
+        },
+        set (v) {
+          const next = v !== false;
+          if ((c._visible !== false) === next) return;
+          c._visible = next;
+          _applyControlVisibility(name);
+        }
+      });
+    };
     const build = (name, cfg = {}) => {
       const type = inferType(cfg);
       const def =
@@ -3090,7 +3115,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const reset = () => s.value(_defaults[name] ?? value0);
       return wrap(type, s, value, set, reset);
     };
-    for (const name of _order) ui[name] = build(name, _schema[name]);
+    for (const name of _order) {
+      ui[name] = build(name, _schema[name]);
+      _defineVisibleProp(name, ui[name]);
+    }
     /**
      * Iterate controls in schema order.
      * @memberof p5.UniformUI
@@ -3202,29 +3230,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return ui;
     };
     /**
-     * Show/hide a single control by uniform key (and its label when opt.labels=true).
-     * For vec2/vec3/vec4, toggles all component sliders.
-     * No-op if name is unknown.
-     * @memberof p5.UniformUI
-     * @param {string} name Uniform key.
-     * @param {boolean} [visible=true] Whether the uniform control should be visible.
-     * @returns {p5.UniformUI} this.
-     *
-     * @example
-     * ui.visible('blurIntensity', false);
-     * ui.visible('blurIntensity', true);
-     */
-    ui.visible = function (name, visible = true) {
-      const c = ui[name];
-      if (!c) return ui;
-      const show = visible !== false;
-      const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
-      elts.forEach(e => { e && (show ? e.show() : e.hide()); });
-      const lab = _labelElts[name];
-      lab && (show ? lab.show() : lab.hide());
-      return ui;
-    };
-    /**
      * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.
      * @memberof p5.UniformUI
      */
@@ -3277,6 +3282,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
           _applyWidth(e);
           _container.child(e);
         });
+        _applyControlVisibility(name);
       });
       _container.style('display', 'flex');
       _container.style('flex-direction', 'column');

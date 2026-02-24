@@ -133,11 +133,11 @@ function syncFxUI () {
   const noiseOn = cNoise.checked()
   const pixelOn = cPixel.checked()
   const dofOn = cBlur.checked()
-  ui.visible('frequency', noiseOn)
-  ui.visible('amplitude', noiseOn)
-  ui.visible('speed', noiseOn)
-  ui.visible('level', pixelOn)
-  ui.visible('dofIntensity', dofOn)
+  ui.frequency.visible = noiseOn;
+  ui.amplitude.visible = noiseOn;
+  ui.speed.visible = noiseOn;
+  ui.level.visible = pixelOn;
+  ui.dofIntensity.visible = dofOn;
 }
 
 async function setup () {
