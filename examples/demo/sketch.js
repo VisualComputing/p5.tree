@@ -5,7 +5,7 @@ let models
 let focusVal = 0
 
 let ui
-let dofFilter, pixelorFilter, noiseFilter
+let dofFilter, pixelatorFilter, noiseFilter
 
 let font
 
@@ -58,7 +58,7 @@ function dofCallback () {
   })
 }
 
-function pixelorCallback () {
+function pixelatorCallback () {
   const level = uniformFloat(() => ui.level.value())
   getColor((inputs, canvasContent) => {
     let stepCoord = inputs.texCoord * level
@@ -114,18 +114,18 @@ function fxList () {
   const enabled = (name) => fx[name] && fx[name].enabled()
   const pick = (name) => (enabled(name) ? fx[name].shader : null)
   const presets = {
-    1: ['noise', 'pixelor', 'dof'],
-    2: ['pixelor', 'dof', 'noise'],
-    3: ['dof', 'noise', 'pixelor']
+    1: ['noise', 'pixelator', 'dof'],
+    2: ['pixelator', 'dof', 'noise'],
+    3: ['dof', 'noise', 'pixelator']
   }
   const ord = presets[fxOrder] || presets[1]
   return ord.map(pick).filter(Boolean)
 }
 
 function fxOrderLabel () {
-  if (fxOrder === 1) return '1: noise -> pixelor -> dof'
-  if (fxOrder === 2) return '2: pixelor -> dof -> noise'
-  if (fxOrder === 3) return '3: dof -> noise -> pixelor'
+  if (fxOrder === 1) return '1: noise -> pixelator -> dof'
+  if (fxOrder === 2) return '2: pixelator -> dof -> noise'
+  if (fxOrder === 3) return '3: dof -> noise -> pixelator'
   return ''
 }
 
@@ -133,11 +133,11 @@ function syncFxUI () {
   const noiseOn = cNoise.checked()
   const pixelOn = cPixel.checked()
   const dofOn = cBlur.checked()
-  ui.setVisible('frequency', noiseOn)
-  ui.setVisible('amplitude', noiseOn)
-  ui.setVisible('speed', noiseOn)
-  ui.setVisible('level', pixelOn)
-  ui.setVisible('dofIntensity', dofOn)
+  ui.visible('frequency', noiseOn)
+  ui.visible('amplitude', noiseOn)
+  ui.visible('speed', noiseOn)
+  ui.visible('level', pixelOn)
+  ui.visible('dofIntensity', dofOn)
 }
 
 async function setup () {
@@ -161,12 +161,12 @@ async function setup () {
   })
 
   noiseFilter = baseFilterShader().modify(noiseCallback)
-  pixelorFilter = baseFilterShader().modify(pixelorCallback)
+  pixelatorFilter = baseFilterShader().modify(pixelatorCallback)
   dofFilter = baseFilterShader().modify(dofCallback)
 
   // FX toggles (checkboxes)
   cNoise = createCheckbox('noise', false)
-  cPixel = createCheckbox('pixelor', false)
+  cPixel = createCheckbox('pixelator', false)
   cBlur = createCheckbox('dof', true)
   ;[cNoise, cPixel, cBlur].forEach((c, i) => {
     c.position(10, 10 + 260 + 12 + i * 20)
@@ -178,7 +178,7 @@ async function setup () {
 
   fx = {
     noise: { shader: noiseFilter, enabled: () => cNoise.checked() },
-    pixelor: { shader: pixelorFilter, enabled: () => cPixel.checked() },
+    pixelator: { shader: pixelatorFilter, enabled: () => cPixel.checked() },
     dof: { shader: dofFilter, enabled: () => cBlur.checked() }
   }
 
@@ -272,7 +272,7 @@ function drawHud () {
     '',
     'Post FX',
     `  [1/2/3] order: ${fxOrderLabel()}`,
-    `  toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelor=${fx.pixelor.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`,
+    `  toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelator=${fx.pixelator.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`,
     '',
     'Hints',
     `  [G] grid: ${showGrid ? 'on' : 'off'}`,

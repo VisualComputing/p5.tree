@@ -2895,8 +2895,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
    *
    * Per-uniform visibility:
-   * - ui.setVisible(name, visible) toggles a single control (and its label when labels are enabled).
-   * - ui.showUniform(name) / ui.hideUniform(name) are convenience wrappers.
+   * - ui.visible(name, visible) toggles a single control (and its label when labels are enabled).
    *
    * @method createUniformUI
    * @memberof p5
@@ -2932,9 +2931,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *
    * @example
    * // Toggle a single uniform's UI (and label when labels=true)
-   * ui.setVisible('blurIntensity', false);
-   * ui.showUniform('blurIntensity');
-   * ui.hideUniform('blurIntensity');
+   * ui.visible('blurIntensity', false);
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
@@ -3159,10 +3156,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
      * @returns {p5.UniformUI} this.
      *
      * @example
-     * ui.setVisible('blurIntensity', false);
-     * ui.setVisible('blurIntensity', true);
+     * ui.visible('blurIntensity', false);
+     * ui.visible('blurIntensity', true);
      */
-    ui.setVisible = function (name, visible = true) {
+    ui.visible = function (name, visible = true) {
       const c = ui[name];
       if (!c) return ui;
       const show = visible !== false;
@@ -3171,24 +3168,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const lab = _labelElts[name];
       lab && (show ? lab.show() : lab.hide());
       return ui;
-    };
-    /**
-     * Show a single control by uniform key (and its label when opt.labels=true).
-     * @memberof p5.UniformUI
-     * @param {string} name Uniform key.
-     * @returns {p5.UniformUI} this.
-     */
-    ui.showUniform = function (name) {
-      return ui.setVisible(name, true);
-    };
-    /**
-     * Hide a single control by uniform key (and its label when opt.labels=true).
-     * @memberof p5.UniformUI
-     * @param {string} name Uniform key.
-     * @returns {p5.UniformUI} this.
-     */
-    ui.hideUniform = function (name) {
-      return ui.setVisible(name, false);
     };
     /**
      * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.
