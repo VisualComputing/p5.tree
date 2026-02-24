@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.10
+ * @version 0.0.11
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.10'),
+    VERSION: CONST('0.0.11'),
                           
     NONE: CONST(0),
   
@@ -2894,6 +2894,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed),
    *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
    *
+   * Per-uniform visibility:
+   * - ui.setVisible(name, visible) toggles a single control (and its label when labels are enabled).
+   * - ui.showUniform(name) / ui.hideUniform(name) are convenience wrappers.
+   *
    * @method createUniformUI
    * @memberof p5
    * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform name.
@@ -2925,6 +2929,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @example
    * // Mount into a specific container (e.g. Vue/Slidev component)
    * const ui = createUniformUI(schema, { parent: document.getElementById('sketch'), x: 10, y: 10, labels: true });
+   *
+   * @example
+   * // Toggle a single uniform's UI (and label when labels=true)
+   * ui.setVisible('blurIntensity', false);
+   * ui.showUniform('blurIntensity');
+   * ui.hideUniform('blurIntensity');
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
@@ -3138,6 +3148,47 @@ p5.registerAddon((p5, fn, lifecycles) => {
     ui.hide = function () {
       _container && _container.hide();
       return ui;
+    };
+    /**
+     * Show/hide a single control by uniform key (and its label when opt.labels=true).
+     * For vec2/vec3/vec4, toggles all component sliders.
+     * No-op if name is unknown.
+     * @memberof p5.UniformUI
+     * @param {string} name Uniform key.
+     * @param {boolean} [visible=true] Whether the uniform control should be visible.
+     * @returns {p5.UniformUI} this.
+     *
+     * @example
+     * ui.setVisible('blurIntensity', false);
+     * ui.setVisible('blurIntensity', true);
+     */
+    ui.setVisible = function (name, visible = true) {
+      const c = ui[name];
+      if (!c) return ui;
+      const show = visible !== false;
+      const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
+      elts.forEach(e => { e && (show ? e.show() : e.hide()); });
+      const lab = _labelElts[name];
+      lab && (show ? lab.show() : lab.hide());
+      return ui;
+    };
+    /**
+     * Show a single control by uniform key (and its label when opt.labels=true).
+     * @memberof p5.UniformUI
+     * @param {string} name Uniform key.
+     * @returns {p5.UniformUI} this.
+     */
+    ui.showUniform = function (name) {
+      return ui.setVisible(name, true);
+    };
+    /**
+     * Hide a single control by uniform key (and its label when opt.labels=true).
+     * @memberof p5.UniformUI
+     * @param {string} name Uniform key.
+     * @returns {p5.UniformUI} this.
+     */
+    ui.hideUniform = function (name) {
+      return ui.setVisible(name, false);
     };
     /**
      * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.

@@ -5,15 +5,12 @@ let models
 let focusVal = 0
 
 let ui
-let blurFilter, pixelFilter, noiseFilter
+let dofFilter, pixelorFilter, noiseFilter
 
 let font
 
 // explicit scene camera (the one we animate) — MUST belong to the framebuffer renderer
 let sceneCam
-
-// reference cameras for quick import — keep them in the same renderer (framebuffer)
-let cam0, cam1, cam2
 
 // toggles
 let showAxes = true
@@ -29,43 +26,40 @@ let pathKeyframes = 0 // we update on add/reset; no introspection
 // seek slider (DOM)
 let sSeek
 
-function blurCallback () {
+// post FX toggles + order
+let fx
+let fxOrder = 1 // 1..3 (preset orders)
+let cNoise, cPixel, cBlur
+
+function dofCallback () {
   const depthTex = uniformTexture(() => layer.depth)
   const focus = uniformFloat(() => focusVal)
-  const blurIntensity = uniformFloat(() => ui.blurIntensity.value())
-
-  const getBlurriness = (d) => abs(d - focus) * 40 * blurIntensity
+  const dofIntensity = uniformFloat(() => ui.dofIntensity.value())
+  const getBlurriness = (d) => abs(d - focus) * 40 * dofIntensity
   const maxBlurDistance = (b) => b * 0.01
-
   getColor((inputs, canvasContent) => {
     let colour = getTexture(canvasContent, inputs.texCoord)
     let samples = 1
-
     const centerDepth = getTexture(depthTex, inputs.texCoord).r
-    const blurriness = getBlurriness(centerDepth)
-
+    const dofriness = getBlurriness(centerDepth)
     for (let i = 0; i < 20; i++) {
       const angle = float(i) * TWO_PI / 20
-      const blurDistance = float(i) / 20 * maxBlurDistance(blurriness)
-      const offset = [cos(angle), sin(angle)] * blurDistance
-
+      const dofDistance = float(i) / 20 * maxBlurDistance(dofriness)
+      const offset = [cos(angle), sin(angle)] * dofDistance
       const sampleDepth = getTexture(depthTex, inputs.texCoord + offset).r
       const sampleBlurDist = maxBlurDistance(getBlurriness(sampleDepth))
-
-      if (sampleDepth >= centerDepth || sampleBlurDist >= blurDistance) {
+      if (sampleDepth >= centerDepth || sampleBlurDist >= dofDistance) {
         colour += getTexture(canvasContent, inputs.texCoord + offset)
         samples++
       }
     }
-
     colour /= float(samples)
     return [colour.rgb, 1]
   })
 }
 
-function pixelCallback () {
+function pixelorCallback () {
   const level = uniformFloat(() => ui.level.value())
-
   getColor((inputs, canvasContent) => {
     let stepCoord = inputs.texCoord * level
     stepCoord = floor(stepCoord)
@@ -79,7 +73,6 @@ function noiseCallback () {
   const frequency = uniformFloat(() => ui.frequency.value())
   const amplitude = uniformFloat(() => ui.amplitude.value())
   const speed = uniformFloat(() => ui.speed.value())
-  const time = uniformFloat(() => millis() / 1000)
 
   const hash = (p) => fract(sin(dot(p, [127.1, 311.7, 74.7])) * 43758.5453123)
   const fade = (t) => t * t * (3 - 2 * t)
@@ -88,7 +81,6 @@ function noiseCallback () {
     const i = floor(p)
     const f = fract(p)
     const u = fade(f)
-
     const n000 = hash(i + [0, 0, 0])
     const n100 = hash(i + [1, 0, 0])
     const n010 = hash(i + [0, 1, 0])
@@ -97,67 +89,100 @@ function noiseCallback () {
     const n101 = hash(i + [1, 0, 1])
     const n011 = hash(i + [0, 1, 1])
     const n111 = hash(i + [1, 1, 1])
-
     const nx00 = mix(n000, n100, u.x)
     const nx10 = mix(n010, n110, u.x)
     const nx01 = mix(n001, n101, u.x)
     const nx11 = mix(n011, n111, u.x)
-
     const nxy0 = mix(nx00, nx10, u.y)
     const nxy1 = mix(nx01, nx11, u.y)
-
     return (mix(nxy0, nxy1, u.z) * 2) - 1
   }
 
   getColor((inputs, canvasContent) => {
-    const t = speed * time
+    const t = speed * (millis() / 1000)
     const s = frequency * inputs.texCoord.x
     const v = frequency * inputs.texCoord.y
-
     const n1 = valueNoise3([s, v, t])
     const n2 = valueNoise3([s + 17, v, t])
-
     const texCoords = inputs.texCoord + [amplitude * n1, amplitude * n2]
     const colour = getTexture(canvasContent, texCoords)
     return [colour.rgb, 1]
   })
 }
 
-async function setup () {
-  createCanvas(900, 500, WEBGL)
+function fxList () {
+  const enabled = (name) => fx[name] && fx[name].enabled()
+  const pick = (name) => (enabled(name) ? fx[name].shader : null)
+  const presets = {
+    1: ['noise', 'pixelor', 'dof'],
+    2: ['pixelor', 'dof', 'noise'],
+    3: ['dof', 'noise', 'pixelor']
+  }
+  const ord = presets[fxOrder] || presets[1]
+  return ord.map(pick).filter(Boolean)
+}
 
+function fxOrderLabel () {
+  if (fxOrder === 1) return '1: noise -> pixelor -> dof'
+  if (fxOrder === 2) return '2: pixelor -> dof -> noise'
+  if (fxOrder === 3) return '3: dof -> noise -> pixelor'
+  return ''
+}
+
+function syncFxUI () {
+  const noiseOn = cNoise.checked()
+  const pixelOn = cPixel.checked()
+  const dofOn = cBlur.checked()
+  ui.setVisible('frequency', noiseOn)
+  ui.setVisible('amplitude', noiseOn)
+  ui.setVisible('speed', noiseOn)
+  ui.setVisible('level', pixelOn)
+  ui.setVisible('dofIntensity', dofOn)
+}
+
+async function setup () {
+  createCanvas(600, 420, WEBGL)
   font = await loadFont('/fonts/noto_sans.ttf')
   textFont(font)
 
   layer = createFramebuffer()
-
-  // IMPORTANT: framebuffer cameras must be created between begin()/end()
   layer.begin()
   sceneCam = layer.createCamera()
-  cam0 = layer.createCamera()
-  cam1 = layer.createCamera()
-  cam2 = layer.createCamera()
   layer.end()
 
-  // initialize camera poses (all of these cameras live in the framebuffer renderer)
-  sceneCam.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
-  cam0.camera(0, 0, 600, 0, 0, 0, 0, 1, 0)
-  cam1.camera(420, -200, 720, 0, 0, 0, 0, 1, 0)
-  cam2.camera(-480, 250, 660, 0, 0, 0, 0, 1, 0)
-
   ui = createUniformUI({
-    frequency: { min: 0, max: 10, value: 0, step: 0.1, label: 'frequency' },
-    amplitude: { min: 0, max: 1, value: 0, step: 0.01, label: 'amplitude' },
-    speed: { min: 0, max: 1, value: 0, step: 0.01, label: 'speed' },
-    level: { min: 1, max: 900, value: 900, step: 1, label: 'level' },
-    blurIntensity: { min: 0, max: 4, value: 0, step: 0.1, label: 'blur' }
+    frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'noise frequency' },
+    amplitude: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'noise amplitude' },
+    speed: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'noise speed' },
+    level: { min: 2, max: 900, value: 300, step: 1, label: 'pixelator level' },
+    dofIntensity: { min: 0, max: 4, value: 1.5, step: 0.1, label: 'dof intensity' }
   }, {
     x: 10, y: 10, width: 170, labels: true, title: 'Post FX', color: 'white'
   })
 
   noiseFilter = baseFilterShader().modify(noiseCallback)
-  pixelFilter = baseFilterShader().modify(pixelCallback)
-  blurFilter = baseFilterShader().modify(blurCallback)
+  pixelorFilter = baseFilterShader().modify(pixelorCallback)
+  dofFilter = baseFilterShader().modify(dofCallback)
+
+  // FX toggles (checkboxes)
+  cNoise = createCheckbox('noise', false)
+  cPixel = createCheckbox('pixelor', false)
+  cBlur = createCheckbox('dof', true)
+  ;[cNoise, cPixel, cBlur].forEach((c, i) => {
+    c.position(10, 10 + 260 + 12 + i * 20)
+    c.style('color', 'white')
+  })
+  cNoise.changed(syncFxUI)
+  cPixel.changed(syncFxUI)
+  cBlur.changed(syncFxUI)
+
+  fx = {
+    noise: { shader: noiseFilter, enabled: () => cNoise.checked() },
+    pixelor: { shader: pixelorFilter, enabled: () => cPixel.checked() },
+    dof: { shader: dofFilter, enabled: () => cBlur.checked() }
+  }
+
+  syncFxUI()
 
   pathPlaying = false
   pathKeyframes = 0
@@ -168,18 +193,10 @@ async function setup () {
     pathPlaying = false
     sceneCam.seekPath(sSeek.value())
   })
-  sSeek.position(10, height - 25)
-  sSeek.style('width', '280px')
+  sSeek.position(width / 2 + 50, height - 50)
+  sSeek.style('width', '220px')
 
   syncSeekUI()
-
-  window.addEventListener('keydown', (e) => {
-    const el = document.activeElement
-    const tag = el && el.tagName
-    const isForm = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
-    if (!isForm) return
-    if (handleKey(e.key)) e.preventDefault()
-  }, true)
 
   const trange = 200
   models = []
@@ -206,14 +223,10 @@ function draw () {
     sSeek.value(sceneCam.pathTime())
   }
 
-  // 1) render 3D scene into framebuffer using framebuffer-owned sceneCam
   layer.begin()
   setCamera(sceneCam)
-  resetMatrix()
-
   background(0)
-
-  if (!pathPlaying) orbitControl()
+  orbitControl()
 
   stroke(180, 90)
   showGrid && grid({ size: 500, subdivisions: 20 })
@@ -244,20 +257,22 @@ function draw () {
 
   layer.end()
 
-  // 2) present post FX in screen space (HUD), so it doesn't become a 3D plane
-  pipe(layer, [noiseFilter, pixelFilter, blurFilter])
+  pipe(layer, fxList())
   drawHud()
 }
 
 function drawHud () {
   const pad = 10
-  const panelW = 320
+  const panelW = 240
   const x0 = width - panelW - pad
   const y0 = pad
   const lh = 16
-
   const lines = [
     'p5.tree: post FX + keyframes',
+    '',
+    'Post FX',
+    `  [1/2/3] order: ${fxOrderLabel()}`,
+    `  toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelor=${fx.pixelor.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`,
     '',
     'Hints',
     `  [G] grid: ${showGrid ? 'on' : 'off'}`,
@@ -265,7 +280,7 @@ function drawHud () {
     '',
     'Keyframes / Path',
     '  [A] add keyframe (addPath snapshot)',
-    '  [I] import [cam0, cam1, cam2] (reset)',
+    '  [N] pathInfo()',
     `  [P] play/stop   loop=${pathLoop ? 'on' : 'off'}   rate=${pathRate}`,
     '  [R] resetPath()',
     '  [L] toggle loop',
@@ -304,23 +319,22 @@ function syncSeekUI () {
 
 function onPathChanged (opt = {}) {
   const { keepPose = true } = opt
-
   sceneCam.stopPath()
   pathPlaying = false
-
   if (!keepPose) {
     sSeek && sSeek.value(0)
     pathKeyframes >= 1 && sceneCam.seekPath(0)
   }
-
   syncSeekUI()
 }
 
-function handleKey (k) {
-  if (k === 'g' || k === 'G') { showGrid = !showGrid; return true }
-  if (k === 'x' || k === 'X') { showAxes = !showAxes; return true }
+function keyPressed () {
+  if (key === 'g' || key === 'G') { showGrid = !showGrid; return true }
+  if (key === 'x' || key === 'X') { showAxes = !showAxes; return true }
 
-  if (k === 'a' || k === 'A') {
+  if (key === '1' || key === '2' || key === '3') { fxOrder = int(key); return true }
+
+  if (key === 'a' || key === 'A') {
     sceneCam.addPath()
     pathKeyframes++
     if (pathKeyframes === 2) sSeek && sSeek.value(1)
@@ -328,15 +342,12 @@ function handleKey (k) {
     return true
   }
 
-  if (k === 'i' || k === 'I') {
-    sceneCam.addPath([cam0, cam1, cam2], { reset: true })
-    pathKeyframes = 3
-    sSeek && sSeek.value(0)
-    onPathChanged({ keepPose: false })
+  if (key === 'n' || key === 'N') {
+    sceneCam.pathInfo()
     return true
   }
 
-  if (k === 'l' || k === 'L') {
+  if (key === 'l' || key === 'L') {
     pathLoop = !pathLoop
     if (pathPlaying) {
       sceneCam.playPath({
@@ -349,7 +360,7 @@ function handleKey (k) {
     return true
   }
 
-  if (k === '>') {
+  if (key === '>') {
     pathRate = 1
     if (pathPlaying) {
       sceneCam.playPath({
@@ -362,7 +373,7 @@ function handleKey (k) {
     return true
   }
 
-  if (k === '<') {
+  if (key === '<') {
     pathRate = -1
     if (pathPlaying) {
       sceneCam.playPath({
@@ -375,9 +386,8 @@ function handleKey (k) {
     return true
   }
 
-  if (k === 'p' || k === 'P') {
+  if (key === 'p' || key === 'P') {
     if (pathKeyframes === 0) return true
-
     if (pathKeyframes === 1) {
       sceneCam.stopPath()
       pathPlaying = false
@@ -385,7 +395,6 @@ function handleKey (k) {
       syncSeekUI()
       return true
     }
-
     if (!pathPlaying) {
       sceneCam.playPath({
         duration: pathDuration,
@@ -401,7 +410,7 @@ function handleKey (k) {
     return true
   }
 
-  if (k === 'r' || k === 'R') {
+  if (key === 'r' || key === 'R') {
     sceneCam.resetPath()
     pathKeyframes = 0
     sSeek && sSeek.value(0)
@@ -409,11 +418,6 @@ function handleKey (k) {
     return true
   }
 
-  return false
-}
-
-function keyPressed () {
-  handleKey(key)
   return false
 }
 
