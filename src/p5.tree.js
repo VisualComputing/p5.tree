@@ -2869,20 +2869,43 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * No panel, no background, no drag, no grouping; you own styling beyond basics.
    *
    * Supported control types (explicit or inferred):
-   * - 'float' (slider), 'int' (slider semantics), 'bool' (checkbox), 'color' (color picker)
-   * - 'vec2'/'vec3'/'vec4' (multiple sliders), 'select' (dropdown), 'button'
+   * - 'float'  : slider (createSlider)
+   * - 'int'    : slider semantics (createSlider; integer step usually 1)
+   * - 'bool'   : checkbox (createCheckbox)
+   * - 'color'  : color picker (createColorPicker) returning RGBA as vec4 floats in [0..1]
+   * - 'vec2'   : 2 sliders (x, y)
+   * - 'vec3'   : 3 sliders (x, y, z)
+   * - 'vec4'   : 4 sliders (x, y, z, w) (or RGBA when used as such)
+   * - 'select' : dropdown (createSelect)
+   * - 'button' : button (createButton) for actions (reset/randomize/etc.)
    *
    * Inference (when cfg.type is omitted):
-   * - cfg.options -> 'select'
-   * - cfg.onClick -> 'button'
-   * - boolean value -> 'bool'
-   * - array length 2/3/4 -> 'vec2/vec3/vec4'
-   * - string value -> 'color'
-   * - otherwise -> 'float'
+   * - cfg.options                 -> 'select'
+   * - typeof cfg.onClick === 'function' -> 'button'
+   * - typeof cfg.value === 'boolean'    -> 'bool'
+   * - Array cfg.value length 2/3/4      -> 'vec2'/'vec3'/'vec4'
+   * - typeof cfg.value === 'string'     -> 'color' (interpreted as a color picker initial value)
+   * - otherwise                         -> 'float'
+   *
+   * Common per-control fields (leaf specs):
+   * - value: initial value (type-dependent). Optional for sliders if min/max provided.
+   * - min, max, step: numeric range for sliders and vecN components.
+   * - label: label text when opt.labels=true (defaults to key name).
+   * - text: checkbox label text (bool) or button caption (button).
+   * - options: select choices. Each entry may be a primitive or { label, value }.
+   * - onClick(ui, name): button callback. Receives the UniformUI instance and the control key.
+   *
+   * Value semantics (what ui[name].value() returns):
+   * - float/int: number
+   * - bool: boolean
+   * - vec2/vec3/vec4: number[] (length 2/3/4)
+   * - select: selected value (string by default; can be any option value you provide)
+   * - color: [r, g, b, a] as floats in [0..1] (derived from createColorPicker().color())
+   * - button: always true (useful only as an action trigger; not meant as a uniform)
    *
    * Labels:
-   * - Per-uniform: enabled by opt.labels (default false). If cfg.label is missing, uses the uniform key name.
-   * - Per-container: opt.title (optional). Rendered above controls when provided.
+   * - Per-control labels: enabled by opt.labels (default false). If cfg.label is missing, uses the key name.
+   * - Container title: opt.title (optional). Rendered above controls when provided.
    *
    * Layout:
    * - Default vertical stacking in a container div (opt.x/opt.y anchor).
@@ -2894,12 +2917,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed),
    *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
    *
-   * Per-uniform visibility:
+   * Per-control visibility:
    * - ui.visible(name, visible) toggles a single control (and its label when labels are enabled).
    *
    * @method createUniformUI
    * @memberof p5
-   * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform name.
+   * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform/action name.
    * @param {Object} [opt={}] Layout/options.
    * @param {number} [opt.x=0] Container x position.
    * @param {number} [opt.y=0] Container y position.
@@ -2907,21 +2930,46 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {number} [opt.offset=6] Vertical spacing between rows (labels and controls).
    * @param {string} [opt.color] Text color applied to container (inherits to label text).
    * @param {boolean} [opt.hidden=false] If true, starts hidden.
-   * @param {boolean} [opt.labels=false] If true, renders per-uniform labels.
+   * @param {boolean} [opt.labels=false] If true, renders per-control labels.
    * @param {string} [opt.title] Optional container title.
    * @param {(HTMLElement|p5.Element)} [opt.parent] Optional DOM parent to mount the container into.
    * @returns {p5.UniformUI} A UniformUI object holding controls and helpers.
    *
    * @example
-   * // GLSL/WebGPU (setUniform path)
-   * const ui = createUniformUI({ blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 } }, { x: 10, y: 10, labels: true, title: 'Post FX' });
+   * // GLSL/WebGPU (setUniform path): float slider + bool checkbox
+   * const ui = createUniformUI({
+   *   blurIntensity: { min: 0, max: 4, value: 2, step: 0.1, label: 'blur' },
+   *   enabled: { value: true, text: 'enabled' }
+   * }, { x: 10, y: 10, labels: true, title: 'Post FX' });
    * // later in draw:
-   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value());
+   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value()), etc.
+   *
+   * @example
+   * // Select dropdown + button action
+   * const ui = createUniformUI({
+   *   tonemap: { options: ['none', 'reinhard', 'aces'], value: 'aces', label: 'tonemap' },
+   *   reset: { text: 'Reset', onClick: (ui) => ui.reset() }
+   * }, { x: 10, y: 10, labels: true });
+   *
+   * @example
+   * // Color picker: returns vec4 floats in [0..1]
+   * const ui = createUniformUI({
+   *   tint: { value: '#ffcc00', label: 'tint' }
+   * }, { x: 10, y: 10, labels: true });
+   * // later:
+   * // shader.setUniform('tint', ui.tint.value()); // [r,g,b,a]
+   *
+   * @example
+   * // vec3 control: 3 sliders sharing min/max/step
+   * const ui = createUniformUI({
+   *   lightDir: { value: [0, 1, 0], min: -1, max: 1, step: 0.01, label: 'light dir' }
+   * }, { x: 10, y: 10, labels: true });
    *
    * @example
    * // p5.strands (graph-build callback): read values via closures
    * function blurCallback () {
    *   const blurIntensity = uniformFloat(() => ui.blurIntensity.value());
+   *   const enabled = uniformBool(() => ui.enabled.value());
    *   // ...
    * }
    *
@@ -2930,7 +2978,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * const ui = createUniformUI(schema, { parent: document.getElementById('sketch'), x: 10, y: 10, labels: true });
    *
    * @example
-   * // Toggle a single uniform's UI (and label when labels=true)
+   * // Toggle a single control's UI (and label when labels=true)
    * ui.visible('blurIntensity', false);
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
