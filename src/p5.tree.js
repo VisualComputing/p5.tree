@@ -2866,7 +2866,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   /**
    * Creates renderer-agnostic UI controls for shader parameters (GLSL/WebGPU/p5.strands).
    * Core-only + optional default vertical layout (show/hide/config) for 99% use cases.
-   * No panel, no background, no drag, no grouping; you own styling beyond basics.
+   * No panel, no background, no drag, no grouping UI; you own styling beyond basics.
    *
    * Supported control types (explicit or inferred):
    * - 'float' (slider), 'int' (slider semantics), 'bool' (checkbox), 'color' (color picker)
@@ -2875,31 +2875,37 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Inference (when cfg.type is omitted):
    * - cfg.options -> 'select'
    * - cfg.onClick -> 'button'
-   * - boolean value -> 'bool'
-   * - array length 2/3/4 -> 'vec2/vec3/vec4'
-   * - string value -> 'color'
-   * - otherwise -> 'float'
+   * - boolean cfg.value -> 'bool'
+   * - array cfg.value length 2/3/4 -> 'vec2'/'vec3'/'vec4'
+   * - string cfg.value -> 'color' (createColorPicker)
+   * - otherwise -> 'float' (createSlider)
    *
-   * Labels:
-   * - Per-uniform: enabled by opt.labels (default false). If cfg.label is missing, uses the uniform key name.
-   * - Per-container: opt.title (optional). Rendered above controls when provided.
+   * Groups (object-as-group):
+   * - Any nested plain object that is NOT a control-spec becomes a group container, and is walked recursively.
+   * - Leaves become controls; group nodes are not controls and have no values.
+   * - Leaves are addressed by a dot-path: 'fx.bloom.threshold'.
    *
-   * Layout:
-   * - Default vertical stacking in a container div (opt.x/opt.y anchor).
-   * - You can ignore layout entirely and style manually via ui.container() and ui[name].elt.
+   * Dot-path behavior:
+   * - ui.each(fn) provides leaf path keys (e.g. 'fx.bloom.threshold').
+   * - ui.visible(path, v) works for both leaves and groups:
+   *   - leaf: toggles one control;
+   *   - group: toggles all descendants by prefix match (e.g. 'fx.bloom' affects 'fx.bloom.*').
    *
-   * Parent mounting:
-   * - By default, the container is created via createDiv() and lives under document.body (p5 default).
-   * - If opt.parent is provided (HTMLElement or p5.Element), the container is mounted into that parent.
-   * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed),
-   *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
+   * Values:
+   * - ui.values() keeps current behavior: returns a FLAT object keyed by leaf path.
+   * - ui.values({ nested: true }) returns a NESTED object matching the group structure.
+   * - ui.setValues(vals) accepts either flat (dot-path keys) or nested objects.
    *
-   * Per-uniform visibility:
-   * - ui.visible(name, visible) toggles a single control (and its label when labels are enabled).
+   * applyTo:
+   * - ui.applyTo(shader) sets uniforms for all leaves.
+   * - Default uniform name for groups uses underscore flattening:
+   *   - 'fx.bloom.threshold' -> 'fx_bloom_threshold'
+   *   - (flat keys without dots remain unchanged)
+   * - Optional map can be flat (dot-path keys) or nested mapping object mirroring the schema shape.
    *
    * @method createUniformUI
    * @memberof p5
-   * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform name.
+   * @param {Object<string, Object>} [schema={}] Control schema. Leaf entries describe controls; nested objects are groups.
    * @param {Object} [opt={}] Layout/options.
    * @param {number} [opt.x=0] Container x position.
    * @param {number} [opt.y=0] Container y position.
@@ -2907,38 +2913,51 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {number} [opt.offset=6] Vertical spacing between rows (labels and controls).
    * @param {string} [opt.color] Text color applied to container (inherits to label text).
    * @param {boolean} [opt.hidden=false] If true, starts hidden.
-   * @param {boolean} [opt.labels=false] If true, renders per-uniform labels.
+   * @param {boolean} [opt.labels=false] If true, renders per-control labels.
    * @param {string} [opt.title] Optional container title.
    * @param {(HTMLElement|p5.Element)} [opt.parent] Optional DOM parent to mount the container into.
    * @returns {p5.UniformUI} A UniformUI object holding controls and helpers.
    *
    * @example
-   * // GLSL/WebGPU (setUniform path)
-   * const ui = createUniformUI({ blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 } }, { x: 10, y: 10, labels: true, title: 'Post FX' });
-   * // later in draw:
-   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value());
+   * // Flat schema (backward-compatible)
+   * const ui = createUniformUI({
+   *   blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 },
+   *   enabled: { value: true, text: 'enabled' }, // checkbox (bool)
+   *   tint: { value: '#ffcc00' } // colorPicker -> vec4 in [0..1]
+   * }, { x: 10, y: 10, labels: true, title: 'Post FX' });
+   * // later:
+   * ui.applyTo(shader); // shader.setUniform('blurIntensity', ...), etc.
    *
    * @example
-   * // p5.strands (graph-build callback): read values via closures
-   * function blurCallback () {
-   *   const blurIntensity = uniformFloat(() => ui.blurIntensity.value());
-   *   // ...
-   * }
+   * // Groups (object-as-group). Leaves addressed by dot paths.
+   * const ui = createUniformUI({
+   *   fx: {
+   *     bloom: {
+   *       threshold: { min: 0, max: 5, value: 1, step: 0.01 },
+   *       strength: { min: 0, max: 5, value: 2, step: 0.01 }
+   *     },
+   *     tonemap: {
+   *       mode: { options: ['none', 'reinhard', 'aces'], value: 'aces' } // select
+   *     }
+   *   },
+   *   actions: {
+   *     reset: { text: 'Reset', onClick: (ui) => ui.reset() } // button
+   *   }
+   * }, { x: 10, y: 10, labels: true, title: 'FX' });
+   * ui.visible('fx.bloom', false); // hides threshold + strength (group)
+   * ui.visible('fx.bloom.threshold', true); // shows just one leaf
    *
    * @example
-   * // Mount into a specific container (e.g. Vue/Slidev component)
-   * const ui = createUniformUI(schema, { parent: document.getElementById('sketch'), x: 10, y: 10, labels: true });
-   *
-   * @example
-   * // Toggle a single uniform's UI (and label when labels=true)
-   * ui.visible('blurIntensity', false);
+   * // applyTo mapping with groups (nested mapping mirrors schema shape)
+   * ui.applyTo(shader, {
+   *   fx: { bloom: { threshold: 'uBloomThreshold', strength: 'uBloomStrength' } }
+   * });
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
     const _schema = schema || {};
     const ui = {};
     const _defaults = {};
-    const _order = Object.keys(_schema);
     const _layout = {
       x: opt.x ?? 0,
       y: opt.y ?? 0,
@@ -2954,15 +2973,39 @@ p5.registerAddon((p5, fn, lifecycles) => {
     let _container = p.createDiv();
     let _titleElt = null;
     const _labelElts = {};
+    const _leaf = {};
+    const _leafCfg = {};
+    const _paths = [];
     const isBool = v => typeof v === 'boolean';
     const isArr = Array.isArray;
     const isVec = v => isArr(v) && (v.length === 2 || v.length === 3 || v.length === 4);
     const isStr = v => typeof v === 'string';
     const isNum = v => typeof v === 'number' && Number.isFinite(v);
+    const isPlainObject = o => !!o && typeof o === 'object' && !isArr(o) && (Object.getPrototypeOf(o) === Object.prototype || Object.getPrototypeOf(o) === null);
     const toFloat = v => {
       if (isNum(v)) return v;
       const n = typeof v === 'string' ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : 0;
+    };
+    const CONTROL_KEYS = new Set(['type', 'value', 'min', 'max', 'step', 'label', 'text', 'options', 'onClick', 'visible', 'disabled']);
+    const hasNestedUnknownObject = (cfg) => {
+      for (const k in cfg) {
+        if (!Object.prototype.hasOwnProperty.call(cfg, k)) continue;
+        if (CONTROL_KEYS.has(k)) continue;
+        const v = cfg[k];
+        if (isPlainObject(v)) return true;
+      }
+      return false;
+    };
+    const isControlSpec = (cfg) => {
+      if (!isPlainObject(cfg)) return false;
+      if (hasNestedUnknownObject(cfg)) return false;
+      if ('type' in cfg) return true;
+      if ('options' in cfg) return true;
+      if ('onClick' in cfg) return true;
+      if ('value' in cfg) return true;
+      if (isNum(cfg.min) && isNum(cfg.max)) return true;
+      return false;
     };
     const inferType = (cfg = {}) => {
       if (cfg.type) return cfg.type;
@@ -2974,18 +3017,33 @@ p5.registerAddon((p5, fn, lifecycles) => {
       if (isStr(v)) return 'color';
       return 'float';
     };
+    const _walk = (node, parts = []) => {
+      if (!isPlainObject(node)) return;
+      for (const k of Object.keys(node)) {
+        const v = node[k];
+        const next = parts.concat(k);
+        if (isControlSpec(v)) {
+          const path = next.join('.');
+          _paths.push(path);
+          _leafCfg[path] = v || {};
+        } else if (isPlainObject(v)) {
+          _walk(v, next);
+        }
+      }
+    };
+    _walk(_schema, []);
     const wrap = (type, elt, value, set, reset) => ({ type, elt, value, set, reset });
-    const build = (name, cfg = {}) => {
+    const build = (path, cfg = {}) => {
       const type = inferType(cfg);
       const def =
         type === 'vec2' ? (isArr(cfg.value) ? cfg.value.slice(0, 2) : [0, 0]) :
         type === 'vec3' ? (isArr(cfg.value) ? cfg.value.slice(0, 3) : [0, 0, 0]) :
         type === 'vec4' ? (isArr(cfg.value) ? cfg.value.slice(0, 4) : [0, 0, 0, 0]) :
         cfg.value;
-      _defaults[name] = def;
+      _defaults[path] = def;
       if (type === 'button') {
-        const btn = p.createButton(cfg.text || cfg.name || name);
-        typeof cfg.onClick === 'function' && btn.mousePressed(() => cfg.onClick(ui, name));
+        const btn = p.createButton(cfg.text || cfg.name || path.split('.').slice(-1)[0]);
+        typeof cfg.onClick === 'function' && btn.mousePressed(() => cfg.onClick(ui, path));
         return wrap('button', btn, () => true, () => {}, () => {});
       }
       if (type === 'select') {
@@ -2995,11 +3053,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
           else sel.option(String(o), o);
         });
         cfg.value != null && sel.selected(cfg.value);
-        return wrap('select', sel, () => sel.value(), v => sel.selected(v), () => sel.selected(_defaults[name]));
+        return wrap('select', sel, () => sel.value(), v => sel.selected(v), () => sel.selected(_defaults[path]));
       }
       if (type === 'bool') {
         const cb = p.createCheckbox(cfg.text || '', !!cfg.value);
-        return wrap('bool', cb, () => cb.checked(), v => cb.checked(!!v), () => cb.checked(!!_defaults[name]));
+        return wrap('bool', cb, () => cb.checked(), v => cb.checked(!!v), () => cb.checked(!!_defaults[path]));
       }
       if (type === 'color') {
         const cp = p.createColorPicker(cfg.value ?? 'white');
@@ -3007,7 +3065,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
           const c = cp.color();
           return [p.red(c) / 255, p.green(c) / 255, p.blue(c) / 255, p.alpha(c) / 255];
         };
-        return wrap('color', cp, val, v => cp.value(v), () => cp.value(_defaults[name] ?? (cfg.value ?? 'white')));
+        return wrap('color', cp, val, v => cp.value(v), () => cp.value(_defaults[path] ?? (cfg.value ?? 'white')));
       }
       if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
         const n = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
@@ -3022,7 +3080,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
           const a = isArr(arr) ? arr : [];
           for (let i = 0; i < n; i++) sliders[i].value(a[i] ?? (v0[i] ?? min));
         };
-        const reset = () => set(_defaults[name]);
+        const reset = () => set(_defaults[path]);
         return wrap(type, sliders, value, set, reset);
       }
       const min = cfg.min ?? 0;
@@ -3032,18 +3090,32 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const s = p.createSlider(min, max, value0, step);
       const value = () => toFloat(s.value());
       const set = (v) => s.value(v);
-      const reset = () => s.value(_defaults[name] ?? value0);
+      const reset = () => s.value(_defaults[path] ?? value0);
       return wrap(type, s, value, set, reset);
     };
-    for (const name of _order) ui[name] = build(name, _schema[name]);
+    const _setAtPath = (root, path, value) => {
+      const parts = path.split('.');
+      let cur = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const k = parts[i];
+        cur[k] || (cur[k] = {});
+        cur = cur[k];
+      }
+      cur[parts[parts.length - 1]] = value;
+    };
+    for (const path of _paths) {
+      const c = build(path, _leafCfg[path]);
+      _leaf[path] = c;
+      _setAtPath(ui, path, c);
+    }
     /**
-     * Iterate controls in schema order.
+     * Iterate leaf controls in schema order.
      * @memberof p5.UniformUI
-     * @param {function(string, Object, p5.UniformUI):void} fn (name, control, ui) callback.
+     * @param {function(string, Object, p5.UniformUI):void} fn (path, control, ui) callback.
      * @returns {p5.UniformUI} this.
      */
     ui.each = function (fn) {
-      _order.forEach(name => fn(name, ui[name], ui));
+      _paths.forEach(path => fn(path, _leaf[path], ui));
       return ui;
     };
     /**
@@ -3069,24 +3141,47 @@ p5.registerAddon((p5, fn, lifecycles) => {
     ui.container = function () {
       return _container;
     };
-    /**
-     * Snapshot current values by uniform key.
-     * @memberof p5.UniformUI
-     * @returns {Object<string, any>} values.
-     */
-    ui.values = function () {
+    const _unflatten = (flat) => {
       const out = {};
-      ui.each((name, c) => { out[name] = c.value(); });
+      for (const k in flat) _setAtPath(out, k, flat[k]);
+      return out;
+    };
+    const _flatten = (node, parts = [], out = {}) => {
+      if (!isPlainObject(node)) return out;
+      for (const k of Object.keys(node)) {
+        const v = node[k];
+        const next = parts.concat(k);
+        if (isPlainObject(v) && !isArr(v)) _flatten(v, next, out);
+        else out[next.join('.')] = v;
+      }
       return out;
     };
     /**
-     * Set multiple control values by key.
+     * Snapshot current values.
+     * - Default: flat object keyed by leaf path (backward-compatible behavior).
+     * - If opt.nested=true: returns nested object matching the group structure.
      * @memberof p5.UniformUI
-     * @param {Object<string, any>} vals values keyed by uniform.
+     * @param {Object} [opt={}] Options.
+     * @param {boolean} [opt.nested=false] Return nested object instead of flat.
+     * @returns {Object<string, any>} values.
+     */
+    ui.values = function (opt = {}) {
+      const flat = {};
+      ui.each((path, c) => { flat[path] = c.value(); });
+      return opt && opt.nested ? _unflatten(flat) : flat;
+    };
+    /**
+     * Set multiple control values by path.
+     * Accepts either:
+     * - flat: { 'fx.bloom.threshold': 1.0 }
+     * - nested: { fx: { bloom: { threshold: 1.0 } } }
+     * @memberof p5.UniformUI
+     * @param {Object<string, any>} vals values (flat dot-path or nested).
      * @returns {p5.UniformUI} this.
      */
     ui.setValues = function (vals = {}) {
-      for (const k in vals) ui[k]?.set?.(vals[k]);
+      const flat = (vals && typeof vals === 'object' && Object.keys(vals).some(k => k.includes('.'))) ? vals : _flatten(vals);
+      for (const k in flat) _leaf[k]?.set?.(flat[k]);
       return ui;
     };
     /**
@@ -3098,31 +3193,38 @@ p5.registerAddon((p5, fn, lifecycles) => {
       ui.each((_, c) => c.reset && c.reset());
       return ui;
     };
+    const _flattenMap = (map) => {
+      if (!map || typeof map !== 'object') return {};
+      if (Object.keys(map).some(k => k.includes('.'))) return map;
+      return _flatten(map);
+    };
+    const _defaultUniform = (path) => path.includes('.') ? path.replace(/\./g, '_') : path;
     /**
-     * Apply all control values to a shader exposing setUniform(name, value).
-     * Useful for GLSL/WebGPU shader-like APIs.
+     * Apply all leaf values to a shader exposing setUniform(name, value).
+     * - Default uniform name for grouped leaves is underscore-flattened path: 'fx.bloom.threshold' -> 'fx_bloom_threshold'.
+     * - map can be flat (dot-path keys) or nested object mirroring the schema.
+     * Per-leaf map entry can be:
+     * - string: uniform name
+     * - function: (raw, path, ui) -> value
+     * - object: { uniform: 'name', value: (raw, path, ui) => value }
      * @memberof p5.UniformUI
      * @param {Object} shader An object with setUniform(uniformName, value).
-     * @param {Object<string, (string|function|Object)>} [map={}] Optional mapping per key.
+     * @param {Object<string, (string|function|Object)>} [map={}] Optional mapping per leaf path.
      * @returns {p5.UniformUI} this.
-     *
-     * @example
-     * ui.applyTo(blurShader);
-     * @example
-     * ui.applyTo(blurShader, { blurIntensity: 'uBlur', tint: { uniform: 'uTint', value: v => v } });
      */
     ui.applyTo = function (shader, map = {}) {
       if (!shader || typeof shader.setUniform !== 'function') return ui;
-      ui.each((key, c) => {
+      const flatMap = _flattenMap(map);
+      ui.each((path, c) => {
         const raw = c.value();
-        const m = map[key];
+        const m = flatMap[path];
         const uniform =
           typeof m === 'string' ? m :
           m && typeof m === 'object' && typeof m.uniform === 'string' ? m.uniform :
-          key;
+          _defaultUniform(path);
         const val =
-          typeof m === 'function' ? m(raw, key, ui) :
-          m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, ui) :
+          typeof m === 'function' ? m(raw, path, ui) :
+          m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, path, ui) :
           raw;
         shader.setUniform(uniform, val);
       });
@@ -3147,26 +3249,34 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return ui;
     };
     /**
-     * Show/hide a single control by uniform key (and its label when opt.labels=true).
+     * Show/hide a leaf control OR a group of controls (by prefix).
+     * - leaf: ui.visible('fx.bloom.threshold', false)
+     * - group: ui.visible('fx.bloom', false) toggles all 'fx.bloom.*' leaves
      * For vec2/vec3/vec4, toggles all component sliders.
-     * No-op if name is unknown.
+     * No-op if path/group is unknown.
      * @memberof p5.UniformUI
-     * @param {string} name Uniform key.
-     * @param {boolean} [visible=true] Whether the uniform control should be visible.
+     * @param {string} path Leaf path or group path.
+     * @param {boolean} [visible=true] Whether the control(s) should be visible.
      * @returns {p5.UniformUI} this.
-     *
-     * @example
-     * ui.visible('blurIntensity', false);
-     * ui.visible('blurIntensity', true);
      */
-    ui.visible = function (name, visible = true) {
-      const c = ui[name];
-      if (!c) return ui;
+    ui.visible = function (path, visible = true) {
       const show = visible !== false;
-      const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
-      elts.forEach(e => { e && (show ? e.show() : e.hide()); });
-      const lab = _labelElts[name];
-      lab && (show ? lab.show() : lab.hide());
+      const exact = _leaf[path];
+      if (exact) {
+        const elts = Array.isArray(exact.elt) ? exact.elt : [exact.elt];
+        elts.forEach(e => { e && (show ? e.show() : e.hide()); });
+        const lab = _labelElts[path];
+        lab && (show ? lab.show() : lab.hide());
+        return ui;
+      }
+      const prefix = path ? (path.endsWith('.') ? path : `${path}.`) : '';
+      ui.each((k, c) => {
+        if (!k.startsWith(prefix)) return;
+        const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
+        elts.forEach(e => { e && (show ? e.show() : e.hide()); });
+        const lab = _labelElts[k];
+        lab && (show ? lab.show() : lab.hide());
+      });
       return ui;
     };
     /**
@@ -3209,12 +3319,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
       } else {
         _titleElt = null;
       }
-      ui.each((name, c) => {
+      ui.each((path, c) => {
         if (_layout.labels) {
-          const cfg = _schema[name] || {};
-          const text = (cfg.label != null ? cfg.label : name);
+          const cfg = _leafCfg[path] || {};
+          const text = (cfg.label != null ? cfg.label : path);
           const lab = p.createDiv(String(text));
-          _labelElts[name] = lab;
+          _labelElts[path] = lab;
           _container.child(lab);
         }
         const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
@@ -3235,11 +3345,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
      * @param {Object} [next={}] Layout options (same as createUniformUI opt).
      * @param {(HTMLElement|p5.Element)} [next.parent] Optional DOM parent to (re)mount the container into.
      * @returns {p5.UniformUI} this.
-     *
-     * @example
-     * ui.config({ x: 20, y: 20, labels: true, title: 'Lighting' });
-     * @example
-     * ui.config({ parent: document.getElementById('sketch') });
      */
     ui.config = function (next = {}) {
       _layout.x = next.x ?? _layout.x;
