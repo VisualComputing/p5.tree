@@ -821,12 +821,21 @@ p5.registerAddon((p5, fn, lifecycles) => {
     if (nSeg === 0) return;
     const st = getState(cam);
     const tt = clamp01(t);
+    const dur = Math.max(1, st.duration | 0);
+    if (tt === 1) {
+      const seg = nSeg - 1;
+      cam.slerp(path[seg], path[seg + 1], 1);
+      st.seg !== seg && (st.seg = seg);
+      st.f !== dur && (st.f = dur);
+      return;
+    }
     const x = tt * nSeg;
     const seg = Math.min(nSeg - 1, Math.floor(x));
     const amt = x - seg;
     cam.slerp(path[seg], path[seg + 1], amt);
-    st.seg = seg;
-    st.f = Math.round(amt * Math.max(1, st.duration | 0));
+    st.seg !== seg && (st.seg = seg);
+    const f = Math.round(amt * dur);
+    st.f !== f && (st.f = f);
   };
 
   /**
@@ -869,15 +878,20 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const path = ensurePath(cam);
     const nSeg = segmentCount(path);
     if (nSeg === 0) {
-      st.playing = false;
+      cam.stopPath(false);
       return;
     }
     const dur = Math.max(1, st.duration | 0);
     const speed = Math.abs(st.rate);
     if (speed === 0) {
-      st.playing = false;
+      cam.stopPath(false);
       return;
     }
+    // Clamp cursor if path size/duration changed.
+    if (st.seg < 0) st.seg = 0;
+    else if (st.seg >= nSeg) st.seg = nSeg - 1;
+    if (st.f < 0) st.f = 0;
+    else if (st.f > dur) st.f = dur;
     let dir = st.rate >= 0 ? 1 : -1;
     st.f += speed;
     while (st.f >= dur) {
@@ -885,7 +899,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.seg += dir;
       if (st.seg >= nSeg || st.seg < 0) {
         if (st.pingPong) {
-          // Bounce at endpoints and flip direction.
           if (dir > 0) {
             st.seg = nSeg - 1;
             st.f = 0;
@@ -899,8 +912,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
         } else if (st.loop) {
           st.seg = dir > 0 ? 0 : (nSeg - 1);
         } else {
-          st.playing = false;
+          // Snap to endpoint for this direction, then stop WITHOUT resetting.
           seekGlobal(cam, dir > 0 ? 1 : 0);
+          cam.stopPath(false);
           const cb = st.onEnd;
           if (typeof cb === 'function') {
             try { cb(cam); } catch (e) { /* ignore user callback errors */ }
@@ -1160,21 +1174,21 @@ p5.registerAddon((p5, fn, lifecycles) => {
    */
   p5.Camera.prototype.playPath = function (rateOrOpts) {
     const st = getState(this);
+    const prevRate = st.rate;
+    const prevDir = prevRate >= 0 ? 1 : -1;
     const path = ensurePath(this);
     const pInst = this._renderer && this._renderer._pInst;
     const unregister = () => pInst && getPlayers(pInst).delete(this);
     const register = () => pInst && getPlayers(pInst).add(this);
-    // 0 keyframes: nothing to do
     if (path.length === 0) {
       warn('playPath ignored: need at least 1 keyframe in camera.path.');
-      st.playing = false;
+      st.playing && (st.playing = false);
       unregister();
       return this;
     }
-    // 1 keyframe: restore pose only (no playback)
     if (path.length === 1) {
       const kf = path[0];
-      st.playing = false;
+      st.playing && (st.playing = false);
       unregister();
       return this.camera(
         kf.eyeX, kf.eyeY, kf.eyeZ,
@@ -1185,7 +1199,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const nSeg = segmentCount(path);
     if (nSeg === 0) {
       warn('playPath ignored: need at least 2 keyframes in camera.path.');
-      st.playing = false;
+      st.playing && (st.playing = false);
       unregister();
       return this;
     }
@@ -1199,44 +1213,49 @@ p5.registerAddon((p5, fn, lifecycles) => {
       st.onEnd = typeof o.onEnd === 'function' ? o.onEnd : st.onEnd;
       st.rate = isFiniteNumber(o.rate) ? o.rate : st.rate;
     }
-    // rate === 0 means "stop" (don’t register for ticking)
     if (st.rate === 0) {
-      st.playing = false;
+      st.playing && (st.playing = false);
       unregister();
       return this;
     }
-    // If starting from stopped state, default to an endpoint depending on direction.
-    // Important: do NOT use seekGlobal(cam, 1) for reverse start, because seekGlobal sets st.f = dur
-    // and the next tick will immediately underflow the segment and stop (snap).
-    if (!st.playing) {
-      const forward = st.rate >= 0;
-      st.seg = forward ? 0 : (nSeg - 1);
-      st.f = 0;
-      // Snap pose to the start/end of the current segment, but keep st.f = 0.
-      this.slerp(path[st.seg], path[st.seg + 1], forward ? 0 : 1);
-    }  
-    st.playing = true;
+    const dur = Math.max(1, st.duration | 0);
+    // Clamp cursor (path may have changed).
+    if (st.seg < 0) st.seg = 0;
+    else if (st.seg >= nSeg) st.seg = nSeg - 1;
+    if (st.f < 0) st.f = 0;
+    else if (st.f > dur) st.f = dur;
+    // If direction flips, keep pose/time continuous (avoid cursor reinterpretation jump).
+    const dir = st.rate >= 0 ? 1 : -1;
+    if (dir !== prevDir) {
+      const f = dur - st.f;
+      st.f !== f && (st.f = f);
+    }
+    st.playing || (st.playing = true);
     register();
     return this;
   };
 
   /**
-   * stopPath({ reset=false })
+   * stopPath(reset=false)
    * - Stops playback.
    * - If reset:true, seeks to start (forward) or end (reverse).
    */
-  p5.Camera.prototype.stopPath = function (opts) {
+  p5.Camera.prototype.stopPath = function (reset = false) {
     const st = getState(this);
-    const o = opts || {};
-    st.playing = false;
+    st.playing && (st.playing = false);
     const pInst = this._renderer && this._renderer._pInst;
     pInst && getPlayers(pInst).delete(this);
-    if (o.reset) {
-      const forward = st.rate >= 0;
-      seekGlobal(this, forward ? 0 : 1);
-      st.seg = forward ? 0 : Math.max(0, segmentCount(ensurePath(this)) - 1);
-      st.f = 0;
+    if (!reset) return this;
+    const path = ensurePath(this);
+    if (path.length === 1) {
+      const kf = path[0];
+      return this.camera(
+        kf.eyeX, kf.eyeY, kf.eyeZ,
+        kf.centerX, kf.centerY, kf.centerZ,
+        kf.upX, kf.upY, kf.upZ
+      );
     }
+    seekGlobal(this, st.rate < 0 ? 1 : 0);
     return this;
   };
 
@@ -1245,35 +1264,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - resetPath() clears all keyframes and stops.
    * - resetPath(n) keeps first n keyframes (truncate) and stops.
    */
-  p5.Camera.prototype.resetPath = function (n) {
+  p5.Camera.prototype.resetPath = function () {
     const st = getState(this);
     const path = ensurePath(this);
-    st.playing = false;
-    st.seg = 0;
-    st.f = 0;
+    st.playing && (st.playing = false);
     const pInst = this._renderer && this._renderer._pInst;
     pInst && getPlayers(pInst).delete(this);
-    if (!isFiniteNumber(n)) {
-      path.length = 0;
-      st.pathIsOrtho = undefined;
-      return this;
-    }
-    const nInt = n | 0;
-    const keep = Math.max(0, Math.abs(nInt));
-    if (keep === 0) {
-      path.length = 0;
-      st.pathIsOrtho = undefined;
-      return this;
-    }
-    if (nInt >= 0) {
-      path.length = Math.min(path.length, keep);
-    } else if (path.length > keep) {
-      path.splice(0, path.length - keep);
-    }
-    if (segmentCount(path) === 0) {
-      st.pathIsOrtho = undefined;
-    }
-    return this;
+    const kf0 = path.length ? path[0] : null;
+    path.length = 0;
+    st.pathIsOrtho = undefined;
+    st.seg !== 0 && (st.seg = 0);
+    st.f !== 0 && (st.f = 0);
+    if (!kf0) return this;
+    return this.camera(
+      kf0.eyeX, kf0.eyeY, kf0.eyeZ,
+      kf0.centerX, kf0.centerY, kf0.centerZ,
+      kf0.upX, kf0.upY, kf0.upZ
+    );
   };
 
   /**
