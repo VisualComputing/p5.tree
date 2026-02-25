@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.12
+ * @version 0.0.13
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.12'),
+    VERSION: CONST('0.0.13'),
                           
     NONE: CONST(0),
   
@@ -3032,14 +3032,28 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return 'float';
     };
     const wrap = (type, elt, value, set, reset) => ({ type, elt, value, set, reset });
+    const _setDisplay = (elt, show) => {
+      if (!elt) return;
+      const dom = elt.elt || elt;
+      if (!dom || !dom.style) return;
+      if (show) {
+        const prev = dom.dataset ? dom.dataset._treeDisplay : null;
+        if (prev != null) dom.style.display = prev;
+        else dom.style.display = '';
+        dom.dataset && delete dom.dataset._treeDisplay;
+      } else {
+        dom.dataset && (dom.dataset._treeDisplay ??= dom.style.display || '');
+        dom.style.display = 'none';
+      }
+    };
     const _applyControlVisibility = (name) => {
       const c = ui[name];
       if (!c) return;
       const show = c._visible !== false;
       const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
-      elts.forEach(e => { e && (show ? e.show() : e.hide()); });
+      elts.forEach(e => _setDisplay(e, show));
       const lab = _labelElts[name];
-      lab && (show ? lab.show() : lab.hide());
+      lab && _setDisplay(lab, show);
     };
     const _defineVisibleProp = (name, c) => {
       c._visible = true;
