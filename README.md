@@ -364,8 +364,8 @@ No automatic `applyTo()` exists for strands.
 ## Default panel
 
 ```js
-ui.show({ x: 10, y: 10, width: 140 })
-ui.hide()
+ui.visible = true   // show whole UI
+ui.visible = false  // hide whole UI
 ui.remove()
 ui.config({ x: 20, y: 20, width: 160, offset: 8 })
 ```

@@ -3002,16 +3002,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const ui = {};
     const _defaults = {};
     const _order = Object.keys(_schema);
-    const _layout = {
-      x: opt.x ?? 0,
-      y: opt.y ?? 0,
-      width: opt.width ?? 120,
-      offset: opt.offset ?? 3,
-      color: opt.color,
-      hidden: !!opt.hidden,
-      labels: !!opt.labels,
-      title: opt.title
-    };
+    const _layout = { x: opt.x ?? 0, y: opt.y ?? 0, width: opt.width ?? 120, offset: opt.offset ?? 6, color: opt.color, hidden: !!opt.hidden, labels: !!opt.labels, title: opt.title };
     let _parent = opt.parent;
     let _parentElt = _parent && (_parent.elt || _parent);
     let _container = p.createDiv();
@@ -3022,21 +3013,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const isVec = v => isArr(v) && (v.length === 2 || v.length === 3 || v.length === 4);
     const isStr = v => typeof v === 'string';
     const isNum = v => typeof v === 'number' && Number.isFinite(v);
-    const toFloat = v => {
-      if (isNum(v)) return v;
-      const n = typeof v === 'string' ? parseFloat(v) : Number(v);
-      return Number.isFinite(n) ? n : 0;
-    };
-    const inferType = (cfg = {}) => {
-      if (cfg.type) return cfg.type;
-      if (cfg.options) return 'select';
-      if (typeof cfg.onClick === 'function') return 'button';
-      const v = cfg.value;
-      if (isBool(v)) return 'bool';
-      if (isVec(v)) return v.length === 2 ? 'vec2' : v.length === 3 ? 'vec3' : 'vec4';
-      if (isStr(v)) return 'color';
-      return 'float';
-    };
+    const toFloat = v => { if (isNum(v)) return v;const n = typeof v === 'string' ? parseFloat(v) : Number(v);return Number.isFinite(n) ? n : 0; };
+    const inferType = (cfg = {}) => { if (cfg.type) return cfg.type;if (cfg.options) return 'select';if (typeof cfg.onClick === 'function') return 'button';const v = cfg.value;if (isBool(v)) return 'bool';if (isVec(v)) return v.length === 2 ? 'vec2' : v.length === 3 ? 'vec3' : 'vec4';if (isStr(v)) return 'color';return 'float'; };
     const wrap = (type, elt, value, set, reset) => ({ type, elt, value, set, reset });
     /**
      * Robust DOM-level display toggling.
@@ -3057,6 +3035,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
         dom.style.display = 'none';
       }
     };
+    const _setMarginBottom = (elt, px) => {
+      if (!elt) return;
+      const dom = elt.elt || elt;
+      if (!dom || !dom.style) return;
+      dom.style.marginBottom = `${px}px`;
+    };
     const _containerVisible = () => !!(_container && _container._visible !== false);
     const _setContainerVisible = (show) => {
       if (!_container || !_container.elt) return;
@@ -3074,41 +3058,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const lab = _labelElts[name];
       lab && _setDisplay(lab, show);
     };
-    const _applyAllControlVisibility = () => {
-      _order.forEach(name => _applyControlVisibility(name));
-    };
+    const _applyAllControlVisibility = () => { _order.forEach(name => _applyControlVisibility(name)); };
     const _defineVisibleProp = (name, c) => {
       c._visible = true;
       Object.defineProperty(c, 'visible', {
-        get () {
-          return c._visible !== false;
-        },
-        set (v) {
-          const next = v !== false;
-          if ((c._visible !== false) === next) return;
-          c._visible = next;
-          _applyControlVisibility(name);
-        }
+        get () { return c._visible !== false; },
+        set (v) { const next = v !== false;if ((c._visible !== false) === next) return;c._visible = next;_applyControlVisibility(name); }
       });
     };
     const _defineUIVisibleProp = () => {
       Object.defineProperty(ui, 'visible', {
-        get () {
-          return _containerVisible();
-        },
-        set (v) {
-          _setContainerVisible(v !== false);
-          _applyAllControlVisibility();
-        }
+        get () { return _containerVisible(); },
+        set (v) { _setContainerVisible(v !== false);_applyAllControlVisibility(); }
       });
     };
     const build = (name, cfg = {}) => {
       const type = inferType(cfg);
-      const def =
-        type === 'vec2' ? (isArr(cfg.value) ? cfg.value.slice(0, 2) : [0, 0]) :
-        type === 'vec3' ? (isArr(cfg.value) ? cfg.value.slice(0, 3) : [0, 0, 0]) :
-        type === 'vec4' ? (isArr(cfg.value) ? cfg.value.slice(0, 4) : [0, 0, 0, 0]) :
-        cfg.value;
+      const def = type === 'vec2' ? (isArr(cfg.value) ? cfg.value.slice(0, 2) : [0, 0]) : type === 'vec3' ? (isArr(cfg.value) ? cfg.value.slice(0, 3) : [0, 0, 0]) : type === 'vec4' ? (isArr(cfg.value) ? cfg.value.slice(0, 4) : [0, 0, 0, 0]) : cfg.value;
       _defaults[name] = def;
       if (type === 'button') {
         const btn = p.createButton(cfg.text || cfg.name || name);
@@ -3117,10 +3083,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       }
       if (type === 'select') {
         const sel = p.createSelect();
-        (cfg.options || []).forEach(o => {
-          if (typeof o === 'object') sel.option(o.label ?? String(o.value), o.value);
-          else sel.option(String(o), o);
-        });
+        (cfg.options || []).forEach(o => { if (typeof o === 'object') sel.option(o.label ?? String(o.value), o.value);else sel.option(String(o), o); });
         cfg.value != null && sel.selected(cfg.value);
         return wrap('select', sel, () => sel.value(), v => sel.selected(v), () => sel.selected(_defaults[name]));
       }
@@ -3130,10 +3093,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       }
       if (type === 'color') {
         const cp = p.createColorPicker(cfg.value ?? 'white');
-        const val = () => {
-          const c = cp.color();
-          return [p.red(c) / 255, p.green(c) / 255, p.blue(c) / 255, p.alpha(c) / 255];
-        };
+        const val = () => { const c = cp.color();return [p.red(c) / 255, p.green(c) / 255, p.blue(c) / 255, p.alpha(c) / 255]; };
         return wrap('color', cp, val, v => cp.value(v), () => cp.value(_defaults[name] ?? (cfg.value ?? 'white')));
       }
       if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
@@ -3145,10 +3105,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
         const sliders = [];
         for (let i = 0; i < n; i++) sliders.push(p.createSlider(min, max, v0[i] ?? min, step));
         const value = () => sliders.map(s => toFloat(s.value()));
-        const set = (arr) => {
-          const a = isArr(arr) ? arr : [];
-          for (let i = 0; i < n; i++) sliders[i].value(a[i] ?? (v0[i] ?? min));
-        };
+        const set = (arr) => { const a = isArr(arr) ? arr : [];for (let i = 0; i < n; i++) sliders[i].value(a[i] ?? (v0[i] ?? min)); };
         const reset = () => set(_defaults[name]);
         return wrap(type, sliders, value, set, reset);
       }
@@ -3162,72 +3119,47 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const reset = () => s.value(_defaults[name] ?? value0);
       return wrap(type, s, value, set, reset);
     };
-    for (const name of _order) {
-      ui[name] = build(name, _schema[name]);
-      _defineVisibleProp(name, ui[name]);
-    }
+    for (const name of _order) { ui[name] = build(name, _schema[name]);_defineVisibleProp(name, ui[name]); }
     /**
      * Iterate controls in schema order.
      * @memberof p5.UniformUI
      * @param {function(string, Object, p5.UniformUI):void} fn (name, control, ui) callback.
      * @returns {p5.UniformUI} this.
      */
-    ui.each = function (fn) {
-      _order.forEach(name => fn(name, ui[name], ui));
-      return ui;
-    };
+    ui.each = function (fn) { _order.forEach(name => fn(name, ui[name], ui));return ui; };
     /**
      * Returns a flat list of p5.Elements for all controls (vec* expands to multiple elements).
      * Does not include labels/title (use ui.container() for full DOM access).
      * @memberof p5.UniformUI
      * @returns {p5.Element[]} elements.
      */
-    ui.elts = function () {
-      const out = [];
-      ui.each((_, c) => {
-        if (!c || !c.elt) return;
-        Array.isArray(c.elt) ? c.elt.forEach(e => out.push(e)) : out.push(c.elt);
-      });
-      return out;
-    };
+    ui.elts = function () { const out = [];ui.each((_, c) => { if (!c || !c.elt) return;Array.isArray(c.elt) ? c.elt.forEach(e => out.push(e)) : out.push(c.elt); });return out; };
     /**
      * Returns the container p5.Element holding the default layout (title, labels, controls).
      * You can style it freely (background/padding/border/etc.).
      * @memberof p5.UniformUI
      * @returns {p5.Element} container element.
      */
-    ui.container = function () {
-      return _container;
-    };
+    ui.container = function () { return _container; };
     /**
      * Snapshot current values by uniform key.
      * @memberof p5.UniformUI
      * @returns {Object<string, any>} values.
      */
-    ui.values = function () {
-      const out = {};
-      ui.each((name, c) => { out[name] = c.value(); });
-      return out;
-    };
+    ui.values = function () { const out = {};ui.each((name, c) => { out[name] = c.value(); });return out; };
     /**
      * Set multiple control values by key.
      * @memberof p5.UniformUI
      * @param {Object<string, any>} vals values keyed by uniform.
      * @returns {p5.UniformUI} this.
      */
-    ui.setValues = function (vals = {}) {
-      for (const k in vals) ui[k]?.set?.(vals[k]);
-      return ui;
-    };
+    ui.setValues = function (vals = {}) { for (const k in vals) ui[k]?.set?.(vals[k]);return ui; };
     /**
      * Reset all controls to their defaults (from schema.value or inferred defaults).
      * @memberof p5.UniformUI
      * @returns {p5.UniformUI} this.
      */
-    ui.reset = function () {
-      ui.each((_, c) => c.reset && c.reset());
-      return ui;
-    };
+    ui.reset = function () { ui.each((_, c) => c.reset && c.reset());return ui; };
     /**
      * Apply all control values to a shader exposing setUniform(name, value).
      * Useful for GLSL/WebGPU shader-like APIs.
@@ -3246,14 +3178,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
       ui.each((key, c) => {
         const raw = c.value();
         const m = map[key];
-        const uniform =
-          typeof m === 'string' ? m :
-          m && typeof m === 'object' && typeof m.uniform === 'string' ? m.uniform :
-          key;
-        const val =
-          typeof m === 'function' ? m(raw, key, ui) :
-          m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, ui) :
-          raw;
+        const uniform = typeof m === 'string' ? m : m && typeof m === 'object' && typeof m.uniform === 'string' ? m.uniform : key;
+        const val = typeof m === 'function' ? m(raw, key, ui) : m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, ui) : raw;
         shader.setUniform(uniform, val);
       });
       return ui;
@@ -3262,59 +3188,36 @@ p5.registerAddon((p5, fn, lifecycles) => {
      * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.
      * @memberof p5.UniformUI
      */
-    ui.remove = function () {
-      _container && _container.remove();
-      _container = null;
-      _titleElt = null;
-      Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
-    };
-    const _applyWidth = (elt) => {
-      if (!elt) return;
-      const w = _layout.width;
-      if (!(typeof w === 'number' && Number.isFinite(w))) return;
-      elt.style && elt.style('width', `${w}px`);
-    };
-    const _ensurePositioningContext = (elt) => {
-      if (!elt || typeof getComputedStyle !== 'function') return;
-      const cs = getComputedStyle(elt);
-      if (cs && cs.position === 'static') elt.style.position = 'relative';
-    };
+    ui.remove = function () { _container && _container.remove();_container = null;_titleElt = null;Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; }); };
+    const _applyWidth = (elt) => { if (!elt) return;const w = _layout.width;if (!(typeof w === 'number' && Number.isFinite(w))) return;elt.style && elt.style('width', `${w}px`); };
+    const _ensurePositioningContext = (elt) => { if (!elt || typeof getComputedStyle !== 'function') return;const cs = getComputedStyle(elt);if (cs && cs.position === 'static') elt.style.position = 'relative'; };
     const _rebuildLayout = () => {
       if (!_container) _container = p.createDiv();
       _container.elt && (_container.elt.innerHTML = '');
       Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
-      if (_parentElt) {
-        try {
-          _ensurePositioningContext(_parentElt);
-          _container.parent(_parentElt);
-        } catch (e) {
-        }
-      }
+      if (_parentElt) { try { _ensurePositioningContext(_parentElt);_container.parent(_parentElt); } catch (e) {} }
       _container && _container.position(_layout.x, _layout.y);
       _layout.color && _container.elt && _container.elt.style && (_container.elt.style.color = _layout.color);
-      if (_layout.title) {
-        _titleElt = p.createDiv(_layout.title);
-        _container.child(_titleElt);
-      } else {
-        _titleElt = null;
-      }
+      if (_layout.title) { _titleElt = p.createDiv(_layout.title);_setMarginBottom(_titleElt, _layout.offset);_container.child(_titleElt); } else { _titleElt = null; }
       ui.each((name, c) => {
         if (_layout.labels) {
           const cfg = _schema[name] || {};
           const text = (cfg.label != null ? cfg.label : name);
           const lab = p.createDiv(String(text));
           _labelElts[name] = lab;
+          _setMarginBottom(lab, 0);
           _container.child(lab);
         }
         const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
-        elts.forEach(e => {
+        elts.forEach((e, i) => {
           _applyWidth(e);
+          _setMarginBottom(e, i === elts.length - 1 ? _layout.offset : 0);
           _container.child(e);
         });
       });
       _container.style('display', 'flex');
       _container.style('flex-direction', 'column');
-      _container.style('gap', `${_layout.offset}px`);
+      _container.style('gap', '0px');
       _setContainerVisible(!_layout.hidden);
       _applyAllControlVisibility();
     };
@@ -3331,22 +3234,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
      * @example
      * ui.config({ parent: document.getElementById('sketch') });
      */
-    ui.config = function (next = {}) {
-      _layout.x = next.x ?? _layout.x;
-      _layout.y = next.y ?? _layout.y;
-      _layout.width = next.width ?? _layout.width;
-      _layout.offset = next.offset ?? _layout.offset;
-      _layout.color = next.color ?? _layout.color;
-      _layout.hidden = next.hidden ?? _layout.hidden;
-      _layout.labels = next.labels ?? _layout.labels;
-      _layout.title = next.title ?? _layout.title;
-      if (next.parent != null) {
-        _parent = next.parent;
-        _parentElt = _parent && (_parent.elt || _parent);
-      }
-      _rebuildLayout();
-      return ui;
-    };
+    ui.config = function (next = {}) { _layout.x = next.x ?? _layout.x;_layout.y = next.y ?? _layout.y;_layout.width = next.width ?? _layout.width;_layout.offset = next.offset ?? _layout.offset;_layout.color = next.color ?? _layout.color;_layout.hidden = next.hidden ?? _layout.hidden;_layout.labels = next.labels ?? _layout.labels;_layout.title = next.title ?? _layout.title;if (next.parent != null) { _parent = next.parent;_parentElt = _parent && (_parent.elt || _parent); } _rebuildLayout();return ui; };
     _defineUIVisibleProp();
     _rebuildLayout();
     return ui;
