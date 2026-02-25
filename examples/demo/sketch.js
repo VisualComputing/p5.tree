@@ -138,6 +138,7 @@ function syncFxUI () {
   ui.speed.visible = noiseOn;
   ui.level.visible = pixelOn;
   ui.dofIntensity.visible = dofOn;
+  ui.visible = (noiseOn || pixelOn || dofOn) ? true : false
 }
 
 async function setup () {
@@ -169,7 +170,7 @@ async function setup () {
   cPixel = createCheckbox('pixelator', false)
   cBlur = createCheckbox('dof', true)
   ;[cNoise, cPixel, cBlur].forEach((c, i) => {
-    c.position(10, 10 + 260 + 12 + i * 20)
+    c.position(10, 300 + i * 20)
     c.style('color', 'white')
   })
   cNoise.changed(syncFxUI)
@@ -263,7 +264,7 @@ function draw () {
 
 function drawHud () {
   const pad = 10
-  const panelW = 240
+  const panelW = 250
   const x0 = width - panelW - pad
   const y0 = pad
   const lh = 16

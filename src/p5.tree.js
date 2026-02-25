@@ -2924,9 +2924,10 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed),
    *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
    *
-   * Per-control visibility:
-   * - Each control exposes a boolean property ui[name].visible (default true).
-   * - When set to false, the control UI is hidden (and its label when opt.labels=true).
+   * Visibility:
+   * - Whole UI visibility is exposed as a boolean property ui.visible (default true unless opt.hidden=true).
+   * - Per-control visibility is exposed as a boolean property ui[name].visible (default true).
+   * - On iOS Safari, p5.Element.show/hide can leave <input type="range"> in hit-testing; this uses DOM display toggling.
    *
    * @method createUniformUI
    * @memberof p5
@@ -2989,6 +2990,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * // Toggle a single control's UI (and label when labels=true)
    * ui.blurIntensity.visible = false;
    * ui.blurIntensity.visible = true;
+   *
+   * @example
+   * // Toggle the whole UI
+   * ui.visible = false;
+   * ui.visible = true;
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
@@ -3000,7 +3006,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       x: opt.x ?? 0,
       y: opt.y ?? 0,
       width: opt.width ?? 120,
-      offset: opt.offset ?? 6,
+      offset: opt.offset ?? 3,
       color: opt.color,
       hidden: !!opt.hidden,
       labels: !!opt.labels,
@@ -3032,6 +3038,11 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return 'float';
     };
     const wrap = (type, elt, value, set, reset) => ({ type, elt, value, set, reset });
+    /**
+     * Robust DOM-level display toggling.
+     * NOTE: iOS Safari can leave <input type="range"> in hit-testing
+     * when using p5.Element.hide(). We bypass that here.
+     */
     const _setDisplay = (elt, show) => {
       if (!elt) return;
       const dom = elt.elt || elt;
@@ -3046,14 +3057,25 @@ p5.registerAddon((p5, fn, lifecycles) => {
         dom.style.display = 'none';
       }
     };
+    const _containerVisible = () => !!(_container && _container._visible !== false);
+    const _setContainerVisible = (show) => {
+      if (!_container || !_container.elt) return;
+      const next = show !== false;
+      if ((_container._visible !== false) === next) return;
+      _container._visible = next;
+      _container.elt.style.display = next ? 'flex' : 'none';
+    };
     const _applyControlVisibility = (name) => {
       const c = ui[name];
       if (!c) return;
-      const show = c._visible !== false;
+      const show = _containerVisible() && (c._visible !== false);
       const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
       elts.forEach(e => _setDisplay(e, show));
       const lab = _labelElts[name];
       lab && _setDisplay(lab, show);
+    };
+    const _applyAllControlVisibility = () => {
+      _order.forEach(name => _applyControlVisibility(name));
     };
     const _defineVisibleProp = (name, c) => {
       c._visible = true;
@@ -3066,6 +3088,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
           if ((c._visible !== false) === next) return;
           c._visible = next;
           _applyControlVisibility(name);
+        }
+      });
+    };
+    const _defineUIVisibleProp = () => {
+      Object.defineProperty(ui, 'visible', {
+        get () {
+          return _containerVisible();
+        },
+        set (v) {
+          _setContainerVisible(v !== false);
+          _applyAllControlVisibility();
         }
       });
     };
@@ -3226,24 +3259,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
       return ui;
     };
     /**
-     * Show the entire UI container (and thus title/labels/controls).
-     * @memberof p5.UniformUI
-     * @returns {p5.UniformUI} this.
-     */
-    ui.show = function () {
-      _container && _container.show();
-      return ui;
-    };
-    /**
-     * Hide the entire UI container (and thus title/labels/controls).
-     * @memberof p5.UniformUI
-     * @returns {p5.UniformUI} this.
-     */
-    ui.hide = function () {
-      _container && _container.hide();
-      return ui;
-    };
-    /**
      * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.
      * @memberof p5.UniformUI
      */
@@ -3296,12 +3311,12 @@ p5.registerAddon((p5, fn, lifecycles) => {
           _applyWidth(e);
           _container.child(e);
         });
-        _applyControlVisibility(name);
       });
       _container.style('display', 'flex');
       _container.style('flex-direction', 'column');
       _container.style('gap', `${_layout.offset}px`);
-      _layout.hidden ? _container.hide() : _container.show();
+      _setContainerVisible(!_layout.hidden);
+      _applyAllControlVisibility();
     };
     /**
      * Configure default layout parameters (position/width/spacing/color/labels/title/hidden/parent) and rebuild layout.
@@ -3332,6 +3347,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       _rebuildLayout();
       return ui;
     };
+    _defineUIVisibleProp();
     _rebuildLayout();
     return ui;
   };
