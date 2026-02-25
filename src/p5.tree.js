@@ -2927,7 +2927,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * Visibility:
    * - Whole UI visibility is exposed as a boolean property ui.visible (default true unless opt.hidden=true).
    * - Per-control visibility is exposed as a boolean property ui[name].visible (default true).
-   * - On iOS Safari, p5.Element.show/hide can leave <input type="range"> in hit-testing; this uses DOM display toggling.
    *
    * @method createUniformUI
    * @memberof p5
