@@ -2871,69 +2871,133 @@ p5.registerAddon((p5, fn, lifecycles) => {
   };
   
   /**
-   * Creates renderer-agnostic UI controls for shader parameters (GLSL/WebGPU/p5.strands).
-   * Core-only + optional default vertical layout (show/hide/config) for 99% use cases.
-   * No panel, no background, no drag, no grouping; you own styling beyond basics.
+   * Creates renderer-agnostic UI controls for shader parameters (GLSL / WebGPU / p5.strands).
+   * Core-only helper with an optional default vertical layout (show / hide / config).
+   * No panel, no background, no drag, no grouping — styling remains user-owned.
    *
-   * Supported control types (explicit or inferred):
+   * ---------------------------------------------------------------------------
+   * Supported control types (explicit or inferred)
+   * ---------------------------------------------------------------------------
    * - 'float'  : slider (createSlider)
    * - 'int'    : slider semantics (createSlider; integer step usually 1)
    * - 'bool'   : checkbox (createCheckbox)
-   * - 'color'  : color picker (createColorPicker) returning RGBA as vec4
-   * - 'vec2'   : 2 sliders (x,y)
-   * - 'vec3'   : 3 sliders (x,y,z)
-   * - 'vec4'   : 4 sliders (x,y,z,w)
-   * - 'select' : select dropdown (createSelect)
+   * - 'color'  : color picker (createColorPicker), value() returns normalized RGBA vec4
+   * - 'vec2'   : 2 sliders (x, y)
+   * - 'vec3'   : 3 sliders (x, y, z)
+   * - 'vec4'   : 4 sliders (x, y, z, w)
+   * - 'select' : dropdown (createSelect)
    * - 'button' : action button (createButton)
    *
-   * Layout:
+   * ---------------------------------------------------------------------------
+   * Type inference (when cfg.type is omitted)
+   * ---------------------------------------------------------------------------
+   * - If cfg.options exists                -> 'select'
+   * - Else if cfg.onClick is a function    -> 'button'
+   * - Else infer from cfg.value:
+   *   - boolean                            -> 'bool'
+   *   - array length 2 / 3 / 4             -> 'vec2' / 'vec3' / 'vec4'
+   *   - string                             -> 'color' (CSS color / hex)
+   *   - number (or no value provided)      -> 'float'
+   *
+   * ---------------------------------------------------------------------------
+   * Schema entry keys (per control)
+   * ---------------------------------------------------------------------------
+   * Common:
+   * - value   : initial value (type-dependent)
+   * - label   : label text (defaults to key name)
+   * - type    : force a specific control type
+   * - width   : per-control width override
+   *
+   * Slider-based (float / int / vec2 / vec3 / vec4):
+   * - min, max, step
+   *
+   * Select:
+   * - options : array of values OR array of { label, value }
+   *
+   * Button:
+   * - onClick : function invoked on press
+   *
+   * ---------------------------------------------------------------------------
+   * Layout
+   * ---------------------------------------------------------------------------
    * - Default layout is vertical: [label] then [control], repeated.
-   * - A parent can be provided for mounting (DOM or p5.Element). If no parent is provided, UI stays in document.body.
-   * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed), so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
+   * - If opt.labels is true, labels are rendered above each control.
+   * - If opt.title is provided, a bold title row is rendered at the top.
+   * - The container is absolutely positioned at (opt.x, opt.y).
+   * - If opt.parent is provided (HTMLElement or p5.Element), the container
+   *   is mounted into it. If omitted, it is appended to document.body.
+   * - When mounting into a parent, this helper ensures the parent has a
+   *   non-static CSS position (sets position: relative if needed), allowing
+   *   predictable positioning inside frameworks (Vue / Slidev / etc.).
    *
-   * Visibility:
-   * - Whole UI visibility is exposed as a boolean property ui.visible (default true unless opt.hidden=true).
-   * - Per-control visibility is exposed as a boolean property ui[name].visible (default true).
+   * ---------------------------------------------------------------------------
+   * Visibility model
+   * ---------------------------------------------------------------------------
+   * - ui.visible toggles the entire container (default true unless opt.hidden = true).
+   * - ui[name].visible toggles a single control (and its label if labels=true).
    *
+   * Implementation note (iOS / Safari):
+   * - Visibility uses DOM-level display / visibility / pointer-events toggles
+   *   (not only p5.Element.hide()/show()) to avoid Safari desync and
+   *   hit-testing issues with <input type="range"> elements.
+   *
+   * ---------------------------------------------------------------------------
+   * Returned API
+   * ---------------------------------------------------------------------------
+   * ui.visible                : boolean (whole UI visibility)
+   * ui[name].visible          : boolean (per-control visibility)
+   *
+   * ui.container()            : returns container p5.Element
+   * ui.parent(parent)         : re-parent container (HTMLElement or p5.Element)
+   * ui.each(fn)               : iterate controls in schema order
+   * ui.elts()                 : flat array of underlying p5.Elements
+   * ui.reset()                : reset all controls to initial values
+   *
+   * Each control wrapper (ui[name]) provides:
+   * - elt                     : p5.Element (or array for vec*)
+   * - value()                 : getter
+   * - set(v)                  : setter
+   * - reset()                 : restore initial value
+   * - visible                 : boolean property
+   *
+   * ---------------------------------------------------------------------------
    * @method createUniformUI
    * @memberof p5
    * @param {Object<string, Object>} [schema={}] Control schema keyed by uniform/action name.
    * @param {Object} [opt={}] Layout/options.
    * @param {number} [opt.x=0] Container x position.
    * @param {number} [opt.y=0] Container y position.
-   * @param {number} [opt.width=120] Width for sliders/selects/buttons (applied to each element).
-   * @param {number} [opt.offset=6] Vertical spacing between rows (labels and controls).
-   * @param {string} [opt.color] Text color applied to container (inherits to label text).
-   * @param {boolean} [opt.hidden=false] If true, starts hidden.
-   * @param {boolean} [opt.labels=false] If true, renders per-control labels (defaults to key name).
+   * @param {number} [opt.width=120] Width for sliders/selects/buttons.
+   * @param {number} [opt.offset=6] Vertical spacing between rows.
+   * @param {string} [opt.color] Text color applied to container (inherited by labels).
+   * @param {boolean} [opt.hidden=false] If true, UI starts hidden.
+   * @param {boolean} [opt.labels=false] If true, render per-control labels.
    * @param {string} [opt.title] Optional container title.
-   * @param {(HTMLElement|p5.Element)} [opt.parent] Optional DOM parent to mount the container into.
-   * @returns {p5.UniformUI} A UniformUI object holding controls and helpers.
+   * @param {(HTMLElement|p5.Element)} [opt.parent] Optional parent container.
+   * @returns {p5.UniformUI} UniformUI object holding controls and helpers.
    *
+   * ---------------------------------------------------------------------------
    * @example
-   * // GLSL/WebGPU (setUniform path): float + bool + color
+   * // GLSL/WebGPU (setUniform path): float + bool + color (inferred types)
    * const ui = createUniformUI({
    *   frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'frequency' },
    *   enabled:   { value: true, label: 'enabled' },
    *   tint:      { value: '#ff00ff', label: 'tint' }
    * }, { x: 10, y: 10, width: 160, labels: true, title: 'Post FX', color: 'white' });
    *
-   * // Toggle control visibility (and label when labels=true)
+   * // Toggle a single control
    * ui.frequency.visible = false;
-   * ui.frequency.visible = true;
-   * 
+   *
    * @example
-   * // p5.strands (graph-build callback): read values via closures
+   * // p5.strands (graph-build callback): read via closures
    * function blurCallback () {
    *   const blurIntensity = uniformFloat(() => ui.blurIntensity.value());
    *   const enabled = uniformBool(() => ui.enabled.value());
-   *   // ...
    * }
    *
    * @example
-   * // Toggle the whole UI
+   * // Toggle entire UI
    * ui.visible = false;
-   * ui.visible = true;
    */
   fn.createUniformUI = function (schema = {}, opt = {}) {
     const p = this;
