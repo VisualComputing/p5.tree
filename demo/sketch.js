@@ -30,7 +30,10 @@ let showHud = true
 
 // HUD buttons
 let hudBtns = []
-let hudHover = false
+let hudActivePointer = false
+
+// Desktop hover hint only (never used to gate orbitControl)
+let hoverOK = true
 
 function dofCallback () {
   const depthTex = uniformTexture(() => layer.depth)
@@ -124,9 +127,9 @@ function fxOrderLabel () {
 }
 
 function syncFxUI () {
-  uiNoise.visible = fx.noise.enabled() ? true : false
-  uiPixel.visible = fx.pixelator.enabled() ? true : false
-  uiDof.visible = fx.dof.enabled() ? true : false
+  uiNoise.visible = fx.noise.enabled()
+  uiPixel.visible = fx.pixelator.enabled()
+  uiDof.visible = fx.dof.enabled()
 }
 
 function syncSeekUI () {
@@ -209,6 +212,7 @@ function hudHit (x, y, b) {
 
 function hudPointerOver () {
   if (!showHud) return false
+  if (!hoverOK) return false
   const mx = mouseX
   const my = mouseY
   for (let i = 0; i < hudBtns.length; i++) {
@@ -217,9 +221,6 @@ function hudPointerOver () {
   return false
 }
 
-// Toggle-style HUD button:
-// - if opt.on, stays filled (grey-ish)
-// - hover still highlights
 function drawHudButton (label, x, y, onClick, opt = {}) {
   const { on = false, disabled = false } = opt
   const padX = 6
@@ -229,7 +230,8 @@ function drawHudButton (label, x, y, onClick, opt = {}) {
   const w = tw + padX * 2
   const h = th + padY * 2
   const b = { label, x, y, w, h, onClick: disabled ? null : onClick }
-  const over = !disabled && hudHit(mouseX, mouseY, b)
+
+  const over = hoverOK && !disabled && hudHit(mouseX, mouseY, b)
 
   noFill()
   stroke(255, disabled ? 40 : 120)
@@ -252,8 +254,20 @@ function drawHudButton (label, x, y, onClick, opt = {}) {
   return w
 }
 
+function detectHoverOK () {
+  try {
+    const m = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)')
+    return !!(m && m.matches)
+  } catch (e) {
+    return true
+  }
+}
+
 async function setup () {
   createCanvas(600, 420, WEBGL)
+
+  hoverOK = detectHoverOK()
+
   font = await loadFont('/fonts/noto_sans.ttf')
   textFont(font)
 
@@ -262,7 +276,6 @@ async function setup () {
   sceneCam = layer.createCamera()
   layer.end()
 
-  // swap: UI panels now on the RIGHT
   const uiPad = 10
   const uiW = 170
   const uiX = width - uiW - uiPad
@@ -305,7 +318,6 @@ async function setup () {
   sSeek.style('width', '220px')
   syncSeekUI()
 
-  // HUD toggle checkbox (below on the LEFT)
   cHud = createCheckbox('HUD', true)
   cHud.changed(() => { showHud = cHud.checked() })
   cHud.position(10, height - 25)
@@ -321,19 +333,16 @@ async function setup () {
       type: i === 0 ? 'ball' : i < 25 ? 'torus' : 'box'
     })
   }
-
-  console.log(p5.Tree.VERSION)
 }
 
 function draw () {
   background(10)
-  if (pathKeyframes >= 2 && pathPlaying) { sSeek.value(sceneCam.pathTime()) }
+  if (pathKeyframes >= 2 && pathPlaying) sSeek.value(sceneCam.pathTime())
 
   layer.begin()
   setCamera(sceneCam)
   background(0)
-
-  if (!hudHover && !hudPointerOver()) orbitControl()
+  orbitControl()
 
   stroke(180, 90)
   showGrid && grid({ size: 500, subdivisions: 20 })
@@ -359,7 +368,9 @@ function draw () {
 
   pipe(layer, fxList())
   drawHud()
-  hudHover = hudPointerOver()
+
+  // kept ONLY for hover highlight visuals; no behavior depends on it
+  hoverOK && hudPointerOver()
 }
 
 function drawHud () {
@@ -367,14 +378,13 @@ function drawHud () {
 
   const pad = 10
   const panelW = 220
-  const x0 = pad // swap: HUD now on the LEFT
+  const x0 = pad
   const y0 = pad
 
   beginHUD()
   push()
 
-  const ts = 14
-  textSize(ts)
+  textSize(14)
   textAlign(LEFT, TOP)
 
   const btnH = (textAscent() + textDescent()) + 2 * 2
@@ -389,25 +399,22 @@ function drawHud () {
 
   let y = y0 + pad
 
-  text('p5.tree: post FX + keyframes', x0 + pad, y); y += rowH
+  text(`p5.tree v-${p5.Tree.VERSION}`, x0 + pad, y); y += rowH
   y += rowH * 0.25
 
   text('Post FX', x0 + pad, y); y += rowH
 
-  // order row (hint moved to its own line)
   let bx = x0 + pad + 18
   text('order:', x0 + pad, y)
   bx += 52
-  bx += drawHudButton('1', bx, y - 2, () => actSetOrder(1), { on: fxOrder === 1 }) + 6
-  bx += drawHudButton('2', bx, y - 2, () => actSetOrder(2), { on: fxOrder === 2 }) + 6
-  drawHudButton('3', bx, y - 2, () => actSetOrder(3), { on: fxOrder === 3 })
+  bx += drawHudButton('1', bx, y - 2, () => fxOrder = 1, { on: fxOrder === 1 }) + 6
+  bx += drawHudButton('2', bx, y - 2, () => fxOrder = 2, { on: fxOrder === 2 }) + 6
+  drawHudButton('3', bx, y - 2, () => fxOrder = 3, { on: fxOrder === 3 })
   y += rowH
 
   fill(255)
-  text(`(${fxOrderLabel()})`, x0 + pad + 18, y)
-  y += rowH
+  text(`(${fxOrderLabel()})`, x0 + pad + 18, y); y += rowH
 
-  // fx toggles
   bx = x0 + pad + 18
   text('fx:', x0 + pad, y)
   bx += 32
@@ -429,7 +436,6 @@ function drawHud () {
   y += rowH * 0.25
   text('Keyframes / Path', x0 + pad, y); y += rowH
 
-  // rearranged to avoid tight stacking + smaller rowH
   bx = x0 + pad
   bx += drawHudButton(`add keyframe (${pathKeyframes})`, bx, y - 2, actAddKeyframe) + 8
   drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop, { on: pathPlaying, disabled: pathKeyframes === 0 })
@@ -445,17 +451,27 @@ function drawHud () {
 }
 
 function mousePressed () {
+  hudActivePointer = false
   if (!showHud) return true
   const mx = mouseX
   const my = mouseY
   for (let i = 0; i < hudBtns.length; i++) {
     const b = hudBtns[i]
-    if (hudHit(mx, my, b)) { b.onClick && b.onClick(); return false }
+    if (hudHit(mx, my, b)) {
+      hudActivePointer = true
+      b.onClick && b.onClick()
+      return false
+    }
   }
   return true
 }
 
-// touch-friendly (iOS)
+function mouseReleased () {
+  hudActivePointer = false
+  return true
+}
+
 const touchStarted = () => mousePressed()
+const touchEnded = () => mouseReleased()
 const keyPressed = () => false
 const mouseWheel = () => false
