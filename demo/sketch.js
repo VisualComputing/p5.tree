@@ -31,6 +31,10 @@ let fx
 let fxOrder = 1 // 1..3 (preset orders)
 let cNoise, cPixel, cBlur
 
+// HUD “text buttons”
+let hudBtns = []
+let hudHover = false
+
 function dofCallback () {
   const depthTex = uniformTexture(() => layer.depth)
   const focus = uniformFloat(() => focusVal)
@@ -73,10 +77,8 @@ function noiseCallback () {
   const frequency = uniformFloat(() => uiNoise.frequency.value())
   const amplitude = uniformFloat(() => uiNoise.amplitude.value())
   const speed = uniformFloat(() => uiNoise.speed.value())
-
   const hash = (p) => fract(sin(dot(p, [127.1, 311.7, 74.7])) * 43758.5453123)
   const fade = (t) => t * t * (3 - 2 * t)
-
   const valueNoise3 = (p) => {
     const i = floor(p)
     const f = fract(p)
@@ -97,7 +99,6 @@ function noiseCallback () {
     const nxy1 = mix(nx01, nx11, u.y)
     return (mix(nxy0, nxy1, u.z) * 2) - 1
   }
-
   getColor((inputs, canvasContent) => {
     const t = speed * (millis() / 1000)
     const s = frequency * inputs.texCoord.x
@@ -123,9 +124,9 @@ function fxList () {
 }
 
 function fxOrderLabel () {
-  if (fxOrder === 1) return '1: noise -> pixelator -> dof'
-  if (fxOrder === 2) return '2: pixelator -> dof -> noise'
-  if (fxOrder === 3) return '3: dof -> noise -> pixelator'
+  if (fxOrder === 1) return 'noise -> pixelator -> dof'
+  if (fxOrder === 2) return 'pixelator -> dof -> noise'
+  if (fxOrder === 3) return 'dof -> noise -> pixelator'
   return ''
 }
 
@@ -136,6 +137,108 @@ function syncFxUI () {
   uiNoise.visible = noiseOn ? true : false
   uiPixel.visible = pixelOn ? true : false
   uiDof.visible = dofOn ? true : false
+}
+
+function syncSeekUI () {
+  if (pathKeyframes < 2) { sSeek && sSeek.hide(); return }
+  sSeek && sSeek.show()
+  sSeek.value(constrain(sSeek.value(), 0, 1))
+}
+
+function onPathChanged (opt = {}) {
+  const { keepPose = true } = opt
+  sceneCam.stopPath()
+  pathPlaying = false
+  if (!keepPose) {
+    sSeek && sSeek.value(0)
+    pathKeyframes >= 1 && sceneCam.seekPath(0)
+  }
+  syncSeekUI()
+}
+
+function restartPlaybackIfPlaying () {
+  if (!pathPlaying) return
+  sceneCam.playPath({
+    duration: pathDuration,
+    loop: pathLoop,
+    rate: pathRate,
+    onEnd: () => { pathPlaying = false; sSeek && sSeek.value(sceneCam.pathTime()) }
+  })
+}
+
+function actToggleGrid () { showGrid = !showGrid }
+function actToggleAxes () { showAxes = !showAxes }
+function actSetOrder (n) { fxOrder = n }
+function actAddKeyframe () {
+  sceneCam.addPath()
+  pathKeyframes++
+  if (pathKeyframes === 2) sSeek && sSeek.value(1)
+  onPathChanged({ keepPose: true })
+}
+function actPathInfo () { sceneCam.pathInfo() }
+function actToggleLoop () { pathLoop = !pathLoop; restartPlaybackIfPlaying() }
+function actRate (r) { pathRate = r; restartPlaybackIfPlaying() }
+function actPlayStop () {
+  if (pathKeyframes === 0) return
+  if (pathKeyframes === 1) {
+    sceneCam.stopPath()
+    pathPlaying = false
+    sceneCam.playPath({ duration: pathDuration, loop: false, rate: 1 })
+    syncSeekUI()
+    return
+  }
+  if (!pathPlaying) {
+    sceneCam.playPath({
+      duration: pathDuration,
+      loop: pathLoop,
+      rate: pathRate,
+      onEnd: () => { pathPlaying = false; sSeek && sSeek.value(sceneCam.pathTime()) }
+    })
+    pathPlaying = true
+  } else {
+    sceneCam.stopPath()
+    pathPlaying = false
+  }
+}
+function actResetPath () {
+  sceneCam.resetPath()
+  pathKeyframes = 0
+  sSeek && sSeek.value(0)
+  onPathChanged({ keepPose: false })
+}
+
+function hudHit (x, y, b) {
+  return x >= b.x && x <= (b.x + b.w) && y >= b.y && y <= (b.y + b.h)
+}
+
+function hudPointerOver () {
+  const mx = mouseX
+  const my = mouseY
+  for (let i = 0; i < hudBtns.length; i++) {
+    if (hudHit(mx, my, hudBtns[i])) return true
+  }
+  return false
+}
+
+function drawHudButton (label, x, y, onClick) {
+  const padX = 6
+  const padY = 3
+  const tw = textWidth(label)
+  const th = 12
+  const w = tw + padX * 2
+  const h = th + padY * 2
+  const b = { label, x, y, w, h, onClick }
+  const over = hudHit(mouseX, mouseY, b)
+  noFill()
+  stroke(255, 120)
+  rect(x, y, w, h, 4)
+  if (over) { noStroke(); fill(180, 120); rect(x, y, w, h, 4) }
+  noStroke()
+  fill(255)
+  textAlign(LEFT, TOP)
+  text(label, x + padX, y + padY)
+  hudBtns.push(b)
+  return w
 }
 
 async function setup () {
@@ -176,13 +279,12 @@ async function setup () {
   cNoise = createCheckbox('noise', false)
   cPixel = createCheckbox('pixelator', false)
   cBlur = createCheckbox('dof', true)
-  ;[cNoise, cPixel, cBlur].forEach((c, i) => {
-    c.position(10, 300 + i * 20)
+  const boxes = [cNoise, cPixel, cBlur]
+  boxes.forEach((c, i) => {
+    c.position(10 + i * 100, height - 25)
     c.style('color', 'white')
+    c.changed(syncFxUI)
   })
-  cNoise.changed(syncFxUI)
-  cPixel.changed(syncFxUI)
-  cBlur.changed(syncFxUI)
 
   fx = {
     noise: { shader: noiseFilter, enabled: () => cNoise.checked() },
@@ -227,14 +329,13 @@ async function setup () {
 function draw () {
   background(10)
 
-  if (pathKeyframes >= 2 && pathPlaying) {
-    sSeek.value(sceneCam.pathTime())
-  }
+  if (pathKeyframes >= 2 && pathPlaying) { sSeek.value(sceneCam.pathTime()) }
 
   layer.begin()
   setCamera(sceneCam)
   background(0)
-  orbitControl()
+
+  if (!hudHover && !hudPointerOver()) orbitControl()
 
   stroke(180, 90)
   showGrid && grid({ size: 500, subdivisions: 20 })
@@ -267,165 +368,93 @@ function draw () {
 
   pipe(layer, fxList())
   drawHud()
+  hudHover = hudPointerOver()
 }
 
 function drawHud () {
   const pad = 10
-  const panelW = 250
+  const panelW = 285
   const x0 = width - panelW - pad
   const y0 = pad
   const lh = 16
-  const lines = [
-    'p5.tree: post FX + keyframes',
-    '',
-    'Post FX',
-    `  [1/2/3] order: ${fxOrderLabel()}`,
-    `  toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelator=${fx.pixelator.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`,
-    '',
-    'Hints',
-    `  [G] grid: ${showGrid ? 'on' : 'off'}`,
-    `  [X] axes: ${showAxes ? 'on' : 'off'}`,
-    '',
-    'Keyframes / Path',
-    '  [A] add keyframe (addPath snapshot)',
-    '  [N] pathInfo()',
-    `  [P] play/stop   loop=${pathLoop ? 'on' : 'off'}   rate=${pathRate}`,
-    '  [R] resetPath()',
-    '  [L] toggle loop',
-    '  [<] reverse rate',
-    '  [>] forward rate',
-    `  duration: ${pathDuration} f/seg`,
-    `  keyframes: ${pathKeyframes}`,
-    `  state: ${pathPlaying ? 'playing' : pathKeyframes === 1 ? 'single keyframe' : 'stopped'}`
-  ]
 
   beginHUD()
   push()
+  hudBtns = []
   noStroke()
   fill(0, 180)
-  rect(x0, y0, panelW, pad + lines.length * lh + pad, 8)
+  rect(x0, y0, panelW, 220, 8)
+
   fill(255)
   textSize(12)
   textAlign(LEFT, TOP)
+
   let y = y0 + pad
-  for (let i = 0; i < lines.length; i++) {
-    text(lines[i], x0 + pad, y)
-    y += lh
-  }
+  text('p5.tree: post FX + keyframes', x0 + pad, y); y += lh
+  y += lh * 0.5
+
+  text('Post FX', x0 + pad, y); y += lh
+
+  let bx = x0 + pad + 18
+  text('order:', x0 + pad, y)
+  bx += 48
+  bx += drawHudButton('1', bx, y - 2, () => actSetOrder(1)) + 6
+  bx += drawHudButton('2', bx, y - 2, () => actSetOrder(2)) + 6
+  bx += drawHudButton('3', bx, y - 2, () => actSetOrder(3)) + 6
+  fill(255)
+  text(`(${fxOrderLabel()})`, bx + 4, y)
+  y += lh
+
+  text(`toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelator=${fx.pixelator.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`, x0 + pad, y); y += lh
+  y += lh * 0.5
+
+  text('Hints', x0 + pad, y); y += lh
+
+  bx = x0 + pad + 18
+  text('grid:', x0 + pad, y)
+  bx += 42
+  bx += drawHudButton(showGrid ? 'on' : 'off', bx, y - 2, actToggleGrid) + 10
+  text('axes:', bx, y)
+  bx += 42
+  drawHudButton(showAxes ? 'on' : 'off', bx, y - 2, actToggleAxes)
+  y += lh
+  y += lh * 0.5
+
+  text('Keyframes / Path', x0 + pad, y); y += lh
+
+  bx = x0 + pad
+  bx += drawHudButton('add keyframe', bx, y - 2, actAddKeyframe) + 8
+  bx += drawHudButton('pathInfo()', bx, y - 2, actPathInfo) + 8
+  drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop)
+  y += lh
+
+  bx = x0 + pad
+  bx += drawHudButton('resetPath()', bx, y - 2, actResetPath) + 8
+  bx += drawHudButton(`loop:${pathLoop ? 'on' : 'off'}`, bx, y - 2, actToggleLoop) + 8
+  bx += drawHudButton('rate:<', bx, y - 2, () => actRate(-1)) + 6
+  drawHudButton('rate:>', bx, y - 2, () => actRate(1))
+  y += lh
+
+  fill(255)
+  text(`duration: ${pathDuration} f/seg`, x0 + pad, y); y += lh
+  text(`keyframes: ${pathKeyframes}`, x0 + pad, y); y += lh
+  text(`state: ${pathPlaying ? 'playing' : pathKeyframes === 1 ? 'single keyframe' : 'stopped'}   rate=${pathRate}`, x0 + pad, y); y += lh
+
   pop()
   endHUD()
 }
 
-function syncSeekUI () {
-  if (pathKeyframes < 2) {
-    sSeek && sSeek.hide()
-    return
+function mousePressed () {
+  const mx = mouseX
+  const my = mouseY
+  for (let i = 0; i < hudBtns.length; i++) {
+    const b = hudBtns[i]
+    if (hudHit(mx, my, b)) { b.onClick && b.onClick(); return false }
   }
-  sSeek && sSeek.show()
-  sSeek.value(constrain(sSeek.value(), 0, 1))
-}
-
-function onPathChanged (opt = {}) {
-  const { keepPose = true } = opt
-  sceneCam.stopPath()
-  pathPlaying = false
-  if (!keepPose) {
-    sSeek && sSeek.value(0)
-    pathKeyframes >= 1 && sceneCam.seekPath(0)
-  }
-  syncSeekUI()
+  return true
 }
 
 function keyPressed () {
-  if (key === 'g' || key === 'G') { showGrid = !showGrid; return true }
-  if (key === 'x' || key === 'X') { showAxes = !showAxes; return true }
-
-  if (key === '1' || key === '2' || key === '3') { fxOrder = int(key); return true }
-
-  if (key === 'a' || key === 'A') {
-    sceneCam.addPath()
-    pathKeyframes++
-    if (pathKeyframes === 2) sSeek && sSeek.value(1)
-    onPathChanged({ keepPose: true })
-    return true
-  }
-
-  if (key === 'n' || key === 'N') {
-    sceneCam.pathInfo()
-    return true
-  }
-
-  if (key === 'l' || key === 'L') {
-    pathLoop = !pathLoop
-    if (pathPlaying) {
-      sceneCam.playPath({
-        duration: pathDuration,
-        loop: pathLoop,
-        rate: pathRate,
-        onEnd: () => { pathPlaying = false; sSeek.value(sceneCam.pathTime()) }
-      })
-    }
-    return true
-  }
-
-  if (key === '>') {
-    pathRate = 1
-    if (pathPlaying) {
-      sceneCam.playPath({
-        duration: pathDuration,
-        loop: pathLoop,
-        rate: pathRate,
-        onEnd: () => { pathPlaying = false; sSeek.value(sceneCam.pathTime()) }
-      })
-    }
-    return true
-  }
-
-  if (key === '<') {
-    pathRate = -1
-    if (pathPlaying) {
-      sceneCam.playPath({
-        duration: pathDuration,
-        loop: pathLoop,
-        rate: pathRate,
-        onEnd: () => { pathPlaying = false; sSeek.value(sceneCam.pathTime()) }
-      })
-    }
-    return true
-  }
-
-  if (key === 'p' || key === 'P') {
-    if (pathKeyframes === 0) return true
-    if (pathKeyframes === 1) {
-      sceneCam.stopPath()
-      pathPlaying = false
-      sceneCam.playPath({ duration: pathDuration, loop: false, rate: 1 })
-      syncSeekUI()
-      return true
-    }
-    if (!pathPlaying) {
-      sceneCam.playPath({
-        duration: pathDuration,
-        loop: pathLoop,
-        rate: pathRate,
-        onEnd: () => { pathPlaying = false; sSeek.value(sceneCam.pathTime()) }
-      })
-      pathPlaying = true
-    } else {
-      sceneCam.stopPath()
-      pathPlaying = false
-    }
-    return true
-  }
-
-  if (key === 'r' || key === 'R') {
-    sceneCam.resetPath()
-    pathKeyframes = 0
-    sSeek && sSeek.value(0)
-    onPathChanged({ keepPose: false })
-    return true
-  }
-
   return false
 }
 
