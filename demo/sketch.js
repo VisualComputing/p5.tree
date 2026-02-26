@@ -24,6 +24,10 @@ let sSeek
 let fx
 let fxOrder = 1
 
+// HUD toggle (DOM)
+let cHud
+let showHud = true
+
 // HUD buttons
 let hudBtns = []
 let hudHover = false
@@ -191,6 +195,7 @@ function actPlayStop () {
     pathPlaying = false
   }
 }
+
 function actResetPath () {
   sceneCam.resetPath()
   pathKeyframes = 0
@@ -203,6 +208,7 @@ function hudHit (x, y, b) {
 }
 
 function hudPointerOver () {
+  if (!showHud) return false
   const mx = mouseX
   const my = mouseY
   for (let i = 0; i < hudBtns.length; i++) {
@@ -217,20 +223,18 @@ function hudPointerOver () {
 function drawHudButton (label, x, y, onClick, opt = {}) {
   const { on = false, disabled = false } = opt
   const padX = 6
-  const padY = 3
+  const padY = 2
   const tw = textWidth(label)
-  const th = 12
+  const th = textAscent() + textDescent()
   const w = tw + padX * 2
   const h = th + padY * 2
   const b = { label, x, y, w, h, onClick: disabled ? null : onClick }
   const over = !disabled && hudHit(mouseX, mouseY, b)
 
-  // base outline
   noFill()
   stroke(255, disabled ? 40 : 120)
   rect(x, y, w, h, 4)
 
-  // fill for toggle/hover
   if (on || over) {
     noStroke()
     if (disabled) fill(120, 40)
@@ -239,7 +243,6 @@ function drawHudButton (label, x, y, onClick, opt = {}) {
     rect(x, y, w, h, 4)
   }
 
-  // label
   noStroke()
   fill(255, disabled ? 90 : 255)
   textAlign(LEFT, TOP)
@@ -259,19 +262,24 @@ async function setup () {
   sceneCam = layer.createCamera()
   layer.end()
 
+  // swap: UI panels now on the RIGHT
+  const uiPad = 10
+  const uiW = 170
+  const uiX = width - uiW - uiPad
+
   uiNoise = createUniformUI({
     frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'frequency' },
     amplitude: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'amplitude' },
     speed: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'speed' }
-  }, { x: 10, y: 10, width: 170, labels: true, title: 'Noise', color: 'white', offset: 0 })
+  }, { x: uiX, y: 10, width: uiW, labels: true, title: 'Noise', color: 'white', offset: 0 })
 
   uiPixel = createUniformUI({
     level: { min: 2, max: 900, value: 300, step: 1, label: 'level' }
-  }, { x: 10, y: 165, width: 170, labels: true, title: 'Pixelator', color: 'white', offset: 0 })
+  }, { x: uiX, y: 190, width: uiW, labels: true, title: 'Pixelator', color: 'white', offset: 0 })
 
   uiDof = createUniformUI({
     dofIntensity: { min: 0, max: 4, value: 1.5, step: 0.1, label: 'intensity' }
-  }, { x: 10, y: 230, width: 170, labels: true, title: 'DOF', color: 'white', offset: 0 })
+  }, { x: uiX, y: 280, width: uiW, labels: true, title: 'DOF', color: 'white', offset: 0 })
 
   noiseFilter = baseFilterShader().modify(noiseCallback)
   pixelatorFilter = baseFilterShader().modify(pixelatorCallback)
@@ -293,9 +301,15 @@ async function setup () {
     pathPlaying = false
     sceneCam.seekPath(sSeek.value())
   })
-  sSeek.position(width / 2 + 50, height - 50)
+  sSeek.position(10, height - 70)
   sSeek.style('width', '220px')
   syncSeekUI()
+
+  // HUD toggle checkbox (below on the LEFT)
+  cHud = createCheckbox('HUD', true)
+  cHud.changed(() => { showHud = cHud.checked() })
+  cHud.position(10, height - 25)
+  cHud.style('color', 'white')
 
   const trange = 200
   models = []
@@ -349,70 +363,77 @@ function draw () {
 }
 
 function drawHud () {
+  if (!showHud) return
+
   const pad = 10
-  const panelW = 300
-  const x0 = width - panelW - pad
+  const panelW = 220
+  const x0 = pad // swap: HUD now on the LEFT
   const y0 = pad
-  const lh = 16
 
   beginHUD()
   push()
 
+  const ts = 14
+  textSize(ts)
+  textAlign(LEFT, TOP)
+
+  const btnH = (textAscent() + textDescent()) + 2 * 2
+  const rowH = btnH + 6
+
   hudBtns = []
   noStroke()
   fill(0, 180)
-  rect(x0, y0, panelW, 212, 8)
+  rect(x0, y0, panelW, 330, 8)
 
   fill(255)
-  textSize(12)
-  textAlign(LEFT, TOP)
 
   let y = y0 + pad
 
-  text('p5.tree: post FX + keyframes', x0 + pad, y); y += lh
-  y += lh * 0.5
+  text('p5.tree: post FX + keyframes', x0 + pad, y); y += rowH
+  y += rowH * 0.25
 
-  text('Post FX', x0 + pad, y); y += lh
+  text('Post FX', x0 + pad, y); y += rowH
 
-  // order row
+  // order row (hint moved to its own line)
   let bx = x0 + pad + 18
   text('order:', x0 + pad, y)
-  bx += 48
+  bx += 52
   bx += drawHudButton('1', bx, y - 2, () => actSetOrder(1), { on: fxOrder === 1 }) + 6
   bx += drawHudButton('2', bx, y - 2, () => actSetOrder(2), { on: fxOrder === 2 }) + 6
-  bx += drawHudButton('3', bx, y - 2, () => actSetOrder(3), { on: fxOrder === 3 }) + 6
-  fill(255)
-  text(`(${fxOrderLabel()})`, bx + 4, y)
-  y += lh
+  drawHudButton('3', bx, y - 2, () => actSetOrder(3), { on: fxOrder === 3 })
+  y += rowH
 
-  // fx toggles as real toggles
+  fill(255)
+  text(`(${fxOrderLabel()})`, x0 + pad + 18, y)
+  y += rowH
+
+  // fx toggles
   bx = x0 + pad + 18
   text('fx:', x0 + pad, y)
-  bx += 28
+  bx += 32
   bx += drawHudButton('noise', bx, y - 2, actToggleNoise, { on: fx.noise.enabled() }) + 8
   bx += drawHudButton('pixel', bx, y - 2, actTogglePixel, { on: fx.pixelator.enabled() }) + 8
   drawHudButton('dof', bx, y - 2, actToggleDof, { on: fx.dof.enabled() })
-  y += lh
+  y += rowH
 
-  y += lh * 0.5
-  text('Hints', x0 + pad, y); y += lh
+  y += rowH * 0.25
+  text('Hints', x0 + pad, y); y += rowH
 
-  // grid/axes as real toggles (simplified labels)
   bx = x0 + pad + 18
   text('view:', x0 + pad, y)
-  bx += 38
+  bx += 44
   bx += drawHudButton('grid', bx, y - 2, actToggleGrid, { on: showGrid }) + 8
   drawHudButton('axes', bx, y - 2, actToggleAxes, { on: showAxes })
-  y += lh
+  y += rowH
 
-  y += lh * 0.5
-  text('Keyframes / Path', x0 + pad, y); y += lh
+  y += rowH * 0.25
+  text('Keyframes / Path', x0 + pad, y); y += rowH
 
-  // keyframe count hint on add button
+  // rearranged to avoid tight stacking + smaller rowH
   bx = x0 + pad
   bx += drawHudButton(`add keyframe (${pathKeyframes})`, bx, y - 2, actAddKeyframe) + 8
   drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop, { on: pathPlaying, disabled: pathKeyframes === 0 })
-  y += lh
+  y += rowH
 
   bx = x0 + pad
   bx += drawHudButton('resetPath()', bx, y - 2, actResetPath) + 8
@@ -424,6 +445,7 @@ function drawHud () {
 }
 
 function mousePressed () {
+  if (!showHud) return true
   const mx = mouseX
   const my = mouseY
   for (let i = 0; i < hudBtns.length; i++) {
@@ -435,6 +457,5 @@ function mousePressed () {
 
 // touch-friendly (iOS)
 const touchStarted = () => mousePressed()
-
 const keyPressed = () => false
 const mouseWheel = () => false
