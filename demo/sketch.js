@@ -4,7 +4,7 @@ let layer
 let models
 let focusVal = 0
 
-let ui
+let uiNoise, uiPixel, uiDof
 let dofFilter, pixelatorFilter, noiseFilter
 
 let font
@@ -34,7 +34,7 @@ let cNoise, cPixel, cBlur
 function dofCallback () {
   const depthTex = uniformTexture(() => layer.depth)
   const focus = uniformFloat(() => focusVal)
-  const dofIntensity = uniformFloat(() => ui.dofIntensity.value())
+  const dofIntensity = uniformFloat(() => uiDof.dofIntensity.value())
   const getBlurriness = (d) => abs(d - focus) * 40 * dofIntensity
   const maxBlurDistance = (b) => b * 0.01
   getColor((inputs, canvasContent) => {
@@ -59,7 +59,7 @@ function dofCallback () {
 }
 
 function pixelatorCallback () {
-  const level = uniformFloat(() => ui.level.value())
+  const level = uniformFloat(() => uiPixel.level.value())
   getColor((inputs, canvasContent) => {
     let stepCoord = inputs.texCoord * level
     stepCoord = floor(stepCoord)
@@ -70,9 +70,9 @@ function pixelatorCallback () {
 }
 
 function noiseCallback () {
-  const frequency = uniformFloat(() => ui.frequency.value())
-  const amplitude = uniformFloat(() => ui.amplitude.value())
-  const speed = uniformFloat(() => ui.speed.value())
+  const frequency = uniformFloat(() => uiNoise.frequency.value())
+  const amplitude = uniformFloat(() => uiNoise.amplitude.value())
+  const speed = uniformFloat(() => uiNoise.speed.value())
 
   const hash = (p) => fract(sin(dot(p, [127.1, 311.7, 74.7])) * 43758.5453123)
   const fade = (t) => t * t * (3 - 2 * t)
@@ -133,12 +133,9 @@ function syncFxUI () {
   const noiseOn = cNoise.checked()
   const pixelOn = cPixel.checked()
   const dofOn = cBlur.checked()
-  ui.frequency.visible = noiseOn;
-  ui.amplitude.visible = noiseOn;
-  ui.speed.visible = noiseOn;
-  ui.level.visible = pixelOn;
-  ui.dofIntensity.visible = dofOn;
-  ui.visible = (noiseOn || pixelOn || dofOn) ? true : false
+  uiNoise.visible = noiseOn ? true : false
+  uiPixel.visible = pixelOn ? true : false
+  uiDof.visible = dofOn ? true : false
 }
 
 async function setup () {
@@ -151,14 +148,24 @@ async function setup () {
   sceneCam = layer.createCamera()
   layer.end()
 
-  ui = createUniformUI({
-    frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'noise frequency' },
-    amplitude: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'noise amplitude' },
-    speed: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'noise speed' },
-    level: { min: 2, max: 900, value: 300, step: 1, label: 'pixelator level' },
-    dofIntensity: { min: 0, max: 4, value: 1.5, step: 0.1, label: 'dof intensity' }
+  uiNoise = createUniformUI({
+    frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'frequency' },
+    amplitude: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'amplitude' },
+    speed: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'speed' }
   }, {
-    x: 10, y: 10, width: 170, labels: true, title: 'Post FX', color: 'white'
+    x: 10, y: 10, width: 170, labels: true, title: 'Noise', color: 'white', offset: 0
+  })
+
+  uiPixel = createUniformUI({
+    level: { min: 2, max: 900, value: 300, step: 1, label: 'level' }
+  }, {
+    x: 10, y: 165, width: 170, labels: true, title: 'Pixelator', color: 'white', offset: 0
+  })
+
+  uiDof = createUniformUI({
+    dofIntensity: { min: 0, max: 4, value: 1.5, step: 0.1, label: 'intensity' }
+  }, {
+    x: 10, y: 230, width: 170, labels: true, title: 'DOF', color: 'white', offset: 0
   })
 
   noiseFilter = baseFilterShader().modify(noiseCallback)
