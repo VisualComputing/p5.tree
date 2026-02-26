@@ -8,30 +8,23 @@ let uiNoise, uiPixel, uiDof
 let dofFilter, pixelatorFilter, noiseFilter
 
 let font
-
-// explicit scene camera (the one we animate) — MUST belong to the framebuffer renderer
 let sceneCam
 
-// toggles
 let showAxes = true
 let showGrid = true
 
-// camera path UI state (we keep it ourselves; no _renderer access)
 let pathLoop = true
 let pathPlaying = false
-let pathDuration = 45 // frames per segment
+let pathDuration = 45
 let pathRate = 1
-let pathKeyframes = 0 // we update on add/reset; no introspection
+let pathKeyframes = 0
 
-// seek slider (DOM)
 let sSeek
 
-// post FX toggles + order
 let fx
-let fxOrder = 1 // 1..3 (preset orders)
+let fxOrder = 1
 let cNoise, cPixel, cBlur
 
-// HUD “text buttons”
 let hudBtns = []
 let hudHover = false
 
@@ -114,11 +107,7 @@ function noiseCallback () {
 function fxList () {
   const enabled = (name) => fx[name] && fx[name].enabled()
   const pick = (name) => (enabled(name) ? fx[name].shader : null)
-  const presets = {
-    1: ['noise', 'pixelator', 'dof'],
-    2: ['pixelator', 'dof', 'noise'],
-    3: ['dof', 'noise', 'pixelator']
-  }
+  const presets = { 1: ['noise', 'pixelator', 'dof'], 2: ['pixelator', 'dof', 'noise'], 3: ['dof', 'noise', 'pixelator'] }
   const ord = presets[fxOrder] || presets[1]
   return ord.map(pick).filter(Boolean)
 }
@@ -175,7 +164,6 @@ function actAddKeyframe () {
   if (pathKeyframes === 2) sSeek && sSeek.value(1)
   onPathChanged({ keepPose: true })
 }
-function actPathInfo () { sceneCam.pathInfo() }
 function actToggleLoop () { pathLoop = !pathLoop; restartPlaybackIfPlaying() }
 function actRate (r) { pathRate = r; restartPlaybackIfPlaying() }
 function actPlayStop () {
@@ -245,37 +233,24 @@ async function setup () {
   createCanvas(600, 420, WEBGL)
   font = await loadFont('/fonts/noto_sans.ttf')
   textFont(font)
-
   layer = createFramebuffer()
   layer.begin()
   sceneCam = layer.createCamera()
   layer.end()
-
   uiNoise = createUniformUI({
     frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'frequency' },
     amplitude: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'amplitude' },
     speed: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'speed' }
-  }, {
-    x: 10, y: 10, width: 170, labels: true, title: 'Noise', color: 'white', offset: 0
-  })
-
+  }, { x: 10, y: 10, width: 170, labels: true, title: 'Noise', color: 'white', offset: 0 })
   uiPixel = createUniformUI({
     level: { min: 2, max: 900, value: 300, step: 1, label: 'level' }
-  }, {
-    x: 10, y: 165, width: 170, labels: true, title: 'Pixelator', color: 'white', offset: 0
-  })
-
+  }, { x: 10, y: 165, width: 170, labels: true, title: 'Pixelator', color: 'white', offset: 0 })
   uiDof = createUniformUI({
     dofIntensity: { min: 0, max: 4, value: 1.5, step: 0.1, label: 'intensity' }
-  }, {
-    x: 10, y: 230, width: 170, labels: true, title: 'DOF', color: 'white', offset: 0
-  })
-
+  }, { x: 10, y: 230, width: 170, labels: true, title: 'DOF', color: 'white', offset: 0 })
   noiseFilter = baseFilterShader().modify(noiseCallback)
   pixelatorFilter = baseFilterShader().modify(pixelatorCallback)
   dofFilter = baseFilterShader().modify(dofCallback)
-
-  // FX toggles (checkboxes)
   cNoise = createCheckbox('noise', false)
   cPixel = createCheckbox('pixelator', false)
   cBlur = createCheckbox('dof', true)
@@ -285,18 +260,14 @@ async function setup () {
     c.style('color', 'white')
     c.changed(syncFxUI)
   })
-
   fx = {
     noise: { shader: noiseFilter, enabled: () => cNoise.checked() },
     pixelator: { shader: pixelatorFilter, enabled: () => cPixel.checked() },
     dof: { shader: dofFilter, enabled: () => cBlur.checked() }
   }
-
   syncFxUI()
-
   pathPlaying = false
   pathKeyframes = 0
-
   sSeek = createSlider(0, 1, 0, 0.001)
   sSeek.input(() => {
     sceneCam.stopPath()
@@ -305,67 +276,45 @@ async function setup () {
   })
   sSeek.position(width / 2 + 50, height - 50)
   sSeek.style('width', '220px')
-
   syncSeekUI()
-
   const trange = 200
   models = []
   for (let i = 0; i < 50; i++) {
     models.push({
-      position: createVector(
-        (random() * 2 - 1) * trange,
-        (random() * 2 - 1) * trange,
-        (random() * 2 - 1) * trange
-      ),
+      position: createVector((random() * 2 - 1) * trange, (random() * 2 - 1) * trange, (random() * 2 - 1) * trange),
       size: random() * 25 + 8,
       color: color(int(random(256)), int(random(256)), int(random(256))),
       type: i === 0 ? 'ball' : i < 25 ? 'torus' : 'box'
     })
   }
-
   console.log(p5.Tree.VERSION)
 }
 
 function draw () {
   background(10)
-
   if (pathKeyframes >= 2 && pathPlaying) { sSeek.value(sceneCam.pathTime()) }
-
   layer.begin()
   setCamera(sceneCam)
   background(0)
-
   if (!hudHover && !hudPointerOver()) orbitControl()
-
   stroke(180, 90)
   showGrid && grid({ size: 500, subdivisions: 20 })
   showAxes && axes({ size: 220 })
-
   noStroke()
   ambientLight(100)
-
   const direction = mapDirection(p5.Tree._k, { from: p5.Tree.EYE, to: p5.Tree.WORLD })
   directionalLight(255, 255, 255, direction.x, direction.y, direction.z)
-
   specularMaterial(255)
   shininess(150)
-
   models.forEach(model => {
     push()
     fill(model.color)
     translate(model.position)
-    model.type === 'box'
-      ? box(model.size)
-      : model.type === 'torus'
-        ? torus(model.size)
-        : sphere(model.size)
+    model.type === 'box' ? box(model.size) : model.type === 'torus' ? torus(model.size) : sphere(model.size)
     pop()
   })
-
   focusVal = mapLocation(models[0].position, { from: p5.Tree.WORLD, to: p5.Tree.SCREEN }).z
-
   layer.end()
-
   pipe(layer, fxList())
   drawHud()
   hudHover = hudPointerOver()
@@ -377,24 +326,19 @@ function drawHud () {
   const x0 = width - panelW - pad
   const y0 = pad
   const lh = 16
-
   beginHUD()
   push()
   hudBtns = []
   noStroke()
   fill(0, 180)
-  rect(x0, y0, panelW, 220, 8)
-
+  rect(x0, y0, panelW, 190, 8)
   fill(255)
   textSize(12)
   textAlign(LEFT, TOP)
-
   let y = y0 + pad
   text('p5.tree: post FX + keyframes', x0 + pad, y); y += lh
   y += lh * 0.5
-
   text('Post FX', x0 + pad, y); y += lh
-
   let bx = x0 + pad + 18
   text('order:', x0 + pad, y)
   bx += 48
@@ -404,12 +348,9 @@ function drawHud () {
   fill(255)
   text(`(${fxOrderLabel()})`, bx + 4, y)
   y += lh
-
   text(`toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelator=${fx.pixelator.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`, x0 + pad, y); y += lh
   y += lh * 0.5
-
   text('Hints', x0 + pad, y); y += lh
-
   bx = x0 + pad + 18
   text('grid:', x0 + pad, y)
   bx += 42
@@ -419,27 +360,16 @@ function drawHud () {
   drawHudButton(showAxes ? 'on' : 'off', bx, y - 2, actToggleAxes)
   y += lh
   y += lh * 0.5
-
   text('Keyframes / Path', x0 + pad, y); y += lh
-
   bx = x0 + pad
   bx += drawHudButton('add keyframe', bx, y - 2, actAddKeyframe) + 8
-  bx += drawHudButton('pathInfo()', bx, y - 2, actPathInfo) + 8
   drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop)
   y += lh
-
   bx = x0 + pad
   bx += drawHudButton('resetPath()', bx, y - 2, actResetPath) + 8
   bx += drawHudButton(`loop:${pathLoop ? 'on' : 'off'}`, bx, y - 2, actToggleLoop) + 8
   bx += drawHudButton('rate:<', bx, y - 2, () => actRate(-1)) + 6
   drawHudButton('rate:>', bx, y - 2, () => actRate(1))
-  y += lh
-
-  fill(255)
-  text(`duration: ${pathDuration} f/seg`, x0 + pad, y); y += lh
-  text(`keyframes: ${pathKeyframes}`, x0 + pad, y); y += lh
-  text(`state: ${pathPlaying ? 'playing' : pathKeyframes === 1 ? 'single keyframe' : 'stopped'}   rate=${pathRate}`, x0 + pad, y); y += lh
-
   pop()
   endHUD()
 }
@@ -454,10 +384,5 @@ function mousePressed () {
   return true
 }
 
-function keyPressed () {
-  return false
-}
-
-function mouseWheel () {
-  return false
-}
+const keyPressed = () => false
+const mouseWheel = () => false
