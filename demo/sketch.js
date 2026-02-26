@@ -167,7 +167,8 @@ function actAddKeyframe () {
   onPathChanged({ keepPose: true })
 }
 function actToggleLoop () { pathLoop = !pathLoop; restartPlaybackIfPlaying() }
-function actRate (r) { pathRate = r; restartPlaybackIfPlaying() }
+function actToggleRate () { pathRate = -pathRate; restartPlaybackIfPlaying() }
+
 function actPlayStop () {
   if (pathKeyframes === 0) return
   if (pathKeyframes === 1) {
@@ -210,23 +211,40 @@ function hudPointerOver () {
   return false
 }
 
-function drawHudButton (label, x, y, onClick) {
+// Toggle-style HUD button:
+// - if opt.on, stays filled (grey-ish)
+// - hover still highlights
+function drawHudButton (label, x, y, onClick, opt = {}) {
+  const { on = false, disabled = false } = opt
   const padX = 6
   const padY = 3
   const tw = textWidth(label)
   const th = 12
   const w = tw + padX * 2
   const h = th + padY * 2
-  const b = { label, x, y, w, h, onClick }
-  const over = hudHit(mouseX, mouseY, b)
+  const b = { label, x, y, w, h, onClick: disabled ? null : onClick }
+  const over = !disabled && hudHit(mouseX, mouseY, b)
+
+  // base outline
   noFill()
-  stroke(255, 120)
+  stroke(255, disabled ? 40 : 120)
   rect(x, y, w, h, 4)
-  if (over) { noStroke(); fill(180, 120); rect(x, y, w, h, 4) }
+
+  // fill for toggle/hover
+  if (on || over) {
+    noStroke()
+    if (disabled) fill(120, 40)
+    else if (over) fill(200, 140)
+    else fill(180, 90)
+    rect(x, y, w, h, 4)
+  }
+
+  // label
   noStroke()
-  fill(255)
+  fill(255, disabled ? 90 : 255)
   textAlign(LEFT, TOP)
   text(label, x + padX, y + padY)
+
   hudBtns.push(b)
   return w
 }
@@ -332,7 +350,7 @@ function draw () {
 
 function drawHud () {
   const pad = 10
-  const panelW = 285
+  const panelW = 300
   const x0 = width - panelW - pad
   const y0 = pad
   const lh = 16
@@ -360,48 +378,46 @@ function drawHud () {
   let bx = x0 + pad + 18
   text('order:', x0 + pad, y)
   bx += 48
-  bx += drawHudButton('1', bx, y - 2, () => actSetOrder(1)) + 6
-  bx += drawHudButton('2', bx, y - 2, () => actSetOrder(2)) + 6
-  bx += drawHudButton('3', bx, y - 2, () => actSetOrder(3)) + 6
+  bx += drawHudButton('1', bx, y - 2, () => actSetOrder(1), { on: fxOrder === 1 }) + 6
+  bx += drawHudButton('2', bx, y - 2, () => actSetOrder(2), { on: fxOrder === 2 }) + 6
+  bx += drawHudButton('3', bx, y - 2, () => actSetOrder(3), { on: fxOrder === 3 }) + 6
   fill(255)
   text(`(${fxOrderLabel()})`, bx + 4, y)
   y += lh
 
-  // toggles row (moved from DOM checkboxes)
+  // fx toggles as real toggles
   bx = x0 + pad + 18
   text('fx:', x0 + pad, y)
   bx += 28
-  bx += drawHudButton(`noise:${fx.noise.enabled() ? 'on' : 'off'}`, bx, y - 2, actToggleNoise) + 8
-  bx += drawHudButton(`pixel:${fx.pixelator.enabled() ? 'on' : 'off'}`, bx, y - 2, actTogglePixel) + 8
-  drawHudButton(`dof:${fx.dof.enabled() ? 'on' : 'off'}`, bx, y - 2, actToggleDof)
+  bx += drawHudButton('noise', bx, y - 2, actToggleNoise, { on: fx.noise.enabled() }) + 8
+  bx += drawHudButton('pixel', bx, y - 2, actTogglePixel, { on: fx.pixelator.enabled() }) + 8
+  drawHudButton('dof', bx, y - 2, actToggleDof, { on: fx.dof.enabled() })
   y += lh
 
   y += lh * 0.5
   text('Hints', x0 + pad, y); y += lh
 
-  // grid/axes row
+  // grid/axes as real toggles (simplified labels)
   bx = x0 + pad + 18
-  text('grid:', x0 + pad, y)
-  bx += 42
-  bx += drawHudButton(showGrid ? 'on' : 'off', bx, y - 2, actToggleGrid) + 10
-  text('axes:', bx, y)
-  bx += 42
-  drawHudButton(showAxes ? 'on' : 'off', bx, y - 2, actToggleAxes)
+  text('view:', x0 + pad, y)
+  bx += 38
+  bx += drawHudButton('grid', bx, y - 2, actToggleGrid, { on: showGrid }) + 8
+  drawHudButton('axes', bx, y - 2, actToggleAxes, { on: showAxes })
   y += lh
 
   y += lh * 0.5
   text('Keyframes / Path', x0 + pad, y); y += lh
 
+  // keyframe count hint on add button
   bx = x0 + pad
-  bx += drawHudButton('add keyframe', bx, y - 2, actAddKeyframe) + 8
-  drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop)
+  bx += drawHudButton(`add keyframe (${pathKeyframes})`, bx, y - 2, actAddKeyframe) + 8
+  drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop, { on: pathPlaying, disabled: pathKeyframes === 0 })
   y += lh
 
   bx = x0 + pad
   bx += drawHudButton('resetPath()', bx, y - 2, actResetPath) + 8
-  bx += drawHudButton(`loop:${pathLoop ? 'on' : 'off'}`, bx, y - 2, actToggleLoop) + 8
-  bx += drawHudButton('rate:<', bx, y - 2, () => actRate(-1)) + 6
-  drawHudButton('rate:>', bx, y - 2, () => actRate(1))
+  bx += drawHudButton('loop', bx, y - 2, actToggleLoop, { on: pathLoop }) + 8
+  drawHudButton(`rate ${pathRate >= 0 ? '>' : '<'}`, bx, y - 2, actToggleRate, { on: pathRate < 0 })
 
   pop()
   endHUD()
