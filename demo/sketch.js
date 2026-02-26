@@ -23,8 +23,8 @@ let sSeek
 
 let fx
 let fxOrder = 1
-let cNoise, cPixel, cBlur
 
+// HUD buttons
 let hudBtns = []
 let hudHover = false
 
@@ -120,12 +120,9 @@ function fxOrderLabel () {
 }
 
 function syncFxUI () {
-  const noiseOn = cNoise.checked()
-  const pixelOn = cPixel.checked()
-  const dofOn = cBlur.checked()
-  uiNoise.visible = noiseOn ? true : false
-  uiPixel.visible = pixelOn ? true : false
-  uiDof.visible = dofOn ? true : false
+  uiNoise.visible = fx.noise.enabled() ? true : false
+  uiPixel.visible = fx.pixelator.enabled() ? true : false
+  uiDof.visible = fx.dof.enabled() ? true : false
 }
 
 function syncSeekUI () {
@@ -158,6 +155,11 @@ function restartPlaybackIfPlaying () {
 function actToggleGrid () { showGrid = !showGrid }
 function actToggleAxes () { showAxes = !showAxes }
 function actSetOrder (n) { fxOrder = n }
+
+function actToggleNoise () { fx.noise._on = !fx.noise._on; syncFxUI() }
+function actTogglePixel () { fx.pixelator._on = !fx.pixelator._on; syncFxUI() }
+function actToggleDof () { fx.dof._on = !fx.dof._on; syncFxUI() }
+
 function actAddKeyframe () {
   sceneCam.addPath()
   pathKeyframes++
@@ -233,41 +235,40 @@ async function setup () {
   createCanvas(600, 420, WEBGL)
   font = await loadFont('/fonts/noto_sans.ttf')
   textFont(font)
+
   layer = createFramebuffer()
   layer.begin()
   sceneCam = layer.createCamera()
   layer.end()
+
   uiNoise = createUniformUI({
     frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'frequency' },
     amplitude: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'amplitude' },
     speed: { min: 0, max: 1, value: 0.3, step: 0.01, label: 'speed' }
   }, { x: 10, y: 10, width: 170, labels: true, title: 'Noise', color: 'white', offset: 0 })
+
   uiPixel = createUniformUI({
     level: { min: 2, max: 900, value: 300, step: 1, label: 'level' }
   }, { x: 10, y: 165, width: 170, labels: true, title: 'Pixelator', color: 'white', offset: 0 })
+
   uiDof = createUniformUI({
     dofIntensity: { min: 0, max: 4, value: 1.5, step: 0.1, label: 'intensity' }
   }, { x: 10, y: 230, width: 170, labels: true, title: 'DOF', color: 'white', offset: 0 })
+
   noiseFilter = baseFilterShader().modify(noiseCallback)
   pixelatorFilter = baseFilterShader().modify(pixelatorCallback)
   dofFilter = baseFilterShader().modify(dofCallback)
-  cNoise = createCheckbox('noise', false)
-  cPixel = createCheckbox('pixelator', false)
-  cBlur = createCheckbox('dof', true)
-  const boxes = [cNoise, cPixel, cBlur]
-  boxes.forEach((c, i) => {
-    c.position(10 + i * 100, height - 25)
-    c.style('color', 'white')
-    c.changed(syncFxUI)
-  })
+
   fx = {
-    noise: { shader: noiseFilter, enabled: () => cNoise.checked() },
-    pixelator: { shader: pixelatorFilter, enabled: () => cPixel.checked() },
-    dof: { shader: dofFilter, enabled: () => cBlur.checked() }
+    noise: { shader: noiseFilter, _on: false, enabled: function () { return this._on } },
+    pixelator: { shader: pixelatorFilter, _on: false, enabled: function () { return this._on } },
+    dof: { shader: dofFilter, _on: true, enabled: function () { return this._on } }
   }
   syncFxUI()
+
   pathPlaying = false
   pathKeyframes = 0
+
   sSeek = createSlider(0, 1, 0, 0.001)
   sSeek.input(() => {
     sceneCam.stopPath()
@@ -277,6 +278,7 @@ async function setup () {
   sSeek.position(width / 2 + 50, height - 50)
   sSeek.style('width', '220px')
   syncSeekUI()
+
   const trange = 200
   models = []
   for (let i = 0; i < 50; i++) {
@@ -287,25 +289,31 @@ async function setup () {
       type: i === 0 ? 'ball' : i < 25 ? 'torus' : 'box'
     })
   }
+
   console.log(p5.Tree.VERSION)
 }
 
 function draw () {
   background(10)
   if (pathKeyframes >= 2 && pathPlaying) { sSeek.value(sceneCam.pathTime()) }
+
   layer.begin()
   setCamera(sceneCam)
   background(0)
+
   if (!hudHover && !hudPointerOver()) orbitControl()
+
   stroke(180, 90)
   showGrid && grid({ size: 500, subdivisions: 20 })
   showAxes && axes({ size: 220 })
+
   noStroke()
   ambientLight(100)
   const direction = mapDirection(p5.Tree._k, { from: p5.Tree.EYE, to: p5.Tree.WORLD })
   directionalLight(255, 255, 255, direction.x, direction.y, direction.z)
   specularMaterial(255)
   shininess(150)
+
   models.forEach(model => {
     push()
     fill(model.color)
@@ -313,8 +321,10 @@ function draw () {
     model.type === 'box' ? box(model.size) : model.type === 'torus' ? torus(model.size) : sphere(model.size)
     pop()
   })
+
   focusVal = mapLocation(models[0].position, { from: p5.Tree.WORLD, to: p5.Tree.SCREEN }).z
   layer.end()
+
   pipe(layer, fxList())
   drawHud()
   hudHover = hudPointerOver()
@@ -326,19 +336,27 @@ function drawHud () {
   const x0 = width - panelW - pad
   const y0 = pad
   const lh = 16
+
   beginHUD()
   push()
+
   hudBtns = []
   noStroke()
   fill(0, 180)
-  rect(x0, y0, panelW, 190, 8)
+  rect(x0, y0, panelW, 212, 8)
+
   fill(255)
   textSize(12)
   textAlign(LEFT, TOP)
+
   let y = y0 + pad
+
   text('p5.tree: post FX + keyframes', x0 + pad, y); y += lh
   y += lh * 0.5
+
   text('Post FX', x0 + pad, y); y += lh
+
+  // order row
   let bx = x0 + pad + 18
   text('order:', x0 + pad, y)
   bx += 48
@@ -348,9 +366,20 @@ function drawHud () {
   fill(255)
   text(`(${fxOrderLabel()})`, bx + 4, y)
   y += lh
-  text(`toggles: noise=${fx.noise.enabled() ? 'on' : 'off'}  pixelator=${fx.pixelator.enabled() ? 'on' : 'off'}  dof=${fx.dof.enabled() ? 'on' : 'off'}`, x0 + pad, y); y += lh
+
+  // toggles row (moved from DOM checkboxes)
+  bx = x0 + pad + 18
+  text('fx:', x0 + pad, y)
+  bx += 28
+  bx += drawHudButton(`noise:${fx.noise.enabled() ? 'on' : 'off'}`, bx, y - 2, actToggleNoise) + 8
+  bx += drawHudButton(`pixel:${fx.pixelator.enabled() ? 'on' : 'off'}`, bx, y - 2, actTogglePixel) + 8
+  drawHudButton(`dof:${fx.dof.enabled() ? 'on' : 'off'}`, bx, y - 2, actToggleDof)
+  y += lh
+
   y += lh * 0.5
   text('Hints', x0 + pad, y); y += lh
+
+  // grid/axes row
   bx = x0 + pad + 18
   text('grid:', x0 + pad, y)
   bx += 42
@@ -359,17 +388,21 @@ function drawHud () {
   bx += 42
   drawHudButton(showAxes ? 'on' : 'off', bx, y - 2, actToggleAxes)
   y += lh
+
   y += lh * 0.5
   text('Keyframes / Path', x0 + pad, y); y += lh
+
   bx = x0 + pad
   bx += drawHudButton('add keyframe', bx, y - 2, actAddKeyframe) + 8
   drawHudButton(pathPlaying ? 'stop' : 'play', bx, y - 2, actPlayStop)
   y += lh
+
   bx = x0 + pad
   bx += drawHudButton('resetPath()', bx, y - 2, actResetPath) + 8
   bx += drawHudButton(`loop:${pathLoop ? 'on' : 'off'}`, bx, y - 2, actToggleLoop) + 8
   bx += drawHudButton('rate:<', bx, y - 2, () => actRate(-1)) + 6
   drawHudButton('rate:>', bx, y - 2, () => actRate(1))
+
   pop()
   endHUD()
 }
@@ -383,6 +416,9 @@ function mousePressed () {
   }
   return true
 }
+
+// touch-friendly (iOS)
+const touchStarted = () => mousePressed()
 
 const keyPressed = () => false
 const mouseWheel = () => false
