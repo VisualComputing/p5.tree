@@ -1,6 +1,6 @@
 /**
  * @file Adds Tree rendering functions to the p5 prototype.
- * @version 0.0.13
+ * @version 0.0.14
  * @author JP Charalambos
  * @license GPL-3.0-only
  *
@@ -48,7 +48,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
   
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.13'),
+    VERSION: CONST('0.0.14'),
                           
     NONE: CONST(0),
   
@@ -2879,50 +2879,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * - 'float'  : slider (createSlider)
    * - 'int'    : slider semantics (createSlider; integer step usually 1)
    * - 'bool'   : checkbox (createCheckbox)
-   * - 'color'  : color picker (createColorPicker) returning RGBA as vec4 floats in [0..1]
-   * - 'vec2'   : 2 sliders (x, y)
-   * - 'vec3'   : 3 sliders (x, y, z)
-   * - 'vec4'   : 4 sliders (x, y, z, w) (or RGBA when used as such)
-   * - 'select' : dropdown (createSelect)
-   * - 'button' : button (createButton) for actions (reset/randomize/etc.)
-   *
-   * Inference (when cfg.type is omitted):
-   * - cfg.options                       -> 'select'
-   * - typeof cfg.onClick === 'function' -> 'button'
-   * - typeof cfg.value === 'boolean'    -> 'bool'
-   * - Array cfg.value length 2/3/4      -> 'vec2'/'vec3'/'vec4'
-   * - typeof cfg.value === 'string'     -> 'color' (interpreted as a color picker initial value)
-   * - otherwise                         -> 'float'
-   *
-   * Common per-control fields (leaf specs):
-   * - value: initial value (type-dependent). Optional for sliders if min/max provided.
-   * - min, max, step: numeric range for sliders and vecN components.
-   * - label: label text when opt.labels=true (defaults to key name).
-   * - text: checkbox label text (bool) or button caption (button).
-   * - options: select choices. Each entry may be a primitive or { label, value }.
-   * - onClick(ui, name): button callback. Receives the UniformUI instance and the control key.
-   *
-   * Value semantics (what ui[name].value() returns):
-   * - float/int: number
-   * - bool: boolean
-   * - vec2/vec3/vec4: number[] (length 2/3/4)
-   * - select: selected value (string by default; can be any option value you provide)
-   * - color: [r, g, b, a] as floats in [0..1] (derived from createColorPicker().color())
-   * - button: always true (useful only as an action trigger; not meant as a uniform)
-   *
-   * Labels:
-   * - Per-control labels: enabled by opt.labels (default false). If cfg.label is missing, uses the key name.
-   * - Container title: opt.title (optional). Rendered above controls when provided.
+   * - 'color'  : color picker (createColorPicker) returning RGBA as vec4
+   * - 'vec2'   : 2 sliders (x,y)
+   * - 'vec3'   : 3 sliders (x,y,z)
+   * - 'vec4'   : 4 sliders (x,y,z,w)
+   * - 'select' : select dropdown (createSelect)
+   * - 'button' : action button (createButton)
    *
    * Layout:
-   * - Default vertical stacking in a container div (opt.x/opt.y anchor).
-   * - You can ignore layout entirely and style manually via ui.container() and ui[name].elt.
-   *
-   * Parent mounting:
-   * - By default, the container is created via createDiv() and lives under document.body (p5 default).
-   * - If opt.parent is provided (HTMLElement or p5.Element), the container is mounted into that parent.
-   * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed),
-   *   so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
+   * - Default layout is vertical: [label] then [control], repeated.
+   * - A parent can be provided for mounting (DOM or p5.Element). If no parent is provided, UI stays in document.body.
+   * - When mounted into a parent, this helper ensures the parent has a non-static CSS position (sets position: relative if needed), so the UI can be positioned predictably in component frameworks (Vue/Slidev/etc.).
    *
    * Visibility:
    * - Whole UI visibility is exposed as a boolean property ui.visible (default true unless opt.hidden=true).
@@ -2938,41 +2905,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
    * @param {number} [opt.offset=6] Vertical spacing between rows (labels and controls).
    * @param {string} [opt.color] Text color applied to container (inherits to label text).
    * @param {boolean} [opt.hidden=false] If true, starts hidden.
-   * @param {boolean} [opt.labels=false] If true, renders per-control labels.
+   * @param {boolean} [opt.labels=false] If true, renders per-control labels (defaults to key name).
    * @param {string} [opt.title] Optional container title.
    * @param {(HTMLElement|p5.Element)} [opt.parent] Optional DOM parent to mount the container into.
    * @returns {p5.UniformUI} A UniformUI object holding controls and helpers.
    *
    * @example
-   * // GLSL/WebGPU (setUniform path): float slider + bool checkbox
+   * // GLSL/WebGPU (setUniform path): float + bool + color
    * const ui = createUniformUI({
-   *   blurIntensity: { min: 0, max: 4, value: 2, step: 0.1, label: 'blur' },
-   *   enabled: { value: true, text: 'enabled' }
-   * }, { x: 10, y: 10, labels: true, title: 'Post FX' });
-   * // later in draw:
-   * ui.applyTo(blurShader); // sets blurShader.setUniform('blurIntensity', ui.blurIntensity.value()), etc.
+   *   frequency: { min: 0, max: 10, value: 3, step: 0.1, label: 'frequency' },
+   *   enabled:   { value: true, label: 'enabled' },
+   *   tint:      { value: '#ff00ff', label: 'tint' }
+   * }, { x: 10, y: 10, width: 160, labels: true, title: 'Post FX', color: 'white' });
    *
-   * @example
-   * // Select dropdown + button action
-   * const ui = createUniformUI({
-   *   tonemap: { options: ['none', 'reinhard', 'aces'], value: 'aces', label: 'tonemap' },
-   *   reset: { text: 'Reset', onClick: (ui) => ui.reset() }
-   * }, { x: 10, y: 10, labels: true });
-   *
-   * @example
-   * // Color picker: returns vec4 floats in [0..1]
-   * const ui = createUniformUI({
-   *   tint: { value: '#ffcc00', label: 'tint' }
-   * }, { x: 10, y: 10, labels: true });
-   * // later:
-   * // shader.setUniform('tint', ui.tint.value()); // [r,g,b,a]
-   *
-   * @example
-   * // vec3 control: 3 sliders sharing min/max/step
-   * const ui = createUniformUI({
-   *   lightDir: { value: [0, 1, 0], min: -1, max: 1, step: 0.01, label: 'light dir' }
-   * }, { x: 10, y: 10, labels: true });
-   *
+   * // Toggle control visibility (and label when labels=true)
+   * ui.frequency.visible = false;
+   * ui.frequency.visible = true;
+   * 
    * @example
    * // p5.strands (graph-build callback): read values via closures
    * function blurCallback () {
@@ -2980,15 +2929,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
    *   const enabled = uniformBool(() => ui.enabled.value());
    *   // ...
    * }
-   *
-   * @example
-   * // Mount into a specific container (e.g. Vue/Slidev component)
-   * const ui = createUniformUI(schema, { parent: document.getElementById('sketch'), x: 10, y: 10, labels: true });
-   *
-   * @example
-   * // Toggle a single control's UI (and label when labels=true)
-   * ui.blurIntensity.visible = false;
-   * ui.blurIntensity.visible = true;
    *
    * @example
    * // Toggle the whole UI
@@ -3044,9 +2984,21 @@ p5.registerAddon((p5, fn, lifecycles) => {
     const _setContainerVisible = (show) => {
       if (!_container || !_container.elt) return;
       const next = show !== false;
-      if ((_container._visible !== false) === next) return;
+      if (((_container._visible !== false) === next)) return;
       _container._visible = next;
-      _container.elt.style.display = next ? 'flex' : 'none';
+      const dom = _container.elt;
+      if (next) {
+        const prev = dom.dataset ? dom.dataset._treeDisplay : null;
+        dom.style.display = prev != null ? prev : 'flex';
+        dom.dataset && delete dom.dataset._treeDisplay;
+        dom.style.visibility = 'visible';
+        dom.style.pointerEvents = 'auto';
+      } else {
+        dom.dataset && (dom.dataset._treeDisplay ??= dom.style.display || 'flex');
+        dom.style.display = 'none';
+        dom.style.visibility = 'hidden';
+        dom.style.pointerEvents = 'none';
+      }
     };
     const _applyControlVisibility = (name) => {
       const c = ui[name];
@@ -3055,7 +3007,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
       const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
       elts.forEach(e => _setDisplay(e, show));
       const lab = _labelElts[name];
-      lab && _setDisplay(lab, show);
+      _layout.labels && _setDisplay(lab, show);
     };
     const _applyAllControlVisibility = () => { _order.forEach(name => _applyControlVisibility(name)); };
     const _defineVisibleProp = (name, c) => {
@@ -3073,169 +3025,156 @@ p5.registerAddon((p5, fn, lifecycles) => {
     };
     const build = (name, cfg = {}) => {
       const type = inferType(cfg);
-      const def = type === 'vec2' ? (isArr(cfg.value) ? cfg.value.slice(0, 2) : [0, 0]) : type === 'vec3' ? (isArr(cfg.value) ? cfg.value.slice(0, 3) : [0, 0, 0]) : type === 'vec4' ? (isArr(cfg.value) ? cfg.value.slice(0, 4) : [0, 0, 0, 0]) : cfg.value;
-      _defaults[name] = def;
+      const label = cfg.label || name;
+      const w = cfg.width ?? _layout.width;
+      const addLabel = () => {
+        if (!_layout.labels) return null;
+        const l = p.createSpan(label);
+        l.parent(_container);
+        _labelElts[name] = l;
+        return l;
+      };
+      const base = () => {
+        const l = addLabel();
+        l && _setMarginBottom(l, _layout.offset);
+      };
+      const setWidth = (elt) => { elt && elt.style && elt.style('width', `${w}px`); };
+      const setRowGap = (elt) => { elt && elt.style && elt.style('margin-bottom', `${_layout.offset}px`); };
+      const makeSlider = (v, min, max, step) => {
+        const s = p.createSlider(min, max, v, step);
+        setWidth(s);
+        setRowGap(s);
+        s.parent(_container);
+        return s;
+      };
+      const makeSelect = (v, options) => {
+        const s = p.createSelect();
+        (options || []).forEach(o => { const val = (o && typeof o === 'object') ? o.value : o;const lab = (o && typeof o === 'object') ? (o.label ?? `${o.value}`) : `${o}`;s.option(lab, val); });
+        s.value(v);
+        setWidth(s);
+        setRowGap(s);
+        s.parent(_container);
+        return s;
+      };
+      const makeCheckbox = (v) => {
+        const c = p.createCheckbox('', !!v);
+        setRowGap(c);
+        c.parent(_container);
+        return c;
+      };
+      const makeButton = (txt) => {
+        const b = p.createButton(txt);
+        setWidth(b);
+        setRowGap(b);
+        b.parent(_container);
+        return b;
+      };
+      const makeColor = (v) => {
+        const c = p.createColorPicker(v || '#ffffff');
+        setWidth(c);
+        setRowGap(c);
+        c.parent(_container);
+        return c;
+      };
+      if (type === 'bool') {
+        base();
+        const elt = makeCheckbox(cfg.value ?? false);
+        const api = wrap('bool', elt, () => elt.checked(), (v) => { elt.checked(!!v); }, () => { elt.checked(!!(_defaults[name])); });
+        _defineVisibleProp(name, api);
+        return api;
+      }
       if (type === 'button') {
-        const btn = p.createButton(cfg.text || cfg.name || name);
-        typeof cfg.onClick === 'function' && btn.mousePressed(() => cfg.onClick(ui, name));
-        return wrap('button', btn, () => true, () => {}, () => {});
+        base();
+        const elt = makeButton(label);
+        typeof cfg.onClick === 'function' && elt.mousePressed(() => cfg.onClick());
+        const api = wrap('button', elt, () => null, () => null, () => null);
+        _defineVisibleProp(name, api);
+        return api;
       }
       if (type === 'select') {
-        const sel = p.createSelect();
-        (cfg.options || []).forEach(o => { if (typeof o === 'object') sel.option(o.label ?? String(o.value), o.value);else sel.option(String(o), o); });
-        cfg.value != null && sel.selected(cfg.value);
-        return wrap('select', sel, () => sel.value(), v => sel.selected(v), () => sel.selected(_defaults[name]));
-      }
-      if (type === 'bool') {
-        const cb = p.createCheckbox(cfg.text || '', !!cfg.value);
-        return wrap('bool', cb, () => cb.checked(), v => cb.checked(!!v), () => cb.checked(!!_defaults[name]));
+        base();
+        const elt = makeSelect(cfg.value, cfg.options);
+        const api = wrap('select', elt, () => elt.value(), (v) => { elt.value(v); }, () => { elt.value(_defaults[name]); });
+        _defineVisibleProp(name, api);
+        return api;
       }
       if (type === 'color') {
-        const cp = p.createColorPicker(cfg.value ?? 'white');
-        const val = () => { const c = cp.color();return [p.red(c) / 255, p.green(c) / 255, p.blue(c) / 255, p.alpha(c) / 255]; };
-        return wrap('color', cp, val, v => cp.value(v), () => cp.value(_defaults[name] ?? (cfg.value ?? 'white')));
+        base();
+        const elt = makeColor(cfg.value);
+        const api = wrap('color', elt, () => {
+          const c = elt.color ? elt.color() : elt.value();
+          const cc = (typeof c === 'string') ? p.color(c) : c;
+          return [cc.levels[0] / 255, cc.levels[1] / 255, cc.levels[2] / 255, (cc.levels[3] ?? 255) / 255];
+        }, (v) => {
+          if (typeof v === 'string') { elt.value(v); return; }
+          if (Array.isArray(v)) {
+            const r = Math.round((v[0] ?? 0) * 255);
+            const g = Math.round((v[1] ?? 0) * 255);
+            const b = Math.round((v[2] ?? 0) * 255);
+            elt.value(p.color(r, g, b).toString('#rrggbb'));
+          }
+        }, () => { elt.value(_defaults[name] || '#ffffff'); });
+        _defineVisibleProp(name, api);
+        return api;
       }
       if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
+        base();
         const n = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
+        const v = Array.isArray(cfg.value) ? cfg.value : new Array(n).fill(0);
         const min = cfg.min ?? 0;
         const max = cfg.max ?? 1;
-        const step = cfg.step ?? 0.01;
-        const v0 = isArr(cfg.value) ? cfg.value : [];
-        const sliders = [];
-        for (let i = 0; i < n; i++) sliders.push(p.createSlider(min, max, v0[i] ?? min, step));
-        const value = () => sliders.map(s => toFloat(s.value()));
-        const set = (arr) => { const a = isArr(arr) ? arr : [];for (let i = 0; i < n; i++) sliders[i].value(a[i] ?? (v0[i] ?? min)); };
-        const reset = () => set(_defaults[name]);
-        return wrap(type, sliders, value, set, reset);
+        const step = cfg.step ?? ((cfg.type === 'int') ? 1 : 0.01);
+        const elts = [];
+        for (let i = 0; i < n; i++) elts.push(makeSlider(toFloat(v[i] ?? 0), min, max, step));
+        const api = wrap(type, elts, () => elts.map(s => toFloat(s.value())), (arr) => { Array.isArray(arr) && elts.forEach((s, i) => s.value(toFloat(arr[i] ?? 0))); }, () => { const d = _defaults[name];Array.isArray(d) && elts.forEach((s, i) => s.value(toFloat(d[i] ?? 0))); });
+        _defineVisibleProp(name, api);
+        return api;
       }
+      base();
+      const val = toFloat(cfg.value ?? 0);
       const min = cfg.min ?? 0;
       const max = cfg.max ?? 1;
-      const step = cfg.step ?? (type === 'int' ? 1 : 0.1);
-      const value0 = cfg.value ?? min;
-      const s = p.createSlider(min, max, value0, step);
-      const value = () => toFloat(s.value());
-      const set = (v) => s.value(v);
-      const reset = () => s.value(_defaults[name] ?? value0);
-      return wrap(type, s, value, set, reset);
+      const step = cfg.step ?? ((cfg.type === 'int') ? 1 : 0.01);
+      const elt = makeSlider(val, min, max, step);
+      const api = wrap((cfg.type === 'int') ? 'int' : 'float', elt, () => toFloat(elt.value()), (v) => { elt.value(toFloat(v)); }, () => { elt.value(toFloat(_defaults[name])); });
+      _defineVisibleProp(name, api);
+      return api;
     };
-    for (const name of _order) { ui[name] = build(name, _schema[name]);_defineVisibleProp(name, ui[name]); }
-    /**
-     * Iterate controls in schema order.
-     * @memberof p5.UniformUI
-     * @param {function(string, Object, p5.UniformUI):void} fn (name, control, ui) callback.
-     * @returns {p5.UniformUI} this.
-     */
-    ui.each = function (fn) { _order.forEach(name => fn(name, ui[name], ui));return ui; };
-    /**
-     * Returns a flat list of p5.Elements for all controls (vec* expands to multiple elements).
-     * Does not include labels/title (use ui.container() for full DOM access).
-     * @memberof p5.UniformUI
-     * @returns {p5.Element[]} elements.
-     */
-    ui.elts = function () { const out = [];ui.each((_, c) => { if (!c || !c.elt) return;Array.isArray(c.elt) ? c.elt.forEach(e => out.push(e)) : out.push(c.elt); });return out; };
-    /**
-     * Returns the container p5.Element holding the default layout (title, labels, controls).
-     * You can style it freely (background/padding/border/etc.).
-     * @memberof p5.UniformUI
-     * @returns {p5.Element} container element.
-     */
-    ui.container = function () { return _container; };
-    /**
-     * Snapshot current values by uniform key.
-     * @memberof p5.UniformUI
-     * @returns {Object<string, any>} values.
-     */
-    ui.values = function () { const out = {};ui.each((name, c) => { out[name] = c.value(); });return out; };
-    /**
-     * Set multiple control values by key.
-     * @memberof p5.UniformUI
-     * @param {Object<string, any>} vals values keyed by uniform.
-     * @returns {p5.UniformUI} this.
-     */
-    ui.setValues = function (vals = {}) { for (const k in vals) ui[k]?.set?.(vals[k]);return ui; };
-    /**
-     * Reset all controls to their defaults (from schema.value or inferred defaults).
-     * @memberof p5.UniformUI
-     * @returns {p5.UniformUI} this.
-     */
-    ui.reset = function () { ui.each((_, c) => c.reset && c.reset());return ui; };
-    /**
-     * Apply all control values to a shader exposing setUniform(name, value).
-     * Useful for GLSL/WebGPU shader-like APIs.
-     * @memberof p5.UniformUI
-     * @param {Object} shader An object with setUniform(uniformName, value).
-     * @param {Object<string, (string|function|Object)>} [map={}] Optional mapping per key.
-     * @returns {p5.UniformUI} this.
-     *
-     * @example
-     * ui.applyTo(blurShader);
-     * @example
-     * ui.applyTo(blurShader, { blurIntensity: 'uBlur', tint: { uniform: 'uTint', value: v => v } });
-     */
-    ui.applyTo = function (shader, map = {}) {
-      if (!shader || typeof shader.setUniform !== 'function') return ui;
-      ui.each((key, c) => {
-        const raw = c.value();
-        const m = map[key];
-        const uniform = typeof m === 'string' ? m : m && typeof m === 'object' && typeof m.uniform === 'string' ? m.uniform : key;
-        const val = typeof m === 'function' ? m(raw, key, ui) : m && typeof m === 'object' && typeof m.value === 'function' ? m.value(raw, key, ui) : raw;
-        shader.setUniform(uniform, val);
-      });
-      return ui;
+    const container = () => _container;
+    const each = (fn) => { if (typeof fn !== 'function') return;_order.forEach(name => fn(name, ui[name])); };
+    const elts = () => { const out = [];each((_, c) => { if (!c || !c.elt) return;Array.isArray(c.elt) ? c.elt.forEach(e => e && out.push(e)) : out.push(c.elt); });return out; };
+    const reset = () => { _order.forEach(name => { const c = ui[name];c && typeof c.reset === 'function' && c.reset(); }); };
+    const setParent = (parent) => {
+      _parent = parent;
+      _parentElt = _parent && (_parent.elt || _parent);
+      if (_parentElt && _parentElt.style && getComputedStyle(_parentElt).position === 'static') {
+        _parentElt.style.position = 'relative';
+      }
+      _container.parent(_parentElt || null);
     };
-    /**
-     * Destroy the UI: removes container and all children from the DOM. Not reversible; create a new UI to re-add.
-     * @memberof p5.UniformUI
-     */
-    ui.remove = function () { _container && _container.remove();_container = null;_titleElt = null;Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; }); };
-    const _applyWidth = (elt) => { if (!elt) return;const w = _layout.width;if (!(typeof w === 'number' && Number.isFinite(w))) return;elt.style && elt.style('width', `${w}px`); };
-    const _ensurePositioningContext = (elt) => { if (!elt || typeof getComputedStyle !== 'function') return;const cs = getComputedStyle(elt);if (cs && cs.position === 'static') elt.style.position = 'relative'; };
-    const _rebuildLayout = () => {
-      if (!_container) _container = p.createDiv();
-      _container.elt && (_container.elt.innerHTML = '');
-      Object.keys(_labelElts).forEach(k => { delete _labelElts[k]; });
-      if (_parentElt) { try { _ensurePositioningContext(_parentElt);_container.parent(_parentElt); } catch (e) {} }
-      _container && _container.position(_layout.x, _layout.y);
-      _layout.color && _container.elt && _container.elt.style && (_container.elt.style.color = _layout.color);
-      if (_layout.title) { _titleElt = p.createDiv(_layout.title);_setMarginBottom(_titleElt, _layout.offset);_container.child(_titleElt); } else { _titleElt = null; }
-      ui.each((name, c) => {
-        if (_layout.labels) {
-          const cfg = _schema[name] || {};
-          const text = (cfg.label != null ? cfg.label : name);
-          const lab = p.createDiv(String(text));
-          _labelElts[name] = lab;
-          _setMarginBottom(lab, 0);
-          _container.child(lab);
-        }
-        const elts = Array.isArray(c.elt) ? c.elt : [c.elt];
-        elts.forEach((e, i) => {
-          _applyWidth(e);
-          _setMarginBottom(e, i === elts.length - 1 ? _layout.offset : 0);
-          _container.child(e);
-        });
-      });
-      _container.style('display', 'flex');
-      _container.style('flex-direction', 'column');
-      _container.style('gap', '0px');
-      _setContainerVisible(!_layout.hidden);
-      _applyAllControlVisibility();
-    };
-    /**
-     * Configure default layout parameters (position/width/spacing/color/labels/title/hidden/parent) and rebuild layout.
-     * Layout-only: does not change values.
-     * @memberof p5.UniformUI
-     * @param {Object} [next={}] Layout options (same as createUniformUI opt).
-     * @param {(HTMLElement|p5.Element)} [next.parent] Optional DOM parent to (re)mount the container into.
-     * @returns {p5.UniformUI} this.
-     *
-     * @example
-     * ui.config({ x: 20, y: 20, labels: true, title: 'Lighting' });
-     * @example
-     * ui.config({ parent: document.getElementById('sketch') });
-     */
-    ui.config = function (next = {}) { _layout.x = next.x ?? _layout.x;_layout.y = next.y ?? _layout.y;_layout.width = next.width ?? _layout.width;_layout.offset = next.offset ?? _layout.offset;_layout.color = next.color ?? _layout.color;_layout.hidden = next.hidden ?? _layout.hidden;_layout.labels = next.labels ?? _layout.labels;_layout.title = next.title ?? _layout.title;if (next.parent != null) { _parent = next.parent;_parentElt = _parent && (_parent.elt || _parent); } _rebuildLayout();return ui; };
+    _container.style('position', 'absolute');
+    _container.style('display', 'flex');
+    _container.style('flex-direction', 'column');
+    _container.style('gap', '0px');
+    _container.style('left', `${_layout.x}px`);
+    _container.style('top', `${_layout.y}px`);
+    _layout.color && _container.style('color', _layout.color);
+    if (_layout.title) {
+      _titleElt = p.createDiv(_layout.title);
+      _titleElt.parent(_container);
+      _titleElt.style('margin-bottom', `${_layout.offset}px`);
+      _titleElt.style('font-weight', 'bold');
+    }
+    _order.forEach(name => { _defaults[name] = _schema[name] ? _schema[name].value : null;ui[name] = build(name, _schema[name] || {}); });
+    ui.container = container;
+    ui.each = each;
+    ui.elts = elts;
+    ui.reset = reset;
+    ui.parent = setParent;
     _defineUIVisibleProp();
-    _rebuildLayout();
+    setParent(_parentElt || document.body);
+    _setContainerVisible(!_layout.hidden);
+    _applyAllControlVisibility();
     return ui;
   };
   
