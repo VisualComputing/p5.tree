@@ -333,6 +333,7 @@ async function setup () {
       type: i === 0 ? 'ball' : i < 25 ? 'torus' : 'box'
     })
   }
+  console.log(p5.Tree.VERSION)
 }
 
 function draw () {

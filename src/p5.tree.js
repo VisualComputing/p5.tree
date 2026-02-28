@@ -33,7 +33,7 @@ import { installConstants } from './constants.js';
 import { installMatrix } from './matrix.js';
 import { installDrawing } from './drawing.js';
 import { installTrack, tickPlayers, clearPlayers } from './track.js';
-import { installPipe } from './pipe.js';
+import { installPipe, releaseAllPipes } from './pipe.js';
 import { installUniformUI } from './uniformUI.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
@@ -47,7 +47,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §3 — Drawing helpers, picking, viewFrustum, visibility
   installDrawing(p5, fn);
 
-  // §4 — Camera path (slerp-based) + global forwarders
+  // §4 — TransformTrack, adapters, camera path API + global forwarders
   installTrack(p5, fn);
 
   // §5 — Pipe (post-processing chain)

@@ -21,7 +21,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.15'),
+    VERSION: CONST('0.0.15-dev'),
 
     NONE: CONST(0),
 
