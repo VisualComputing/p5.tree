@@ -242,13 +242,6 @@ class TransformTrack {
   set rate (v) {
     // sanitize
     v = (typeof v === 'number' && isFinite(v)) ? v : 1;
-    const prevDir = this._rate >= 0 ? 1 : -1;
-    const nextDir = v >= 0 ? 1 : -1;
-    // preserve current evaluated position when direction changes
-    if (prevDir !== nextDir && this.segments > 0) {
-      const dur = Math.max(1, this.duration | 0);
-      this.f = dur - this.f;
-    }
     this._rate = v;
     // optional: stop if rate = 0
     if (this._rate === 0) this.playing = false;
@@ -326,10 +319,9 @@ class TransformTrack {
     if (nSeg === 0) return;
     const tt = _clamp01(t);
     const dur = Math.max(1, this.duration | 0);
-    if (tt === 1) { this.seg = nSeg - 1; this.f = dur; return; }
-    const x = tt * nSeg;
-    this.seg = Math.min(nSeg - 1, Math.floor(x));
-    this.f = Math.round((x - this.seg) * dur);
+    const total = nSeg * dur;
+    const s = tt * total;
+    this._setCursorFromScalar(s);
   }
 
   /** Seek within a specific segment. */
@@ -337,7 +329,7 @@ class TransformTrack {
     const nSeg = this.segments;
     if (nSeg === 0) return;
     this.seg = Math.max(0, Math.min(segIndex | 0, nSeg - 1));
-    this.f = Math.round(_clamp01(amt) * Math.max(1, this.duration | 0));
+    this.f = _clamp01(amt) * Math.max(1, this.duration | 0);
   }
 
   /** Normalized playback time [0,1]. */
@@ -345,10 +337,9 @@ class TransformTrack {
     const nSeg = this.segments;
     if (nSeg === 0) return 0;
     const dur = Math.max(1, this.duration | 0);
-    const dir = this.rate < 0 ? -1 : 1;
-    const local = this.f / dur;
-    const amt = dir > 0 ? local : (1 - local);
-    return _clamp01((this.seg + amt) / nSeg);
+    const total = nSeg * dur;
+    const s = this.seg * dur + this.f;
+    return _clamp01(s / total);
   }
 
   /** Info snapshot (compatible with pathInfo()). */
@@ -362,7 +353,7 @@ class TransformTrack {
   }
 
   /**
-   * Advance one frame. Identical boundary semantics to original tick().
+   * Advance one frame.
    * @returns {boolean} true if still playing
    */
   tick() {
@@ -370,30 +361,67 @@ class TransformTrack {
     const nSeg = this.segments;
     if (nSeg === 0) { this.playing = false; return false; }
     const dur = Math.max(1, this.duration | 0);
-    const speed = Math.abs(this.rate);
-    if (speed === 0) { this.playing = false; return false; }
-    if (this.seg < 0) this.seg = 0; else if (this.seg >= nSeg) this.seg = nSeg - 1;
-    if (this.f < 0) this.f = 0; else if (this.f > dur) this.f = dur;
-    let dir = this.rate >= 0 ? 1 : -1;
-    this.f += speed;
-    while (this.f >= dur) {
-      this.f -= dur;
-      this.seg += dir;
-      if (this.seg >= nSeg || this.seg < 0) {
-        if (this.pingPong) {
-          if (dir > 0) { this.seg = nSeg - 1; this.f = 0; this.rate = -speed; }
-          else { this.seg = 0; this.f = 0; this.rate = speed; }
-          dir = this.rate >= 0 ? 1 : -1;
-        } else if (this.loop) {
-          this.seg = dir > 0 ? 0 : (nSeg - 1);
-        } else {
-          this.seekGlobal(dir > 0 ? 1 : 0);
-          this.playing = false;
-          if (typeof this.onEnd === 'function') { try { this.onEnd(); } catch (_) {} }
-          return false;
-        }
+    const step = this.rate;
+    if (step === 0) { this.playing = false; return false; }
+
+    // ---------------------------------------------------------------------
+    // Cursor / time rules (shared by TransformTrack + camera paths)
+    //
+    // We store a single direction-independent cursor (seg, f):
+    //   - seg ∈ [0..segments-1]
+    //   - f   ∈ [0..dur]
+    // Local interpolation parameter is ALWAYS:
+    //   u = f / dur
+    // Global time is ALWAYS:
+    //   time() = (seg*dur + f) / (segments*dur)
+    //
+    // Reverse playback is achieved ONLY by using a negative rate:
+    //   f += rate
+    // (No "1 - u" hacks anywhere.)
+    //
+    // Overshoot reflection (sanity):
+    //   - pingPong reflects across [0..total] and flips rate sign on each hit.
+    //   - loop wraps (mod total).
+    //   - no-loop clamps to {0} or {total} and stops.
+    // ---------------------------------------------------------------------
+
+    const total = nSeg * dur;
+    let s = this.seg * dur + this.f;
+    s = _clampScalar(s, 0, total);
+    let next = s + step;
+
+    if (this.pingPong) {
+      let flips = 0;
+      while (next < 0 || next > total) {
+        if (next < 0) { next = -next; flips++; }
+        else { next = 2 * total - next; flips++; }
       }
+      if (flips & 1) this._rate = -this._rate;
+      this._setCursorFromScalar(next);
+      return true;
     }
+
+    if (this.loop) {
+      // Wrap into [0..total). Note: total is > 0 (segments >= 1).
+      next = ((next % total) + total) % total;
+      this._setCursorFromScalar(next);
+      return true;
+    }
+
+    // No loop: clamp to ends and stop when crossing.
+    if (next <= 0) {
+      this._setCursorFromScalar(0);
+      this.playing = false;
+      if (typeof this.onEnd === 'function') { try { this.onEnd(); } catch (_) {} }
+      return false;
+    }
+    if (next >= total) {
+      this._setCursorFromScalar(total);
+      this.playing = false;
+      if (typeof this.onEnd === 'function') { try { this.onEnd(); } catch (_) {} }
+      return false;
+    }
+    this._setCursorFromScalar(next);
     return true;
   }
 
@@ -413,9 +441,7 @@ class TransformTrack {
       return out;
     }
     const dur = Math.max(1, this.duration | 0);
-    const dir = this.rate < 0 ? -1 : 1;
-    const local = this.f / dur;
-    const t = dir > 0 ? local : (1 - local);
+    const t = _clamp01(this.f / dur);
     const seg = Math.max(0, Math.min(this.seg, nSeg - 1));
     const kfA = this.keyframes[seg], kfB = this.keyframes[seg + 1];
     // Position
@@ -438,6 +464,21 @@ class TransformTrack {
 
   /** Compose transform to column-major mat4. */
   toMatrix(outMat4) { return transformToMat4(outMat4 || new Float32Array(16), this.eval()); }
+
+  // ---- private cursor helpers ----
+
+  /** @private Set (seg, f) from scalar s ∈ [0..segments*dur]. */
+  _setCursorFromScalar(s) {
+    const nSeg = this.segments;
+    if (nSeg === 0) { this.seg = 0; this.f = 0; return; }
+    const dur = Math.max(1, this.duration | 0);
+    const total = nSeg * dur;
+    const ss = _clampScalar(s, 0, total);
+    if (ss >= total) { this.seg = nSeg - 1; this.f = dur; return; }
+    const seg = Math.floor(ss / dur);
+    this.seg = Math.max(0, Math.min(seg, nSeg - 1));
+    this.f = ss - this.seg * dur;
+  }
 }
 
 // ===========================================================================
@@ -504,6 +545,7 @@ class CameraAdapter {
 
 const _SCRATCH_MAT4 = new Float32Array(16);
 const _clamp01 = (x) => x < 0 ? 0 : (x > 1 ? 1 : x);
+const _clampScalar = (x, a, b) => x < a ? a : (x > b ? b : x);
 const _isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 const _warn = (msg) => console.warn('[tree.camera.path] ' + msg);
 
@@ -631,9 +673,7 @@ function _applyCamAtCursor(cam) {
   const nSeg = track.segments;
   if (nSeg === 0) return;
   const dur = Math.max(1, track.duration | 0);
-  const dir = track.rate < 0 ? -1 : 1;
-  const local = track.f / dur;
-  const t = dir > 0 ? local : (1 - local);
+  const t = _clamp01(track.f / dur);
   applyCamInterp(cam, Math.max(0, Math.min(track.seg, nSeg - 1)), t);
 }
 
