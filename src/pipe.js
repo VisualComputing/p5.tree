@@ -3,19 +3,7 @@
  * @module pipe
  * @license GPL-3.0-only
  *
- * Contains the `fn.pipe()` and `fn.releasePipe()` functions
- * from the original monolithic p5.tree.js.
- *
- * EXTRACTION GUIDE:
- *   1. From the original p5.tree.js, copy the two functions:
- *        fn.pipe = function (...args) { ... };
- *        fn.releasePipe = function (key) { ... };
- *      Including all their JSDoc comments.
- *
- *   2. Paste them inside `installPipe` below.
- *
- *   3. Also export `releaseAllPipes` which the entry point calls
- *      from lifecycles.remove — it simply calls `pInst.releasePipe(true)`.
+ * Contains the `fn.pipe()` and `fn.releasePipe()` functions.
  */
 
 'use strict';

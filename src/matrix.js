@@ -24,21 +24,6 @@
  *   - mapDirection / _direction (+ _worldToScreenDirection, _screenToWorldDirection, etc.)
  *   - pixelRatio, texOffset  (Utilities section)
  *   - mousePosition, pointerPosition, resolution  (Renderer3D + fn)
- *
- * EXTRACTION GUIDE:
- *   From the original p5.tree.js, copy everything between:
- *     // ---------------------------------------------------------------------------
- *     // Matrix queries
- *   and:
- *     // -------------------------------------------------------------------------
- *     // Drawing helpers (axes / grid)
- *
- *   The last function that stays in this file is:
- *     p5.Renderer3D.prototype.resolution
- *   (at the end of the "Utilities" section, right before axes/grid).
- *
- *   Paste it inside the installMatrix function body below.
- *   The code uses `p5` and `fn` — both are parameters here, no changes needed.
  */
 
 'use strict';

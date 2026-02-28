@@ -3,18 +3,7 @@
  * @module uniformUI
  * @license GPL-3.0-only
  *
- * Contains the `fn.createUniformUI` function from the original
- * monolithic p5.tree.js (previously named controlPanel internally).
- *
- * EXTRACTION GUIDE:
- *   1. From the original p5.tree.js, copy the entire function:
- *        fn.createUniformUI = function (schema = {}, opt = {}) { ... };
- *      Including its full JSDoc comment block.
- *
- *   2. Paste it inside `installUniformUI` below.
- *
- *   3. No other changes needed — the function only references `this` (the p5 instance)
- *      and standard DOM APIs.
+ * Contains the `fn.createUniformUI` function.
  */
 
 'use strict';

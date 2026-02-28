@@ -6,7 +6,7 @@
  * Depends on matrix.js (uses mapLocation, pixelRatio, beginHUD/endHUD,
  * isOrtho, plane queries, p5.Tree constants).
  *
- * Sections (in source order from the original monolith):
+ * Sections:
  *
  *   Drawing helpers (axes / grid)
  *   - fn.axes / Renderer3D.prototype.axes
@@ -32,26 +32,6 @@
  *   - Renderer3D.prototype._pointVisibility       (private)
  *   - Renderer3D.prototype._ballVisibility        (private)
  *   - Renderer3D.prototype._boxVisibility         (private)
- *
- * EXTRACTION GUIDE:
- *   From the original p5.tree.js, copy everything between these two markers:
- *
- *   START (inclusive):
- *     // -------------------------------------------------------------------------
- *     // Drawing helpers (axes / grid)
- *     // -------------------------------------------------------------------------
- *
- *   END (exclusive — do NOT include this):
- *     /**
- *      * Creates renderer-agnostic UI controls for shader parameters...
- *     (the JSDoc block that opens fn.createUniformUI)
- *
- *   The last function that belongs in this file is:
- *     p5.Renderer3D.prototype.distanceToBound
- *   (or fn.distanceToBound if there's a wrapper — include both).
- *
- *   Paste the copied code inside the installDrawing function body below.
- *   The code uses `p5` and `fn` — both are parameters here, no changes needed.
  */
 
 'use strict';
