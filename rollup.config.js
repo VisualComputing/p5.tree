@@ -6,7 +6,7 @@ const external = ['p5'];
 export default [
   // 1. ESM build (for bundlers like Vite / npm)
   {
-    input: 'src/p5.tree.js',
+    input: 'src/index.js',
     external,
     output: {
       file: 'dist/p5.tree.esm.js',
@@ -17,7 +17,7 @@ export default [
   },
   // 2. IIFE build (for <script> usage)
   {
-    input: 'src/p5.tree.js',
+    input: 'src/index.js',
     external,
     output: {
       file: 'dist/p5.tree.js',
