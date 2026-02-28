@@ -1,7 +1,7 @@
 // rollup.config.js
-import resolve from '@rollup/plugin-node-resolve'
+import resolve from '@rollup/plugin-node-resolve';
 
-const external = ['p5']
+const external = ['p5'];
 
 export default [
   // 1. ESM build (for bundlers like Vite / npm)
@@ -15,7 +15,6 @@ export default [
     },
     plugins: [resolve()]
   },
-
   // 2. IIFE build (for <script> usage)
   {
     input: 'src/p5.tree.js',
@@ -30,4 +29,4 @@ export default [
     },
     plugins: [resolve()]
   }
-]
+];
