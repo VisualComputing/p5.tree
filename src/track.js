@@ -143,6 +143,30 @@ const qToMat4 = (out, q) => {
   return out;
 };
 
+/**
+ * Convert quaternion [x,y,z,w] to axis-angle.
+ * Returns `null` for identity/near-identity rotations.
+ *
+ * @param {number[]} q quaternion [x,y,z,w]
+ * @param {Object} [out]
+ * @param {number[]} [out.axis] axis output (length 3)
+ * @returns {{axis:number[], angle:number}|null}
+ */
+const quatToAxisAngle = (q, out) => {
+  const x = q[0], y = q[1], z = q[2], w = q[3];
+  const sinHalf = Math.sqrt(x * x + y * y + z * z);
+  if (sinHalf < 1e-8) return null;
+
+  out = out || {};
+  const axis = out.axis || (out.axis = [0, 0, 1]);
+  axis[0] = x / sinHalf;
+  axis[1] = y / sinHalf;
+  axis[2] = z / sinHalf;
+
+  out.angle = 2 * Math.atan2(sinHalf, w);
+  return out;
+};
+
 // ===========================================================================
 // §2  Spline helpers
 // ===========================================================================
@@ -188,14 +212,14 @@ const lerpVec3 = (out, a, b, t) => {
  * @class TransformTrack
  */
 class TransformTrack {
-  constructor() {
+  constructor(pInst) {
     /** @type {Array<{pos:number[], rot:number[], scl:number[]}>} */
     this.keyframes = [];
     this.playing = false;
     this.loop = false;
     this.pingPong = false;
     this.onEnd = undefined;
-    this.rate = 1;
+    this._rate = 1;
     this.duration = 30;
     this.seg = 0;
     this.f = 0;
@@ -204,6 +228,30 @@ class TransformTrack {
     this._pos = [0, 0, 0];
     this._rot = [0, 0, 0, 1];
     this._scl = [1, 1, 1];
+
+    // Optional p5 instance for lifecycle-driven ticking (predraw).
+    // When present, play()/stop()/reset() auto register/unregister this track.
+    this._pInst = pInst;
+    this._player = null;
+  }
+  
+  get rate () {
+    return this._rate;
+  }
+
+  set rate (v) {
+    // sanitize
+    v = (typeof v === 'number' && isFinite(v)) ? v : 1;
+    const prevDir = this._rate >= 0 ? 1 : -1;
+    const nextDir = v >= 0 ? 1 : -1;
+    // preserve current evaluated position when direction changes
+    if (prevDir !== nextDir && this.segments > 0) {
+      const dur = Math.max(1, this.duration | 0);
+      this.f = dur - this.f;
+    }
+    this._rate = v;
+    // optional: stop if rate = 0
+    if (this._rate === 0) this.playing = false;
   }
 
   get segments() { return Math.max(0, this.keyframes.length - 1); }
@@ -229,7 +277,6 @@ class TransformTrack {
    * @param {number|Object} [rateOrOpts]
    */
   play(rateOrOpts) {
-    const prevDir = this.rate >= 0 ? 1 : -1;
     const nSeg = this.segments;
     if (this.keyframes.length <= 1) { this.playing = false; return; }
     if (typeof rateOrOpts === 'number' && isFinite(rateOrOpts)) {
@@ -246,14 +293,19 @@ class TransformTrack {
     const dur = Math.max(1, this.duration | 0);
     if (this.seg < 0) this.seg = 0; else if (this.seg >= nSeg) this.seg = nSeg - 1;
     if (this.f < 0) this.f = 0; else if (this.f > dur) this.f = dur;
-    const dir = this.rate >= 0 ? 1 : -1;
-    if (dir !== prevDir) this.f = dur - this.f;
     this.playing = true;
+
+    // Auto-register into p5.tree predraw ticking if this track is owned by a p5 instance.
+    if (this._pInst) {
+      this._player = this._player || { tick: () => this.tick() };
+      registerPlayer(this._pInst, this._player);
+    }
   }
 
   /** Stop playback. Does NOT reset time unless `reset` is true. */
   stop(reset) {
     this.playing = false;
+    this._pInst && unregisterPlayer(this._pInst, this._player);
     if (!reset) return;
     if (this.keyframes.length <= 1) return;
     this.seekGlobal(this.rate < 0 ? 1 : 0);
@@ -262,6 +314,7 @@ class TransformTrack {
   /** Clear all keyframes and reset cursor. */
   reset() {
     this.playing = false;
+    this._pInst && unregisterPlayer(this._pInst, this._player);
     this.keyframes.length = 0;
     this.seg = 0;
     this.f = 0;
@@ -292,7 +345,7 @@ class TransformTrack {
     const nSeg = this.segments;
     if (nSeg === 0) return 0;
     const dur = Math.max(1, this.duration | 0);
-    const dir = (this.playing && this.rate < 0) ? -1 : 1;
+    const dir = this.rate < 0 ? -1 : 1;
     const local = this.f / dur;
     const amt = dir > 0 ? local : (1 - local);
     return _clamp01((this.seg + amt) / nSeg);
@@ -360,7 +413,7 @@ class TransformTrack {
       return out;
     }
     const dur = Math.max(1, this.duration | 0);
-    const dir = (this.playing && this.rate < 0) ? -1 : 1;
+    const dir = this.rate < 0 ? -1 : 1;
     const local = this.f / dur;
     const t = dir > 0 ? local : (1 - local);
     const seg = Math.max(0, Math.min(this.seg, nSeg - 1));
@@ -508,7 +561,7 @@ function getCamTrack(cam) {
   let b = CAM_TRACK.get(cam);
   if (!b) {
     b = { track: new TransformTrack(), adapter: new CameraAdapter(cam),
-          pathIsOrtho: undefined, camSnaps: [] };
+          pathIsOrtho: undefined, camSnaps: [], player: null };
     CAM_TRACK.set(cam, b);
   }
   return b;
@@ -520,14 +573,21 @@ function getPlayers(pInst) {
   return players;
 }
 
+function registerPlayer(pInst, player) {
+  if (!pInst || !player) return;
+  getPlayers(pInst).add(player);
+}
+
+function unregisterPlayer(pInst, player) {
+  if (!pInst || !player) return;
+  getPlayers(pInst).delete(player);
+}
+
 // ===========================================================================
 // §8  Camera path helpers
 // ===========================================================================
 
-const isOrthoCam = (c) => {
-  const m = c && c.projMatrix && c.projMatrix.mat4;
-  return m && m.length === 16 ? (m[15] !== 0) : undefined;
-};
+const isOrthoCam = (c) => c?.projMatrix?.isOrtho?.();
 
 function initProjBaseline(cam) {
   const b = getCamTrack(cam);
@@ -571,7 +631,7 @@ function _applyCamAtCursor(cam) {
   const nSeg = track.segments;
   if (nSeg === 0) return;
   const dur = Math.max(1, track.duration | 0);
-  const dir = (track.playing && track.rate < 0) ? -1 : 1;
+  const dir = track.rate < 0 ? -1 : 1;
   const local = track.f / dur;
   const t = dir > 0 ? local : (1 - local);
   applyCamInterp(cam, Math.max(0, Math.min(track.seg, nSeg - 1)), t);
@@ -640,6 +700,12 @@ export function installTrack(p5, fn) {
   p5.Tree.TransformTrack = TransformTrack;
   p5.Tree.TransformAdapter = TransformAdapter;
 
+  // p5 helper (instance-aware): createTransformTrack(...)
+  // Using `this` as the owning p5 instance allows predraw-driven ticking.
+  fn.createTransformTrack = function (...args) {
+    return new TransformTrack(this, ...args);
+  };
+
   const H = _addPathHelpers(p5);
 
   // ---- addPath ----
@@ -673,8 +739,12 @@ export function installTrack(p5, fn) {
   p5.Camera.prototype.playPath = function (rateOrOpts) {
     const b = getCamTrack(this), track = b.track;
     const pInst = this._renderer && this._renderer._pInst;
-    const unreg = () => pInst && getPlayers(pInst).delete(this);
-    const reg = () => pInst && getPlayers(pInst).add(this);
+    const unreg = () => pInst && unregisterPlayer(pInst, b.player);
+    const reg = () => {
+      if (!pInst) return;
+      b.player = b.player || { tick: () => { tickCamera(this); return getCamTrack(this).track.playing; } };
+      registerPlayer(pInst, b.player);
+    };
     if (track.keyframes.length === 0) { _warn('playPath ignored: no keyframes.'); track.playing = false; unreg(); return this; }
     if (track.keyframes.length === 1) {
       track.playing = false; unreg();
@@ -701,7 +771,7 @@ export function installTrack(p5, fn) {
   p5.Camera.prototype.stopPath = function (reset = false) {
     const b = getCamTrack(this), track = b.track;
     track.playing = false;
-    const pInst = this._renderer && this._renderer._pInst; pInst && getPlayers(pInst).delete(this);
+    const pInst = this._renderer && this._renderer._pInst; unregisterPlayer(pInst, b.player);
     if (!reset) return this;
     if (b.camSnaps.length === 1) { const kf = b.camSnaps[0]; return this.camera(kf.eyeX, kf.eyeY, kf.eyeZ, kf.centerX, kf.centerY, kf.centerZ, kf.upX, kf.upY, kf.upZ); }
     track.seekGlobal(track.rate < 0 ? 1 : 0); _applyCamAtCursor(this); return this;
@@ -711,7 +781,7 @@ export function installTrack(p5, fn) {
   p5.Camera.prototype.resetPath = function () {
     const b = getCamTrack(this), track = b.track;
     track.playing = false;
-    const pInst = this._renderer && this._renderer._pInst; pInst && getPlayers(pInst).delete(this);
+    const pInst = this._renderer && this._renderer._pInst; unregisterPlayer(pInst, b.player);
     const kf0 = b.camSnaps.length ? b.camSnaps[0] : null;
     track.reset(); b.camSnaps.length = 0; b.pathIsOrtho = undefined;
     if (!kf0) return this;
@@ -720,9 +790,10 @@ export function installTrack(p5, fn) {
 
   // ---- seekPath ----
   p5.Camera.prototype.seekPath = function (t, segIndex) {
-    const track = getCamTrack(this).track;
+    const b = getCamTrack(this);
+    const track = b.track;
     track.playing = false;
-    const pInst = this._renderer && this._renderer._pInst; pInst && getPlayers(pInst).delete(this);
+    const pInst = this._renderer && this._renderer._pInst; unregisterPlayer(pInst, b.player);
     _isNum(segIndex) ? track.seekSegment(t, segIndex) : track.seekGlobal(t);
     _applyCamAtCursor(this); return this;
   };
@@ -746,18 +817,42 @@ export function installTrack(p5, fn) {
   fn.stopPath = function (...a) { const c = this._renderer.states.curCamera; c && c.stopPath(...a); return this; };
   fn.pathTime = function () { const c = this._renderer.states.curCamera; return c && c.pathTime(); };
   fn.pathInfo = function () { const c = this._renderer.states.curCamera; return c && c.pathInfo(); };
+  
+  /**
+   * Rotate by quaternion [x,y,z,w] using p5's rotate(angle, axis).
+   * Identity quats are a no-op.
+   *
+   * @param {number[]} q quaternion [x,y,z,w]
+   * @param {Object} [opts]
+   * @param {number} [opts.eps=1e-8] threshold for identity
+   * @returns {p5}
+   */
+  fn.rotateQuat = function (q, opts) {
+    const eps = opts && typeof opts.eps === 'number' ? opts.eps : 1e-8;
+    const x = q[0], y = q[1], z = q[2], w = q[3];
+    const sinHalf = Math.sqrt(x * x + y * y + z * z);
+    if (sinHalf < eps) return this;
+    const angle = 2 * Math.atan2(sinHalf, w);
+    this.rotate(angle, [x / sinHalf, y / sinHalf, z / sinHalf]);
+    return this;
+  };
 }
 
 // ===========================================================================
 // §11  Lifecycle helpers (exported for entry point)
 // ===========================================================================
 
-/** Tick all active camera path players. Called from lifecycles.predraw. */
+/** Tick all active players (camera paths + TransformTracks). Called from lifecycles.predraw. */
 export function tickPlayers(pInst) {
   const players = getPlayers(pInst);
-  players.forEach(cam => {
-    tickCamera(cam);
-    getCamTrack(cam).track.playing || players.delete(cam);
+  players.forEach(player => {
+    let alive = false;
+    try {
+      alive = player && typeof player.tick === 'function' ? !!player.tick() : false;
+    } catch (_) {
+      alive = false;
+    }
+    alive || players.delete(player);
   });
 }
 
