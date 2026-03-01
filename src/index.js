@@ -12,7 +12,7 @@
  *   - constants.js  — p5.Tree namespace + constants
  *   - matrix.js     — matrix queries, space transforms, HUD
  *   - drawing.js    — axes, grid, cross, bullsEye, viewFrustum, picking, visibility
- *   - track.js      — TransformTrack, adapters, camera path API
+ *   - track.js      — PoseTrack, adapters, camera path API
  *   - pipe.js       — pipe() + releasePipe()
  *   - uniformUI.js  — createUniformUI()
  */
@@ -47,7 +47,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §3 — Drawing helpers, picking, viewFrustum, visibility
   installDrawing(p5, fn);
 
-  // §4 — TransformTrack, adapters, camera path API + global forwarders
+  // §4 — PoseTrack, adapters, camera path API + global forwarders
   installTrack(p5, fn);
 
   // §5 — Pipe (post-processing chain)

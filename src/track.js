@@ -1,12 +1,12 @@
 /**
- * @file TransformTrack, quaternion/spline helpers, adapters, and camera path API.
+ * @file PoseTrack, quaternion/spline helpers, adapters, and camera path API.
  * @module track
  * @license GPL-3.0-only
  *
  * Architecture:
  *   - Minimal quaternion math (flat [x,y,z,w] arrays, w-last = glTF layout)
  *   - Centripetal Catmull-Rom spline (α=0.5, Barry-Goldman)
- *   - TransformTrack: generic keyframe track storing {pos, rot, scl}
+ *   - PoseTrack: generic keyframe track storing Pose {pos, rot, scl}
  *   - CameraAdapter: captures/applies transforms on p5.Camera via slerp
  *   - Camera path public API: addPath, playPath, stopPath, resetPath, seekPath, pathTime, pathInfo
  *   - Global fn.* forwarders to active camera
@@ -203,15 +203,23 @@ const lerpVec3 = (out, a, b, t) => {
 };
 
 // ===========================================================================
-// §3  TransformTrack
+// §3  PoseTrack
 // ===========================================================================
 
 /**
- * Generic transform keyframe track with playback state.
- * Keyframes store canonical `{ pos:[x,y,z], rot:[x,y,z,w], scl:[sx,sy,sz] }`.
- * @class TransformTrack
+ * A keyframe data shape: position + rotation + optional scale.
+ * @typedef {Object} Pose
+ * @property {number[]} pos  Position [x, y, z].
+ * @property {number[]} rot  Rotation quaternion [x, y, z, w] (glTF / w-last).
+ * @property {number[]} [scl]  Scale [sx, sy, sz]. Defaults to [1, 1, 1].
  */
-class TransformTrack {
+
+/**
+ * Generic pose keyframe track with playback state.
+ * Keyframes store canonical Pose `{ pos:[x,y,z], rot:[x,y,z,w], scl:[sx,sy,sz] }`.
+ * @class PoseTrack
+ */
+class PoseTrack {
   constructor(pInst) {
     /** @type {Array<{pos:number[], rot:number[], scl:number[]}>} */
     this.keyframes = [];
@@ -255,7 +263,7 @@ class TransformTrack {
    * @param {Object} [opts]
    * @param {boolean} [opts.deduplicate=true]
    */
-  addKeyframe(spec, opts) {
+  add(spec, opts) {
     const kf = _parseSpec(spec);
     if (!kf) return;
     const dedup = !opts || opts.deduplicate !== false;
@@ -301,7 +309,7 @@ class TransformTrack {
     this._pInst && unregisterPlayer(this._pInst, this._player);
     if (!reset) return;
     if (this.keyframes.length <= 1) return;
-    this.seekGlobal(this.rate < 0 ? 1 : 0);
+    this.seek(this.rate < 0 ? 1 : 0);
   }
 
   /** Clear all keyframes and reset cursor. */
@@ -313,23 +321,27 @@ class TransformTrack {
     this.f = 0;
   }
 
-  /** Seek to normalized global time t ∈ [0,1]. */
-  seekGlobal(t) {
-    const nSeg = this.segments;
-    if (nSeg === 0) return;
-    const tt = _clamp01(t);
-    const dur = Math.max(1, this.duration | 0);
-    const total = nSeg * dur;
-    const s = tt * total;
-    this._setCursorFromScalar(s);
-  }
-
-  /** Seek within a specific segment. */
-  seekSegment(amt, segIndex) {
-    const nSeg = this.segments;
-    if (nSeg === 0) return;
-    this.seg = Math.max(0, Math.min(segIndex | 0, nSeg - 1));
-    this.f = _clamp01(amt) * Math.max(1, this.duration | 0);
+  /**
+   * Seek to a normalized time.
+   * @param {number} t  Normalized time ∈ [0,1].
+   * @param {number} [segIndex]  If a finite number, seek within that segment;
+   *                              otherwise seek globally across all segments.
+   */
+  seek(t, segIndex) {
+    if (typeof segIndex === 'number' && Number.isFinite(segIndex)) {
+      const nSeg = this.segments;
+      if (nSeg === 0) return;
+      this.seg = Math.max(0, Math.min(segIndex | 0, nSeg - 1));
+      this.f = _clamp01(t) * Math.max(1, this.duration | 0);
+    } else {
+      const nSeg = this.segments;
+      if (nSeg === 0) return;
+      const tt = _clamp01(t);
+      const dur = Math.max(1, this.duration | 0);
+      const total = nSeg * dur;
+      const s = tt * total;
+      this._setCursorFromScalar(s);
+    }
   }
 
   /** Normalized playback time [0,1]. */
@@ -365,7 +377,7 @@ class TransformTrack {
     if (step === 0) { this.playing = false; return false; }
 
     // ---------------------------------------------------------------------
-    // Cursor / time rules (shared by TransformTrack + camera paths)
+    // Cursor / time rules (shared by PoseTrack + camera paths)
     //
     // We store a single direction-independent cursor (seg, f):
     //   - seg ∈ [0..segments-1]
@@ -512,9 +524,9 @@ const mat4ToTransform = (out, m) => {
 // ===========================================================================
 
 /** Abstract base for custom targets. */
-class TransformAdapter {
-  capture(out) { throw new Error('TransformAdapter.capture() must be overridden'); }
-  apply(xform) { throw new Error('TransformAdapter.apply() must be overridden'); }
+class PoseBinding {
+  capture(out) { throw new Error('PoseBinding.capture() must be overridden'); }
+  apply(xform) { throw new Error('PoseBinding.apply() must be overridden'); }
 }
 
 /** @private Camera adapter — captures/applies via p5.Camera.slerp. */
@@ -602,7 +614,7 @@ const PATH_PLAYERS = new WeakMap();
 function getCamTrack(cam) {
   let b = CAM_TRACK.get(cam);
   if (!b) {
-    b = { track: new TransformTrack(), adapter: new CameraAdapter(cam),
+    b = { track: new PoseTrack(), adapter: new CameraAdapter(cam),
           pathIsOrtho: undefined, camSnaps: [], player: null };
     CAM_TRACK.set(cam, b);
   }
@@ -731,19 +743,19 @@ function _addPathHelpers(p5) {
 // ===========================================================================
 
 /**
- * Install TransformTrack, adapters, and camera path API.
+ * Install PoseTrack, adapters, and camera path API.
  * @param {p5} p5
  * @param {Object} fn  p5 prototype
  */
 export function installTrack(p5, fn) {
   // Expose for external use
-  p5.Tree.TransformTrack = TransformTrack;
-  p5.Tree.TransformAdapter = TransformAdapter;
+  p5.Tree.PoseTrack = PoseTrack;
+  p5.Tree.PoseBinding = PoseBinding;
 
-  // p5 helper (instance-aware): createTransformTrack(...)
+  // p5 helper (instance-aware): createPoseTrack(...)
   // Using `this` as the owning p5 instance allows predraw-driven ticking.
-  fn.createTransformTrack = function (...args) {
-    return new TransformTrack(this, ...args);
+  fn.createPoseTrack = function (...args) {
+    return new PoseTrack(this, ...args);
   };
 
   const H = _addPathHelpers(p5);
@@ -814,7 +826,7 @@ export function installTrack(p5, fn) {
     const pInst = this._renderer && this._renderer._pInst; unregisterPlayer(pInst, b.player);
     if (!reset) return this;
     if (b.camSnaps.length === 1) { const kf = b.camSnaps[0]; return this.camera(kf.eyeX, kf.eyeY, kf.eyeZ, kf.centerX, kf.centerY, kf.centerZ, kf.upX, kf.upY, kf.upZ); }
-    track.seekGlobal(track.rate < 0 ? 1 : 0); _applyCamAtCursor(this); return this;
+    track.seek(track.rate < 0 ? 1 : 0); _applyCamAtCursor(this); return this;
   };
 
   // ---- resetPath ----
@@ -834,7 +846,7 @@ export function installTrack(p5, fn) {
     const track = b.track;
     track.playing = false;
     const pInst = this._renderer && this._renderer._pInst; unregisterPlayer(pInst, b.player);
-    _isNum(segIndex) ? track.seekSegment(t, segIndex) : track.seekGlobal(t);
+    _isNum(segIndex) ? track.seek(t, segIndex) : track.seek(t);
     _applyCamAtCursor(this); return this;
   };
 
@@ -876,13 +888,27 @@ export function installTrack(p5, fn) {
     this.rotate(angle, [x / sinHalf, y / sinHalf, z / sinHalf]);
     return this;
   };
+
+  /**
+   * Apply a Pose (TRS) to the current drawing transform.
+   * Calls translate, rotateQuat, and scale in the correct order.
+   *
+   * @param {Object} pose  { pos: [x,y,z], rot: [x,y,z,w], scl: [sx,sy,sz] }
+   * @returns {p5}
+   */
+  fn.applyPose = function (pose) {
+    this.translate(pose.pos[0], pose.pos[1], pose.pos[2]);
+    this.rotateQuat(pose.rot);
+    this.scale(pose.scl[0], pose.scl[1], pose.scl[2]);
+    return this;
+  };
 }
 
 // ===========================================================================
 // §11  Lifecycle helpers (exported for entry point)
 // ===========================================================================
 
-/** Tick all active players (camera paths + TransformTracks). Called from lifecycles.predraw. */
+/** Tick all active players (camera paths + PoseTracks). Called from lifecycles.predraw. */
 export function tickPlayers(pInst) {
   const players = getPlayers(pInst);
   players.forEach(player => {
