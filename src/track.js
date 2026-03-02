@@ -8,7 +8,7 @@
  *   - Centripetal Catmull-Rom spline (α=0.5, Barry-Goldman)
  *   - PoseTrack: generic keyframe track storing Pose {pos, rot, scl}
  *   - CameraAdapter: captures/applies transforms on p5.Camera via slerp
- *   - Camera path public API: addPath, playPath, stopPath, resetPath, seekPath, pathTime, pathInfo
+ *   - Camera path public API: addPath, setPath, removePath, playPath, stopPath, resetPath, seekPath, pathTime, pathInfo
  *   - Global fn.* forwarders to active camera
  *
  * Exports:
@@ -271,6 +271,44 @@ class PoseTrack {
       if (_sameTransform(this.keyframes[this.keyframes.length - 1], kf)) return;
     }
     this.keyframes.push(kf);
+  }
+
+  /**
+   * Replace a keyframe at a given index.
+   * If the index equals keyframes.length, behaves like add() (append).
+   * @param {number} index  Zero-based keyframe index.
+   * @param {Object} spec   { pos, rot, scl } (same flexible input as add()).
+   * @returns {boolean} true if the keyframe was set successfully.
+   */
+  set(index, spec) {
+    if (typeof index !== 'number' || !Number.isFinite(index)) return false;
+    const i = index | 0;
+    if (i < 0 || i > this.keyframes.length) return false;
+    const kf = _parseSpec(spec);
+    if (!kf) return false;
+    if (i === this.keyframes.length) {
+      this.keyframes.push(kf);
+    } else {
+      this.keyframes[i] = kf;
+    }
+    return true;
+  }
+
+  /**
+   * Remove a keyframe at a given index.
+   * @param {number} index  Zero-based keyframe index.
+   * @returns {boolean} true if the keyframe was removed successfully.
+   */
+  remove(index) {
+    if (typeof index !== 'number' || !Number.isFinite(index)) return false;
+    const i = index | 0;
+    if (i < 0 || i >= this.keyframes.length) return false;
+    this.keyframes.splice(i, 1);
+    // Clamp cursor so it stays within valid range
+    const nSeg = this.segments;
+    if (nSeg === 0) { this.seg = 0; this.f = 0; }
+    else if (this.seg >= nSeg) { this.seg = nSeg - 1; }
+    return true;
   }
 
   /**
@@ -787,6 +825,74 @@ export function installTrack(p5, fn) {
     _warn('addPath: ignored unsupported arguments.'); return this;
   };
 
+  // ---- setPath ----
+  /**
+   * Replace the keyframe at a given index.
+   * Accepts the same argument shapes as addPath (camera, view matrix, eye/center/up).
+   *
+   *   cam.setPath(index)              — replace with current camera state
+   *   cam.setPath(index, otherCam)    — replace with another camera's state
+   *   cam.setPath(index, viewMat4)    — replace with a view matrix (p5.Matrix or 16-element array)
+   *   cam.setPath(index, eye, center, up) — replace with explicit vectors
+   *
+   * @param {number} index  Zero-based keyframe index.
+   * @returns {p5.Camera} this
+   */
+  p5.Camera.prototype.setPath = function (index, ...args) {
+    if (typeof index !== 'number' || !Number.isFinite(index)) { _warn('setPath: index must be a finite number.'); return this; }
+    const i = index | 0;
+    const b = getCamTrack(this);
+    if (i < 0 || i >= b.camSnaps.length) { _warn('setPath: index ' + i + ' out of range [0..' + (b.camSnaps.length - 1) + '].'); return this; }
+
+    // Resolve the source camera snapshot (same parsing logic as addPath)
+    let snapCam;
+    if (args.length === 0) {
+      snapCam = this;
+    } else if (args.length === 1) {
+      const ov = args[0];
+      if (ov instanceof p5.Camera) {
+        snapCam = ov;
+      } else if (H.isView(ov)) {
+        snapCam = H.importViewToCamera(this, ov);
+      } else {
+        _warn('setPath: unsupported argument.'); return this;
+      }
+    } else if (args.length === 3 && args.every(H.isVec3)) {
+      const eye = H.toVec3(args[0]), center = H.toVec3(args[1]), up = H.norm3(H.toVec3(args[2]));
+      snapCam = this.copy();
+      snapCam.camera(eye[0], eye[1], eye[2], center[0], center[1], center[2], up[0], up[1], up[2]);
+    } else {
+      _warn('setPath: unsupported arguments.'); return this;
+    }
+
+    if (!checkProjCompat(this, snapCam)) return this;
+
+    // Replace the snapshot and its derived keyframe
+    const copy = snapCam === this ? this.copy() : snapCam.copy();
+    b.camSnaps[i] = copy;
+    const kf = { pos: [copy.eyeX, copy.eyeY, copy.eyeZ], rot: [0, 0, 0, 1], scl: [1, 1, 1] };
+    if (copy.cameraMatrix && copy.cameraMatrix.mat4) qFromMat4(kf.rot, copy.cameraMatrix.mat4);
+    b.track.keyframes[i] = kf;
+    return this;
+  };
+
+  // ---- removePath ----
+  /**
+   * Remove the keyframe at a given index.
+   * @param {number} index  Zero-based keyframe index.
+   * @returns {p5.Camera} this
+   */
+  p5.Camera.prototype.removePath = function (index) {
+    if (typeof index !== 'number' || !Number.isFinite(index)) { _warn('removePath: index must be a finite number.'); return this; }
+    const i = index | 0;
+    const b = getCamTrack(this);
+    if (i < 0 || i >= b.camSnaps.length) { _warn('removePath: index ' + i + ' out of range.'); return this; }
+    b.camSnaps.splice(i, 1);
+    b.track.remove(i);
+    if (b.camSnaps.length === 0) b.pathIsOrtho = undefined;
+    return this;
+  };
+
   // ---- playPath ----
   p5.Camera.prototype.playPath = function (rateOrOpts) {
     const b = getCamTrack(this), track = b.track;
@@ -863,6 +969,8 @@ export function installTrack(p5, fn) {
 
   // ---- Global forwarders ----
   fn.addPath = function (...a) { const c = this._renderer.states.curCamera; c && c.addPath(...a); return this; };
+  fn.setPath = function (...a) { const c = this._renderer.states.curCamera; c && c.setPath(...a); return this; };
+  fn.removePath = function (...a) { const c = this._renderer.states.curCamera; c && c.removePath(...a); return this; };
   fn.playPath = function (...a) { const c = this._renderer.states.curCamera; c && c.playPath(...a); return this; };
   fn.seekPath = function (...a) { const c = this._renderer.states.curCamera; c && c.seekPath(...a); return this; };
   fn.resetPath = function (...a) { const c = this._renderer.states.curCamera; c && c.resetPath(...a); return this; };
