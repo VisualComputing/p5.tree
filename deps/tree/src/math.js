@@ -322,28 +322,45 @@ export function mat4PMV(out, proj, model, view) {
 // ── Location Transform ───────────────────────────────────────────────────
 
 /**
- * out = inv(to) * from
+ * Relative transform for locations (points).
  *
- * Relative 4×4 transform that maps locations (points) expressed in the
- * `from` frame into the `to` frame.
+ * out = inv(to) · from
  *
- * Column-major.
- * Returns null if `to` is singular.
+ * Maps a point from the `from` frame into the `to` frame:
+ *
+ *   p_to = out · p_from
+ *
+ * @param {ArrayLike<number>} out Destination 4×4 matrix (length 16).
+ * @param {ArrayLike<number>} from Source frame transform.
+ * @param {ArrayLike<number>} to Destination frame transform.
+ * @returns {ArrayLike<number>|null} `out`, or `null` if `to` is singular.
  */
 export function mat4Location(out, from, to) {
-  return mat4Invert(out, to) && mat4Mul(out, from, out);
+  return mat4Invert(out, to) && mat4Mul(out, out, from);
 }
 
 // ── Direction Transform ──────────────────────────────────────────────────
 
 /**
- * out = linear(inv(to) * from)
+ * Relative transform for directions (vectors).
  *
- * Relative 3×3 transform that maps directions expressed in the `from` frame
- * into the `to` frame. Translation is ignored.
+ * Uses only the upper-left 3×3 blocks, ignoring translation.
  *
- * Column-major 3×3.
- * Returns null if the upper-left 3×3 of `to` is singular.
+ * Corresponds to:
+ *
+ *   out = to₃ · inv(from₃)
+ *
+ * and maps directions as:
+ *
+ *   d_to = out · d_from
+ *
+ * Note: the final write is transposed so the result matches this module's
+ * matrix layout and multiplication convention.
+ *
+ * @param {ArrayLike<number>} out Destination 3×3 matrix (length 9).
+ * @param {ArrayLike<number>} from Source frame transform.
+ * @param {ArrayLike<number>} to Destination frame transform.
+ * @returns {ArrayLike<number>|null} `out`, or `null` if `from` is singular.
  */
 export function mat3Direction(out, from, to) {
   const a00=from[0], a01=from[1], a02=from[2],

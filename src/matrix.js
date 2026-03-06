@@ -440,4 +440,35 @@ export function installMatrix(p5, fn) {
     const pd = this.pixelDensity();
     return [pd * this.width, pd * this.height];
   };
+  
+  // debug
+  fn.lMatrixgl = function (...args) {
+    return this._renderer.lMatrixgl(...args);
+  }
+
+  // defaults: from: iMatrix, to: eMatrix
+  p5.Renderer3D.prototype.lMatrixgl = function (
+    {
+      from = new p5.Matrix(),
+      to = this.eMatrix()
+    } = {}) {
+    return to.copy().invert(to).apply(from);
+  }
+
+  fn.dMatrixgl = function (...args) {
+    return this._renderer.dMatrixgl(...args);
+  }
+
+  // defaults: from: iMatrix, to: eMatrix
+  p5.Renderer3D.prototype.dMatrixgl = function (
+    {
+      from = new p5.Matrix(),
+      to = this.eMatrix(),
+      matrix = from.copy().invert(from).apply(to)
+    } = {}) {
+    // Note that this transposes mat4 into mat3
+    return new p5.Matrix([matrix.mat4[0], matrix.mat4[4], matrix.mat4[8],
+    matrix.mat4[1], matrix.mat4[5], matrix.mat4[9],
+    matrix.mat4[2], matrix.mat4[6], matrix.mat4[10]]);
+  }
 }
