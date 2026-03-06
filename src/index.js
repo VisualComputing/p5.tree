@@ -1,44 +1,23 @@
 /**
- * @file p5.tree.js — Entry point.
- * @version 0.0.15
- * @author JP Charalambos
+ * @file p5.tree addon entry point — registers onto p5, delegates to sub-modules.
+ * @module p5.tree
  * @license GPL-3.0-only
- *
- * @description
- * A p5.js 3D addon for matrix queries, shader workflows, space transformations,
- * and camera-path keyframe animation.
- *
- * This entry point registers the addon and delegates to sub-modules:
- *   - constants.js  — p5.Tree namespace + constants
- *   - matrix.js     — matrix queries, space transforms, HUD
- *   - drawing.js    — axes, grid, cross, bullsEye, viewFrustum, picking, visibility
- *   - track.js      — PoseTrack, adapters, camera path API
- *   - pipe.js       — pipe() + releasePipe()
- *   - uniformUI.js  — createUniformUI()
- */
-
-/*
- TODO's
- i.   beginHUD / endHUD text() issue (seems like an upstream matter)
- ii.  mapLocation & mapDirection stress test
- iii. Port p5.treegl parseGeometry?
- iii. Shader & effects handling
- iv.  p5.strands interface
  */
 
 'use strict';
 
 import p5 from 'p5';
+
 import { installConstants } from './constants.js';
-import { installMatrix } from './matrix.js';
+import { installMatrix, detectNDC } from './matrix.js';
 import { installDrawing } from './drawing.js';
 import { installTrack, tickPlayers, clearPlayers } from './track.js';
-import { installPipe, releaseAllPipes } from './pipe.js';
-import { installUniformUI } from './uniformUI.js';
+import { installPipe } from './pipe.js';
+import { installUI } from './ui.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
 
-  // §1 — Constants & namespace
+  // §1 — Constants & namespace (includes WEBGL / WEBGPU)
   installConstants(p5);
 
   // §2 — Matrix queries, space transforms, HUD
@@ -53,15 +32,17 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §5 — Pipe (post-processing chain)
   installPipe(p5, fn);
 
-  // §6 — UniformUI (DOM-based shader parameter controls)
-  installUniformUI(p5, fn);
+  // §6 — UI (DOM-based shader uniform controls + track transport)
+  installUI(p5, fn);
 
-  // ── Lifecycle hooks ──────────────────────────────────────────────────────
+  // ── Lifecycle hooks ────────────────────────────────────────────────
 
   lifecycles.postsetup = function () {
     if (!(this._renderer instanceof p5.Renderer3D)) {
       throw new Error('p5.tree requires WEBGL or WEBGPU. Use createCanvas(w, h, WEBGL) or WEBGPU.');
     }
+    // Detect NDC convention from the renderer context (3rd param to createCanvas)
+    detectNDC(this._renderer);
   };
 
   lifecycles.predraw = function () {

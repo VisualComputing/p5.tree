@@ -1,573 +1,37 @@
 /**
- * @file PoseTrack, quaternion/spline helpers, adapters, and camera path API.
- * @module track
+ * @file Camera path API + PoseTrack bridge.
+ * @module p5.tree/track
  * @license GPL-3.0-only
  *
- * Architecture:
- *   - Minimal quaternion math (flat [x,y,z,w] arrays, w-last = glTF layout)
- *   - Centripetal Catmull-Rom spline (α=0.5, Barry-Goldman)
- *   - PoseTrack: generic keyframe track storing Pose {pos, rot, scl}
- *   - CameraAdapter: captures/applies transforms on p5.Camera via slerp
- *   - Camera path public API: addPath, setPath, removePath, playPath, stopPath, resetPath, seekPath, pathTime, pathInfo
- *   - Global fn.* forwarders to active camera
- *
- * Exports:
- *   installTrack(p5, fn) — installs everything onto p5/fn prototypes
- *   tickPlayers(pInst)   — called from lifecycles.predraw
- *   clearPlayers(pInst)  — called from lifecycles.remove
+ * Imports PoseTrack from core (tree/track). All p5.Camera-specific code,
+ * adapter, player registry, and lifecycle helpers live here.
  */
 
 'use strict';
 
-// ===========================================================================
-// §1  Minimal quaternion helpers  (flat [x, y, z, w])
-// ===========================================================================
+import {
+  PoseTrack, qFromMat4, qToMat4, qSlerp, quatToAxisAngle
+} from '@nakednous/tree';
 
-/** @type {number[]} */
-const QUAT_IDENTITY = [0, 0, 0, 1];
+// ═══════════════════════════════════════════════════════════════════════════
+// Private helpers
+// ═══════════════════════════════════════════════════════════════════════════
 
-const qSet = (out, x, y, z, w) => { out[0] = x; out[1] = y; out[2] = z; out[3] = w; return out; };
-const qCopy = (out, a) => { out[0] = a[0]; out[1] = a[1]; out[2] = a[2]; out[3] = a[3]; return out; };
-const qDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+const _SCRATCH_MAT4 = new Float32Array(16);
+const _clamp01 = (x) => x < 0 ? 0 : (x > 1 ? 1 : x);
+const _isNum = (x) => typeof x === 'number' && Number.isFinite(x);
+const _warn = (msg) => console.warn('[tree.camera.path] ' + msg);
 
-const qNormalize = (out) => {
-  const len = Math.sqrt(qDot(out, out)) || 1;
-  out[0] /= len; out[1] /= len; out[2] /= len; out[3] /= len;
-  return out;
+const _isPlainObject = (v) => {
+  if (!v || typeof v !== 'object') return false;
+  if (Array.isArray(v) || ArrayBuffer.isView(v)) return false;
+  return Object.getPrototypeOf(v) === Object.prototype;
 };
 
-const qNegate = (out) => { out[0] = -out[0]; out[1] = -out[1]; out[2] = -out[2]; out[3] = -out[3]; return out; };
+// ═══════════════════════════════════════════════════════════════════════════
+// CameraAdapter (p5-specific)
+// ═══════════════════════════════════════════════════════════════════════════
 
-/** out = a * b */
-const qMul = (out, a, b) => {
-  const ax = a[0], ay = a[1], az = a[2], aw = a[3];
-  const bx = b[0], by = b[1], bz = b[2], bw = b[3];
-  out[0] = aw * bx + ax * bw + ay * bz - az * by;
-  out[1] = aw * by - ax * bz + ay * bw + az * bx;
-  out[2] = aw * bz + ax * by - ay * bx + az * bw;
-  out[3] = aw * bw - ax * bx - ay * by - az * bz;
-  return out;
-};
-
-/**
- * SLERP between quaternions a and b at parameter t.
- * Shortest-arc: negates b if dot < 0.
- * Near-equal fallback: nlerp when dot ≈ 1.
- */
-const qSlerp = (out, a, b, t) => {
-  let d = qDot(a, b);
-  let bx = b[0], by = b[1], bz = b[2], bw = b[3];
-  if (d < 0) { d = -d; bx = -bx; by = -by; bz = -bz; bw = -bw; }
-  if (d > 0.9995) {
-    out[0] = a[0] + t * (bx - a[0]);
-    out[1] = a[1] + t * (by - a[1]);
-    out[2] = a[2] + t * (bz - a[2]);
-    out[3] = a[3] + t * (bw - a[3]);
-    return qNormalize(out);
-  }
-  const theta = Math.acos(d);
-  const sinTheta = Math.sin(theta);
-  const wa = Math.sin((1 - t) * theta) / sinTheta;
-  const wb = Math.sin(t * theta) / sinTheta;
-  out[0] = wa * a[0] + wb * bx;
-  out[1] = wa * a[1] + wb * by;
-  out[2] = wa * a[2] + wb * bz;
-  out[3] = wa * a[3] + wb * bw;
-  return out;
-};
-
-/** Quaternion from axis-angle. */
-const qFromAxisAngle = (out, ax, ay, az, angle) => {
-  const half = angle * 0.5;
-  const s = Math.sin(half);
-  const len = Math.sqrt(ax * ax + ay * ay + az * az) || 1;
-  out[0] = (ax / len) * s; out[1] = (ay / len) * s; out[2] = (az / len) * s;
-  out[3] = Math.cos(half);
-  return out;
-};
-
-/** Quaternion from look direction (forward = -Z convention). */
-const qFromLookDir = (out, dir, up) => {
-  const ux = up ? up[0] : 0, uy = up ? up[1] : 1, uz = up ? up[2] : 0;
-  let fx = -dir[0], fy = -dir[1], fz = -dir[2];
-  let fl = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
-  fx /= fl; fy /= fl; fz /= fl;
-  let rx = uy * fz - uz * fy, ry = uz * fx - ux * fz, rz = ux * fy - uy * fx;
-  let rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
-  rx /= rl; ry /= rl; rz /= rl;
-  const uux = fy * rz - fz * ry, uuy = fz * rx - fx * rz, uuz = fx * ry - fy * rx;
-  return qFromRotMat3x3(out, rx, uux, fx, ry, uuy, fy, rz, uuz, fz);
-};
-
-/** Quaternion from 3×3 rotation matrix columns (col-major). Shepperd's method. */
-const qFromRotMat3x3 = (out, m00, m01, m02, m10, m11, m12, m20, m21, m22) => {
-  const trace = m00 + m11 + m22;
-  if (trace > 0) {
-    const s = 0.5 / Math.sqrt(trace + 1);
-    out[3] = 0.25 / s; out[0] = (m21 - m12) * s; out[1] = (m02 - m20) * s; out[2] = (m10 - m01) * s;
-  } else if (m00 > m11 && m00 > m22) {
-    const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
-    out[3] = (m21 - m12) / s; out[0] = 0.25 * s; out[1] = (m01 + m10) / s; out[2] = (m02 + m20) / s;
-  } else if (m11 > m22) {
-    const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
-    out[3] = (m02 - m20) / s; out[0] = (m01 + m10) / s; out[1] = 0.25 * s; out[2] = (m12 + m21) / s;
-  } else {
-    const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
-    out[3] = (m10 - m01) / s; out[0] = (m02 + m20) / s; out[1] = (m12 + m21) / s; out[2] = 0.25 * s;
-  }
-  return qNormalize(out);
-};
-
-/** Quaternion from column-major 4×4 matrix (rotation part, no shear). */
-const qFromMat4 = (out, m) => {
-  let c0x = m[0], c0y = m[1], c0z = m[2];
-  let c1x = m[4], c1y = m[5], c1z = m[6];
-  let c2x = m[8], c2y = m[9], c2z = m[10];
-  let l = Math.sqrt(c0x * c0x + c0y * c0y + c0z * c0z) || 1; c0x /= l; c0y /= l; c0z /= l;
-  l = Math.sqrt(c1x * c1x + c1y * c1y + c1z * c1z) || 1; c1x /= l; c1y /= l; c1z /= l;
-  l = Math.sqrt(c2x * c2x + c2y * c2y + c2z * c2z) || 1; c2x /= l; c2y /= l; c2z /= l;
-  return qFromRotMat3x3(out, c0x, c1x, c2x, c0y, c1y, c2y, c0z, c1z, c2z);
-};
-
-/** Convert quaternion to column-major 4×4 matrix (rotation only). */
-const qToMat4 = (out, q) => {
-  const x = q[0], y = q[1], z = q[2], w = q[3];
-  const x2 = x + x, y2 = y + y, z2 = z + z;
-  const xx = x * x2, xy = x * y2, xz = x * z2;
-  const yy = y * y2, yz = y * z2, zz = z * z2;
-  const wx = w * x2, wy = w * y2, wz = w * z2;
-  out[0] = 1 - (yy + zz); out[1] = xy + wz;       out[2] = xz - wy;       out[3] = 0;
-  out[4] = xy - wz;       out[5] = 1 - (xx + zz); out[6] = yz + wx;       out[7] = 0;
-  out[8] = xz + wy;       out[9] = yz - wx;       out[10] = 1 - (xx + yy); out[11] = 0;
-  out[12] = 0;             out[13] = 0;             out[14] = 0;             out[15] = 1;
-  return out;
-};
-
-/**
- * Convert quaternion [x,y,z,w] to axis-angle.
- * Returns `null` for identity/near-identity rotations.
- *
- * @param {number[]} q quaternion [x,y,z,w]
- * @param {Object} [out]
- * @param {number[]} [out.axis] axis output (length 3)
- * @returns {{axis:number[], angle:number}|null}
- */
-const quatToAxisAngle = (q, out) => {
-  const x = q[0], y = q[1], z = q[2], w = q[3];
-  const sinHalf = Math.sqrt(x * x + y * y + z * z);
-  if (sinHalf < 1e-8) return null;
-
-  out = out || {};
-  const axis = out.axis || (out.axis = [0, 0, 1]);
-  axis[0] = x / sinHalf;
-  axis[1] = y / sinHalf;
-  axis[2] = z / sinHalf;
-
-  out.angle = 2 * Math.atan2(sinHalf, w);
-  return out;
-};
-
-// ===========================================================================
-// §2  Spline helpers
-// ===========================================================================
-
-/**
- * Centripetal Catmull-Rom for vec3 (α=0.5, Barry-Goldman).
- * Requires 4 control points. Clamped endpoints handled by caller.
- */
-const catmullRomVec3 = (out, p0, p1, p2, p3, t) => {
-  const chordLen = (a, b) => {
-    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
-    return Math.sqrt(Math.sqrt(dx * dx + dy * dy + dz * dz)) || 1e-6;
-  };
-  const dt0 = chordLen(p0, p1), dt1 = chordLen(p1, p2), dt2 = chordLen(p2, p3);
-  const t1 = dt0, t2 = t1 + dt1, t3 = t2 + dt2;
-  const tt = t1 + t * (t2 - t1);
-  for (let i = 0; i < 3; i++) {
-    const a1 = (t1 - tt) / (t1) * p0[i] + (tt) / (t1) * p1[i];
-    const a2 = (t2 - tt) / (dt1) * p1[i] + (tt - t1) / (dt1) * p2[i];
-    const a3 = (t3 - tt) / (dt2) * p2[i] + (tt - t2) / (dt2) * p3[i];
-    const b1 = (t2 - tt) / (t2) * a1 + (tt) / (t2) * a2;
-    const b2 = (t3 - tt) / (t3 - t1) * a2 + (tt - t1) / (t3 - t1) * a3;
-    out[i] = (t2 - tt) / (dt1) * b1 + (tt - t1) / (dt1) * b2;
-  }
-  return out;
-};
-
-/** Linear interpolation for vec3. */
-const lerpVec3 = (out, a, b, t) => {
-  out[0] = a[0] + (b[0] - a[0]) * t;
-  out[1] = a[1] + (b[1] - a[1]) * t;
-  out[2] = a[2] + (b[2] - a[2]) * t;
-  return out;
-};
-
-// ===========================================================================
-// §3  PoseTrack
-// ===========================================================================
-
-/**
- * A keyframe data shape: position + rotation + optional scale.
- * @typedef {Object} Pose
- * @property {number[]} pos  Position [x, y, z].
- * @property {number[]} rot  Rotation quaternion [x, y, z, w] (glTF / w-last).
- * @property {number[]} [scl]  Scale [sx, sy, sz]. Defaults to [1, 1, 1].
- */
-
-/**
- * Generic pose keyframe track with playback state.
- * Keyframes store canonical Pose `{ pos:[x,y,z], rot:[x,y,z,w], scl:[sx,sy,sz] }`.
- * @class PoseTrack
- */
-class PoseTrack {
-  constructor(pInst) {
-    /** @type {Array<{pos:number[], rot:number[], scl:number[]}>} */
-    this.keyframes = [];
-    this.playing = false;
-    this.loop = false;
-    this.pingPong = false;
-    this.onEnd = undefined;
-    this._rate = 1;
-    this.duration = 30;
-    this.seg = 0;
-    this.f = 0;
-    /** @type {'catmullrom'|'linear'} */
-    this.posInterp = 'catmullrom';
-    this._pos = [0, 0, 0];
-    this._rot = [0, 0, 0, 1];
-    this._scl = [1, 1, 1];
-
-    // Optional p5 instance for lifecycle-driven ticking (predraw).
-    // When present, play()/stop()/reset() auto register/unregister this track.
-    this._pInst = pInst;
-    this._player = null;
-  }
-  
-  get rate () {
-    return this._rate;
-  }
-
-  set rate (v) {
-    // sanitize
-    v = (typeof v === 'number' && isFinite(v)) ? v : 1;
-    this._rate = v;
-    // optional: stop if rate = 0
-    if (this._rate === 0) this.playing = false;
-  }
-
-  get segments() { return Math.max(0, this.keyframes.length - 1); }
-
-  /**
-   * Add a keyframe from a transform spec.
-   * @param {Object} spec  { pos, rot, scl } (flexible input shapes)
-   * @param {Object} [opts]
-   * @param {boolean} [opts.deduplicate=true]
-   */
-  add(spec, opts) {
-    const kf = _parseSpec(spec);
-    if (!kf) return;
-    const dedup = !opts || opts.deduplicate !== false;
-    if (dedup && this.keyframes.length > 0) {
-      if (_sameTransform(this.keyframes[this.keyframes.length - 1], kf)) return;
-    }
-    this.keyframes.push(kf);
-  }
-
-  /**
-   * Replace a keyframe at a given index.
-   * If the index equals keyframes.length, behaves like add() (append).
-   * @param {number} index  Zero-based keyframe index.
-   * @param {Object} spec   { pos, rot, scl } (same flexible input as add()).
-   * @returns {boolean} true if the keyframe was set successfully.
-   */
-  set(index, spec) {
-    if (typeof index !== 'number' || !Number.isFinite(index)) return false;
-    const i = index | 0;
-    if (i < 0 || i > this.keyframes.length) return false;
-    const kf = _parseSpec(spec);
-    if (!kf) return false;
-    if (i === this.keyframes.length) {
-      this.keyframes.push(kf);
-    } else {
-      this.keyframes[i] = kf;
-    }
-    return true;
-  }
-
-  /**
-   * Remove a keyframe at a given index.
-   * @param {number} index  Zero-based keyframe index.
-   * @returns {boolean} true if the keyframe was removed successfully.
-   */
-  remove(index) {
-    if (typeof index !== 'number' || !Number.isFinite(index)) return false;
-    const i = index | 0;
-    if (i < 0 || i >= this.keyframes.length) return false;
-    this.keyframes.splice(i, 1);
-    // Clamp cursor so it stays within valid range
-    const nSeg = this.segments;
-    if (nSeg === 0) { this.seg = 0; this.f = 0; }
-    else if (this.seg >= nSeg) { this.seg = nSeg - 1; }
-    return true;
-  }
-
-  /**
-   * Start or update playback.
-   * @param {number|Object} [rateOrOpts]
-   */
-  play(rateOrOpts) {
-    const nSeg = this.segments;
-    if (this.keyframes.length <= 1) { this.playing = false; return; }
-    if (typeof rateOrOpts === 'number' && isFinite(rateOrOpts)) {
-      this.rate = rateOrOpts;
-    } else if (rateOrOpts && typeof rateOrOpts === 'object') {
-      const o = rateOrOpts;
-      if (_isNum(o.duration)) this.duration = o.duration;
-      this.loop = !!o.loop;
-      this.pingPong = !!o.pingPong;
-      if (typeof o.onEnd === 'function') this.onEnd = o.onEnd;
-      if (_isNum(o.rate)) this.rate = o.rate;
-    }
-    if (this.rate === 0) { this.playing = false; return; }
-    const dur = Math.max(1, this.duration | 0);
-    if (this.seg < 0) this.seg = 0; else if (this.seg >= nSeg) this.seg = nSeg - 1;
-    if (this.f < 0) this.f = 0; else if (this.f > dur) this.f = dur;
-    this.playing = true;
-
-    // Auto-register into p5.tree predraw ticking if this track is owned by a p5 instance.
-    if (this._pInst) {
-      this._player = this._player || { tick: () => this.tick() };
-      registerPlayer(this._pInst, this._player);
-    }
-  }
-
-  /** Stop playback. Does NOT reset time unless `reset` is true. */
-  stop(reset) {
-    this.playing = false;
-    this._pInst && unregisterPlayer(this._pInst, this._player);
-    if (!reset) return;
-    if (this.keyframes.length <= 1) return;
-    this.seek(this.rate < 0 ? 1 : 0);
-  }
-
-  /** Clear all keyframes and reset cursor. */
-  reset() {
-    this.playing = false;
-    this._pInst && unregisterPlayer(this._pInst, this._player);
-    this.keyframes.length = 0;
-    this.seg = 0;
-    this.f = 0;
-  }
-
-  /**
-   * Seek to a normalized time.
-   * @param {number} t  Normalized time ∈ [0,1].
-   * @param {number} [segIndex]  If a finite number, seek within that segment;
-   *                              otherwise seek globally across all segments.
-   */
-  seek(t, segIndex) {
-    if (typeof segIndex === 'number' && Number.isFinite(segIndex)) {
-      const nSeg = this.segments;
-      if (nSeg === 0) return;
-      this.seg = Math.max(0, Math.min(segIndex | 0, nSeg - 1));
-      this.f = _clamp01(t) * Math.max(1, this.duration | 0);
-    } else {
-      const nSeg = this.segments;
-      if (nSeg === 0) return;
-      const tt = _clamp01(t);
-      const dur = Math.max(1, this.duration | 0);
-      const total = nSeg * dur;
-      const s = tt * total;
-      this._setCursorFromScalar(s);
-    }
-  }
-
-  /** Normalized playback time [0,1]. */
-  time() {
-    const nSeg = this.segments;
-    if (nSeg === 0) return 0;
-    const dur = Math.max(1, this.duration | 0);
-    const total = nSeg * dur;
-    const s = this.seg * dur + this.f;
-    return _clamp01(s / total);
-  }
-
-  /** Info snapshot (compatible with pathInfo()). */
-  info() {
-    return {
-      keyframes: this.keyframes.length, segments: this.segments,
-      playing: this.playing, loop: this.loop, pingPong: this.pingPong,
-      rate: this.rate, duration: this.duration,
-      time: this.segments > 0 ? this.time() : 0
-    };
-  }
-
-  /**
-   * Advance one frame.
-   * @returns {boolean} true if still playing
-   */
-  tick() {
-    if (!this.playing) return false;
-    const nSeg = this.segments;
-    if (nSeg === 0) { this.playing = false; return false; }
-    const dur = Math.max(1, this.duration | 0);
-    const step = this.rate;
-    if (step === 0) { this.playing = false; return false; }
-
-    // ---------------------------------------------------------------------
-    // Cursor / time rules (shared by PoseTrack + camera paths)
-    //
-    // We store a single direction-independent cursor (seg, f):
-    //   - seg ∈ [0..segments-1]
-    //   - f   ∈ [0..dur]
-    // Local interpolation parameter is ALWAYS:
-    //   u = f / dur
-    // Global time is ALWAYS:
-    //   time() = (seg*dur + f) / (segments*dur)
-    //
-    // Reverse playback is achieved ONLY by using a negative rate:
-    //   f += rate
-    // (No "1 - u" hacks anywhere.)
-    //
-    // Overshoot reflection (sanity):
-    //   - pingPong reflects across [0..total] and flips rate sign on each hit.
-    //   - loop wraps (mod total).
-    //   - no-loop clamps to {0} or {total} and stops.
-    // ---------------------------------------------------------------------
-
-    const total = nSeg * dur;
-    let s = this.seg * dur + this.f;
-    s = _clampScalar(s, 0, total);
-    let next = s + step;
-
-    if (this.pingPong) {
-      let flips = 0;
-      while (next < 0 || next > total) {
-        if (next < 0) { next = -next; flips++; }
-        else { next = 2 * total - next; flips++; }
-      }
-      if (flips & 1) this._rate = -this._rate;
-      this._setCursorFromScalar(next);
-      return true;
-    }
-
-    if (this.loop) {
-      // Wrap into [0..total). Note: total is > 0 (segments >= 1).
-      next = ((next % total) + total) % total;
-      this._setCursorFromScalar(next);
-      return true;
-    }
-
-    // No loop: clamp to ends and stop when crossing.
-    if (next <= 0) {
-      this._setCursorFromScalar(0);
-      this.playing = false;
-      if (typeof this.onEnd === 'function') { try { this.onEnd(); } catch (_) {} }
-      return false;
-    }
-    if (next >= total) {
-      this._setCursorFromScalar(total);
-      this.playing = false;
-      if (typeof this.onEnd === 'function') { try { this.onEnd(); } catch (_) {} }
-      return false;
-    }
-    this._setCursorFromScalar(next);
-    return true;
-  }
-
-  /**
-   * Evaluate interpolated transform at current cursor.
-   * @param {Object} [out] { pos, rot, scl }
-   * @returns {Object}
-   */
-  eval(out) {
-    out = out || { pos: this._pos, rot: this._rot, scl: this._scl };
-    const nSeg = this.segments;
-    if (nSeg === 0) {
-      if (this.keyframes.length === 1) {
-        const kf = this.keyframes[0];
-        _v3Copy(out.pos, kf.pos); qCopy(out.rot, kf.rot); _v3Copy(out.scl, kf.scl);
-      }
-      return out;
-    }
-    const dur = Math.max(1, this.duration | 0);
-    const t = _clamp01(this.f / dur);
-    const seg = Math.max(0, Math.min(this.seg, nSeg - 1));
-    const kfA = this.keyframes[seg], kfB = this.keyframes[seg + 1];
-    // Position
-    if (this.posInterp === 'linear') {
-      lerpVec3(out.pos, kfA.pos, kfB.pos, t);
-    } else {
-      const kfP = this.keyframes[Math.max(0, seg - 1)];
-      const kfN = this.keyframes[Math.min(this.keyframes.length - 1, seg + 2)];
-      catmullRomVec3(out.pos, kfP.pos, kfA.pos, kfB.pos, kfN.pos, t);
-    }
-    // Rotation (segment-wise SLERP)
-    qSlerp(out.rot, kfA.rot, kfB.rot, t);
-    // Scale (linear)
-    lerpVec3(out.scl, kfA.scl, kfB.scl, t);
-    return out;
-  }
-
-  /** Apply evaluated transform through an adapter. */
-  apply(adapter) { adapter.apply(this.eval()); }
-
-  /** Compose transform to column-major mat4. */
-  toMatrix(outMat4) { return transformToMat4(outMat4 || new Float32Array(16), this.eval()); }
-
-  // ---- private cursor helpers ----
-
-  /** @private Set (seg, f) from scalar s ∈ [0..segments*dur]. */
-  _setCursorFromScalar(s) {
-    const nSeg = this.segments;
-    if (nSeg === 0) { this.seg = 0; this.f = 0; return; }
-    const dur = Math.max(1, this.duration | 0);
-    const total = nSeg * dur;
-    const ss = _clampScalar(s, 0, total);
-    if (ss >= total) { this.seg = nSeg - 1; this.f = dur; return; }
-    const seg = Math.floor(ss / dur);
-    this.seg = Math.max(0, Math.min(seg, nSeg - 1));
-    this.f = ss - this.seg * dur;
-  }
-}
-
-// ===========================================================================
-// §4  Transform ↔ Matrix
-// ===========================================================================
-
-/** Compose {pos, rot, scl} → column-major 4×4 matrix. No shear. */
-const transformToMat4 = (out, xform) => {
-  qToMat4(out, xform.rot);
-  const sx = xform.scl[0], sy = xform.scl[1], sz = xform.scl[2];
-  out[0] *= sx; out[1] *= sx; out[2] *= sx;
-  out[4] *= sy; out[5] *= sy; out[6] *= sy;
-  out[8] *= sz; out[9] *= sz; out[10] *= sz;
-  out[12] = xform.pos[0]; out[13] = xform.pos[1]; out[14] = xform.pos[2]; out[15] = 1;
-  return out;
-};
-
-/** Decompose column-major 4×4 matrix → {pos, rot, scl}. No shear. */
-const mat4ToTransform = (out, m) => {
-  out.pos[0] = m[12]; out.pos[1] = m[13]; out.pos[2] = m[14];
-  const sx = Math.sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]) || 1;
-  const sy = Math.sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]) || 1;
-  const sz = Math.sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]) || 1;
-  out.scl[0] = sx; out.scl[1] = sy; out.scl[2] = sz;
-  qFromMat4(out.rot, m);
-  return out;
-};
-
-// ===========================================================================
-// §5  Adapters
-// ===========================================================================
-
-/** Abstract base for custom targets. */
-class PoseBinding {
-  capture(out) { throw new Error('PoseBinding.capture() must be overridden'); }
-  apply(xform) { throw new Error('PoseBinding.apply() must be overridden'); }
-}
-
-/** @private Camera adapter — captures/applies via p5.Camera.slerp. */
 class CameraAdapter {
   constructor(cam) { this.cam = cam; }
   capture(out) {
@@ -589,67 +53,14 @@ class CameraAdapter {
   }
 }
 
-// ===========================================================================
-// §6  Private helpers
-// ===========================================================================
-
-const _SCRATCH_MAT4 = new Float32Array(16);
-const _clamp01 = (x) => x < 0 ? 0 : (x > 1 ? 1 : x);
-const _clampScalar = (x, a, b) => x < a ? a : (x > b ? b : x);
-const _isNum = (x) => typeof x === 'number' && Number.isFinite(x);
-const _warn = (msg) => console.warn('[tree.camera.path] ' + msg);
-
-const _v3Copy = (out, v) => { out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; return out; };
-
-const _sameTransform = (a, b) => {
-  for (let i = 0; i < 3; i++) if (a.pos[i] !== b.pos[i]) return false;
-  for (let i = 0; i < 4; i++) if (a.rot[i] !== b.rot[i]) return false;
-  for (let i = 0; i < 3; i++) if (a.scl[i] !== b.scl[i]) return false;
-  return true;
-};
-
-/** Parse vec3 from p5.Vector, [x,y,z], or {x,y,z}. Returns new array or null. */
-function _parseVec3(v, p5) {
-  if (!v) return null;
-  if (p5 && v instanceof p5.Vector) return [v.x, v.y, v.z];
-  if (Array.isArray(v) && v.length >= 3) return [v[0], v[1], v[2]];
-  if (typeof v === 'object' && typeof v.x === 'number' && typeof v.y === 'number' && typeof v.z === 'number') return [v.x, v.y, v.z];
-  return null;
-}
-
-/** Parse quaternion from [x,y,z,w], { axis, angle }, or { dir, up }. Returns array or null. */
-function _parseQuat(v) {
-  if (!v) return null;
-  if (Array.isArray(v) && v.length === 4 && v.every(n => typeof n === 'number')) return [v[0], v[1], v[2], v[3]];
-  if (v.axis && typeof v.angle === 'number') {
-    const a = Array.isArray(v.axis) ? v.axis : [v.axis.x || 0, v.axis.y || 0, v.axis.z || 0];
-    return qFromAxisAngle([0, 0, 0, 1], a[0], a[1], a[2], v.angle);
-  }
-  if (v.dir) {
-    const d = Array.isArray(v.dir) ? v.dir : [v.dir.x || 0, v.dir.y || 0, v.dir.z || 0];
-    const u = v.up ? (Array.isArray(v.up) ? v.up : [v.up.x || 0, v.up.y || 0, v.up.z || 0]) : null;
-    return qFromLookDir([0, 0, 0, 1], d, u);
-  }
-  return null;
-}
-
-/** Parse a flexible input spec into canonical { pos, rot, scl }. */
-function _parseSpec(spec) {
-  if (!spec || typeof spec !== 'object') return null;
-  const pos = _parseVec3(spec.pos) || [0, 0, 0];
-  const rot = _parseQuat(spec.rot || spec) || [0, 0, 0, 1];
-  const scl = _parseVec3(spec.scl) || [1, 1, 1];
-  return { pos, rot, scl };
-}
-
-// ===========================================================================
-// §7  Per-camera storage + player registry
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
+// Per-camera storage + player registry
+// ═══════════════════════════════════════════════════════════════════════════
 
 const CAM_TRACK = new WeakMap();
 const PATH_PLAYERS = new WeakMap();
 
-function getCamTrack(cam) {
+export function getCamTrack(cam) {
   let b = CAM_TRACK.get(cam);
   if (!b) {
     b = { track: new PoseTrack(), adapter: new CameraAdapter(cam),
@@ -665,7 +76,7 @@ function getPlayers(pInst) {
   return players;
 }
 
-function registerPlayer(pInst, player) {
+export function registerPlayer(pInst, player) {
   if (!pInst || !player) return;
   getPlayers(pInst).add(player);
 }
@@ -675,9 +86,9 @@ function unregisterPlayer(pInst, player) {
   getPlayers(pInst).delete(player);
 }
 
-// ===========================================================================
-// §8  Camera path helpers
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
+// Camera path helpers
+// ═══════════════════════════════════════════════════════════════════════════
 
 const isOrthoCam = (c) => c?.projMatrix?.isOrtho?.();
 
@@ -717,7 +128,7 @@ function applyCamInterp(cam, seg, t) {
   cam.slerp(snaps[seg], snaps[seg + 1], t);
 }
 
-function _applyCamAtCursor(cam) {
+export function _applyCamAtCursor(cam) {
   const b = getCamTrack(cam);
   const track = b.track;
   const nSeg = track.segments;
@@ -727,22 +138,16 @@ function _applyCamAtCursor(cam) {
   applyCamInterp(cam, Math.max(0, Math.min(track.seg, nSeg - 1)), t);
 }
 
-function tickCamera(cam) {
+export function tickCamera(cam) {
   const track = getCamTrack(cam).track;
   if (!track.playing) return;
   track.tick();
   _applyCamAtCursor(cam);
 }
 
-// ===========================================================================
-// §9  Shared parse helpers (used by addPath)
-// ===========================================================================
-
-const _isPlainObject = (v) => {
-  if (!v || typeof v !== 'object') return false;
-  if (Array.isArray(v) || ArrayBuffer.isView(v)) return false;
-  return Object.getPrototypeOf(v) === Object.prototype;
-};
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared parse helpers (used by addPath)
+// ═══════════════════════════════════════════════════════════════════════════
 
 function _addPathHelpers(p5) {
   const isVec3 = (v) => v instanceof p5.Vector ||
@@ -776,29 +181,43 @@ function _addPathHelpers(p5) {
   return { isVec3, toVec3, norm3, isView, importViewToCamera };
 }
 
-// ===========================================================================
-// §10  Install function
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
+// Install
+// ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Install PoseTrack, adapters, and camera path API.
- * @param {p5} p5
- * @param {Object} fn  p5 prototype
- */
 export function installTrack(p5, fn) {
-  // Expose for external use
+  // Expose core type on p5.Tree
   p5.Tree.PoseTrack = PoseTrack;
-  p5.Tree.PoseBinding = PoseBinding;
 
-  // p5 helper (instance-aware): createPoseTrack(...)
-  // Using `this` as the owning p5 instance allows predraw-driven ticking.
-  fn.createPoseTrack = function (...args) {
-    return new PoseTrack(this, ...args);
+  // Instance-aware factory — wires lib-space hooks so play()/stop()/reset()
+  // auto-register/unregister the track into the p5 predraw tick loop.
+  // Multiple concurrent PoseTracks are supported: each gets its own player
+  // in the shared Set<player> per pInst.
+  fn.createPoseTrack = function () {
+    const pInst = this;
+    const track = new PoseTrack();
+    let player = null;
+
+    // Lib hook: playing went false → true
+    track._onActivate = () => {
+      player = player || {
+        tick() { track.tick(); return track.playing; }
+      };
+      registerPlayer(pInst, player);
+    };
+
+    // Lib hook: playing went true → false (any cause)
+    track._onDeactivate = () => {
+      unregisterPlayer(pInst, player);
+    };
+
+    return track;
   };
 
   const H = _addPathHelpers(p5);
 
-  // ---- addPath ----
+  // ── addPath ───────────────────────────────────────────────────────────
+
   p5.Camera.prototype.addPath = function (...args) {
     const b = getCamTrack(this);
     const track = b.track;
@@ -825,26 +244,14 @@ export function installTrack(p5, fn) {
     _warn('addPath: ignored unsupported arguments.'); return this;
   };
 
-  // ---- setPath ----
-  /**
-   * Replace the keyframe at a given index.
-   * Accepts the same argument shapes as addPath (camera, view matrix, eye/center/up).
-   *
-   *   cam.setPath(index)              — replace with current camera state
-   *   cam.setPath(index, otherCam)    — replace with another camera's state
-   *   cam.setPath(index, viewMat4)    — replace with a view matrix (p5.Matrix or 16-element array)
-   *   cam.setPath(index, eye, center, up) — replace with explicit vectors
-   *
-   * @param {number} index  Zero-based keyframe index.
-   * @returns {p5.Camera} this
-   */
+  // ── setPath ───────────────────────────────────────────────────────────
+
   p5.Camera.prototype.setPath = function (index, ...args) {
     if (typeof index !== 'number' || !Number.isFinite(index)) { _warn('setPath: index must be a finite number.'); return this; }
     const i = index | 0;
     const b = getCamTrack(this);
     if (i < 0 || i >= b.camSnaps.length) { _warn('setPath: index ' + i + ' out of range [0..' + (b.camSnaps.length - 1) + '].'); return this; }
 
-    // Resolve the source camera snapshot (same parsing logic as addPath)
     let snapCam;
     if (args.length === 0) {
       snapCam = this;
@@ -867,7 +274,6 @@ export function installTrack(p5, fn) {
 
     if (!checkProjCompat(this, snapCam)) return this;
 
-    // Replace the snapshot and its derived keyframe
     const copy = snapCam === this ? this.copy() : snapCam.copy();
     b.camSnaps[i] = copy;
     const kf = { pos: [copy.eyeX, copy.eyeY, copy.eyeZ], rot: [0, 0, 0, 1], scl: [1, 1, 1] };
@@ -876,12 +282,8 @@ export function installTrack(p5, fn) {
     return this;
   };
 
-  // ---- removePath ----
-  /**
-   * Remove the keyframe at a given index.
-   * @param {number} index  Zero-based keyframe index.
-   * @returns {p5.Camera} this
-   */
+  // ── removePath ────────────────────────────────────────────────────────
+
   p5.Camera.prototype.removePath = function (index) {
     if (typeof index !== 'number' || !Number.isFinite(index)) { _warn('removePath: index must be a finite number.'); return this; }
     const i = index | 0;
@@ -893,7 +295,8 @@ export function installTrack(p5, fn) {
     return this;
   };
 
-  // ---- playPath ----
+  // ── playPath ──────────────────────────────────────────────────────────
+
   p5.Camera.prototype.playPath = function (rateOrOpts) {
     const b = getCamTrack(this), track = b.track;
     const pInst = this._renderer && this._renderer._pInst;
@@ -917,6 +320,7 @@ export function installTrack(p5, fn) {
       if (_isNum(o.duration)) opts.duration = o.duration;
       if ('loop' in o) opts.loop = !!o.loop;
       if ('pingPong' in o) opts.pingPong = !!o.pingPong;
+      if (typeof o.onPlay === 'function') { const ucb = o.onPlay; opts.onPlay = () => { try { ucb(cam); } catch (_) {} }; }
       if (typeof o.onEnd === 'function') { const ucb = o.onEnd; opts.onEnd = () => { try { ucb(cam); } catch (_) {} }; }
       if (_isNum(o.rate)) opts.rate = o.rate;
       track.play(opts);
@@ -925,7 +329,8 @@ export function installTrack(p5, fn) {
     reg(); return this;
   };
 
-  // ---- stopPath ----
+  // ── stopPath ──────────────────────────────────────────────────────────
+
   p5.Camera.prototype.stopPath = function (reset = false) {
     const b = getCamTrack(this), track = b.track;
     track.playing = false;
@@ -935,7 +340,8 @@ export function installTrack(p5, fn) {
     track.seek(track.rate < 0 ? 1 : 0); _applyCamAtCursor(this); return this;
   };
 
-  // ---- resetPath ----
+  // ── resetPath ─────────────────────────────────────────────────────────
+
   p5.Camera.prototype.resetPath = function () {
     const b = getCamTrack(this), track = b.track;
     track.playing = false;
@@ -946,7 +352,8 @@ export function installTrack(p5, fn) {
     return this.camera(kf0.eyeX, kf0.eyeY, kf0.eyeZ, kf0.centerX, kf0.centerY, kf0.centerZ, kf0.upX, kf0.upY, kf0.upZ);
   };
 
-  // ---- seekPath ----
+  // ── seekPath ──────────────────────────────────────────────────────────
+
   p5.Camera.prototype.seekPath = function (t, segIndex) {
     const b = getCamTrack(this);
     const track = b.track;
@@ -956,18 +363,21 @@ export function installTrack(p5, fn) {
     _applyCamAtCursor(this); return this;
   };
 
-  // ---- pathTime / pathInfo ----
+  // ── pathTime / pathInfo ───────────────────────────────────────────────
+
   p5.Camera.prototype.pathTime = function () { return getCamTrack(this).track.time(); };
   p5.Camera.prototype.pathInfo = function () { return getCamTrack(this).track.info(); };
 
-  // ---- camera.path backward compat ----
+  // ── camera.path backward compat ──────────────────────────────────────
+
   Object.defineProperty(p5.Camera.prototype, 'path', {
     get() { return getCamTrack(this).camSnaps; },
     set(v) { if (Array.isArray(v) && v.length === 0) { const b = getCamTrack(this); b.track.reset(); b.camSnaps.length = 0; b.pathIsOrtho = undefined; } },
     configurable: true
   });
 
-  // ---- Global forwarders ----
+  // ── Global forwarders ────────────────────────────────────────────────
+
   fn.addPath = function (...a) { const c = this._renderer.states.curCamera; c && c.addPath(...a); return this; };
   fn.setPath = function (...a) { const c = this._renderer.states.curCamera; c && c.setPath(...a); return this; };
   fn.removePath = function (...a) { const c = this._renderer.states.curCamera; c && c.removePath(...a); return this; };
@@ -977,16 +387,9 @@ export function installTrack(p5, fn) {
   fn.stopPath = function (...a) { const c = this._renderer.states.curCamera; c && c.stopPath(...a); return this; };
   fn.pathTime = function () { const c = this._renderer.states.curCamera; return c && c.pathTime(); };
   fn.pathInfo = function () { const c = this._renderer.states.curCamera; return c && c.pathInfo(); };
-  
-  /**
-   * Rotate by quaternion [x,y,z,w] using p5's rotate(angle, axis).
-   * Identity quats are a no-op.
-   *
-   * @param {number[]} q quaternion [x,y,z,w]
-   * @param {Object} [opts]
-   * @param {number} [opts.eps=1e-8] threshold for identity
-   * @returns {p5}
-   */
+
+  // ── rotateQuat / applyPose ────────────────────────────────────────────
+
   fn.rotateQuat = function (q, opts) {
     const eps = opts && typeof opts.eps === 'number' ? opts.eps : 1e-8;
     const x = q[0], y = q[1], z = q[2], w = q[3];
@@ -997,13 +400,6 @@ export function installTrack(p5, fn) {
     return this;
   };
 
-  /**
-   * Apply a Pose (TRS) to the current drawing transform.
-   * Calls translate, rotateQuat, and scale in the correct order.
-   *
-   * @param {Object} pose  { pos: [x,y,z], rot: [x,y,z,w], scl: [sx,sy,sz] }
-   * @returns {p5}
-   */
   fn.applyPose = function (pose) {
     this.translate(pose.pos[0], pose.pos[1], pose.pos[2]);
     this.rotateQuat(pose.rot);
@@ -1012,25 +408,20 @@ export function installTrack(p5, fn) {
   };
 }
 
-// ===========================================================================
-// §11  Lifecycle helpers (exported for entry point)
-// ===========================================================================
+// ═══════════════════════════════════════════════════════════════════════════
+// Lifecycle helpers (exported for entry point)
+// ═══════════════════════════════════════════════════════════════════════════
 
-/** Tick all active players (camera paths + PoseTracks). Called from lifecycles.predraw. */
 export function tickPlayers(pInst) {
   const players = getPlayers(pInst);
   players.forEach(player => {
     let alive = false;
-    try {
-      alive = player && typeof player.tick === 'function' ? !!player.tick() : false;
-    } catch (_) {
-      alive = false;
-    }
+    try { alive = player && typeof player.tick === 'function' ? !!player.tick() : false; }
+    catch (_) { alive = false; }
     alive || players.delete(player);
   });
 }
 
-/** Clear player registry. Called from lifecycles.remove. */
 export function clearPlayers(pInst) {
   const players = PATH_PLAYERS.get(pInst);
   players && players.clear();

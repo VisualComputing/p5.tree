@@ -1,46 +1,59 @@
 {
-    "name": "p5.tree",
-    "version": "0.0.15",
-    "description": "Shader development and space transformations WEBGL addon library.",
-    "type": "module",
-    "main": "dist/p5.tree.esm.js",
-    "module": "dist/p5.tree.esm.js",
-    "exports": {
-        ".": {
-            "import": "./dist/p5.tree.esm.js"
-        }
-    },
-    "files": [
-        "dist/"
-    ],
-    "scripts": {
-        "build": "rollup -c",
-        "prepublishOnly": "npm run build"
-    },
-    "keywords": [
-        "p5",
-        "p5.js",
-        "webgl",
-        "graphics",
-        "tree",
-        "shader",
-        "addon",
-        "spaces",
-        "camera",
-        "keyframes",
-        "geometry"
-    ],
-    "author": "JP Charalambos <jpcharalambos@unal.edu.co>",
-    "license": "GPL-3.0-only",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/VisualComputing/p5.tree.git"
-    },
-    "peerDependencies": {
-        "p5": "^2.2.2"
-    },
-    "devDependencies": {
-        "@rollup/plugin-node-resolve": "^16.0.3",
-        "rollup": "^4.59.0"
+  "name": "p5.tree",
+  "version": "0.0.15",
+  "description": "Shader development and space transformations WEBGL addon library.",
+  "type": "module",
+  "main": "dist/p5.tree.esm.js",
+  "module": "dist/p5.tree.esm.js",
+  "exports": {
+    ".": {
+      "import": "./dist/p5.tree.esm.js"
     }
+  },
+  "files": [
+    "dist/"
+  ],
+  "workspaces": [
+    "deps/tree",
+    "deps/ui"
+  ],
+  "scripts": {
+    "build": "npm run build:tree && npm run build:ui && rollup -c",
+    "build:tree": "npm run build -w @nakednous/tree",
+    "build:ui": "npm run build -w @nakednous/ui",
+
+    "clean": "rm -rf dist deps/*/dist",
+    "rebuild": "npm run clean && npm run build",
+    "reset": "rm -rf node_modules dist deps/*/dist package-lock.json && npm install",
+
+    "publish:tree": "npm run build:tree && npm publish -w @nakednous/tree --access public",
+    "publish:ui": "npm run build:ui && npm publish -w @nakednous/ui --access public",
+    "publish:p5.tree": "npm run build && npm publish"
+  },
+  "keywords": [
+    "p5",
+    "p5.js",
+    "webgl",
+    "graphics",
+    "tree",
+    "shader",
+    "addon",
+    "spaces",
+    "camera",
+    "keyframes",
+    "geometry"
+  ],
+  "author": "Jean Pierre Charalambos <nakednous@gmail.com>",
+  "license": "GPL-3.0-only",
+  "peerDependencies": {
+    "p5": "^2.2.2"
+  },
+  "dependencies": {
+    "@nakednous/tree": "^0.0.1",
+    "@nakednous/ui": "^0.0.1"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "rollup": "^4.59.0"
+  }
 }

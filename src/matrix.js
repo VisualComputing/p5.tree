@@ -1,761 +1,233 @@
 /**
- * @file Matrix queries, space transforms, and HUD.
- * @module matrix
+ * @file Matrix queries, space transforms, and HUD — p5 bridge layer.
+ * @module p5.tree/matrix
  * @license GPL-3.0-only
  *
- * Core math layer: everything that drawing.js, track.js, and user sketches
- * depend on, but nothing that draws geometry or does picking/visibility.
- *
- * Sections (in source order):
- *   - _invert, _transpose (private immutable matrix ops)
- *   - p5.Matrix.prototype.mult4 / _mult4
- *   - fn.tMatrix, fn.iMatrix, fn.axbMatrix, fn.createMatrix
- *   - p5.Camera.prototype.eMatrix (+ Renderer3D + fn)
- *   - pMatrix, vMatrix, mMatrix (Renderer3D + fn)
- *   - lMatrix, dMatrix (Renderer3D + fn)
- *   - mvMatrix, nMatrix, pmvMatrix, pvMatrix, ipvMatrix (Renderer3D + fn)
- *   - p5.Matrix.prototype: isOrtho, nPlane..bPlane, fov, hfov
- *   - Renderer3D plane/fov wrappers + fn wrappers
- *   - fn.pixelRatio, fn.texOffset
- *   - fn.mousePosition, fn.pointerPosition, fn.resolution (+ Renderer3D)
- *   - beginHUD / endHUD (Renderer3D + fn)
- *   - _parseTransformArgs
- *   - mapLocation  / _location  (+ _screenToWorldLocation, _worldToScreenLocation, etc.)
- *   - mapDirection / _direction (+ _worldToScreenDirection, _screenToWorldDirection, etc.)
- *   - pixelRatio, texOffset  (Utilities section)
- *   - mousePosition, pointerPosition, resolution  (Renderer3D + fn)
+ * Module-level scratch allocated at import time. _ndcZ detected in postsetup.
  */
 
-'use strict';
+import {
+  WORLD, EYE, NDC, SCREEN, MODEL, MATRIX, WEBGL, WEBGPU,
+  mat4Mul, mat4Invert, mat3NormalFromMat4,
+  mapLocation as coreMapLocation,
+  mapDirection as coreMapDirection,
+  projIsOrtho, projNear, projFar, projFov, projHfov,
+  projLeft, projRight, projTop, projBottom,
+  pixelRatio as corePixelRatio,
+} from '@nakednous/tree';
 
-/**
- * Install matrix queries, space transforms, and HUD.
- * @param {p5} p5  The p5 constructor.
- * @param {Object} fn  p5 prototype.
- */
+// ═══════════════════════════════════════════════════════════════════════════
+// Module-level scratch — allocated once at import time
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _pv   = new Float32Array(16);
+const _ipv  = new Float32Array(16);
+const _inv  = new Float32Array(16);
+const _inv2 = new Float32Array(16);  // separate scratch for toFrameInv
+const _nMat = new Float32Array(9);
+const _v3   = new Float32Array(3);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NDC convention — detected once in postsetup
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _ndcZ = WEBGL;
+
+/** Called from addon index.js lifecycles.postsetup. */
+export function detectNDC(renderer) {
+  // The renderer type determines the NDC Z convention.
+  // In p5.js, WEBGL and WEBGPU are the 3rd param to createCanvas.
+  // We detect based on the rendering context type.
+  if (renderer.drawingContext &&
+      typeof WebGL2RenderingContext !== 'undefined' &&
+      renderer.drawingContext instanceof WebGL2RenderingContext) {
+    _ndcZ = WEBGL;
+  } else {
+    // WebGPU or future backends
+    _ndcZ = WEBGPU;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Raw p5 state access — direct Float32Array refs, no copies
+// ═══════════════════════════════════════════════════════════════════════════
+
+function _projMat4(renderer) {
+  return renderer.states.uPMatrix.mat4;
+}
+
+function _viewMat4(renderer) {
+  return renderer.states.curCamera.cameraMatrix.mat4;
+}
+
+function _modelMat4(renderer) {
+  return renderer.states.uModelMatrix.mat4;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Install
+// ═══════════════════════════════════════════════════════════════════════════
+
 export function installMatrix(p5, fn) {
-  // ---------------------------------------------------------------------------
-  // Matrix queries
-  // Rely on p5-v2, minimal safeties, cache-friendly.
-  // ---------------------------------------------------------------------------
 
-  // ---------------------------------------------------------------------------
-  // p5.Matrix operations (immutable)
-  // ---------------------------------------------------------------------------
-  
-  /**
-   * @private
-   * Returns the inverse of a matrix (immutable).
-   * p5-v2: invert(a) inverts 'a' into 'this' (gl-matrix style).
-   * @param {p5.Matrix} matrix
-   * @returns {p5.Matrix}
-   */
+  // ── Private immutable wrappers (p5.Matrix level) ────────────────────────
+
   const _invert = function (matrix) {
     const out = matrix.clone();
     out.invert(matrix);
     return out;
   };
 
-  /**
-   * @private
-   * Returns the transpose of a matrix (immutable).
-   * Fast-path for mat4 / mat3 to match treegl semantics.
-   * @param {p5.Matrix} matrix
-   * @returns {p5.Matrix}
-   */
   const _transpose = function (matrix) {
     const m4 = matrix.mat4;
     if (m4) {
       return new p5.Matrix([
-        m4[0], m4[4], m4[8],  m4[12],
-        m4[1], m4[5], m4[9],  m4[13],
-        m4[2], m4[6], m4[10], m4[14],
-        m4[3], m4[7], m4[11], m4[15]
+        m4[0],m4[4],m4[8],m4[12],
+        m4[1],m4[5],m4[9],m4[13],
+        m4[2],m4[6],m4[10],m4[14],
+        m4[3],m4[7],m4[11],m4[15]
       ]);
     }
     const m3 = matrix.mat3;
     if (m3) {
       return new p5.Matrix([
-        m3[0], m3[3], m3[6],
-        m3[1], m3[4], m3[7],
-        m3[2], m3[5], m3[8]
+        m3[0],m3[3],m3[6],
+        m3[1],m3[4],m3[7],
+        m3[2],m3[5],m3[8]
       ]);
     }
   };
-  
+
+  // ── p5.Matrix operations ─────────────────────────────────────────────
+
   p5.Matrix.prototype.mult4 = function (vector) {
     return new p5.Vector(...this._mult4([vector.x, vector.y, vector.z, 1]));
   };
-  
+
   p5.Matrix.prototype._mult4 = function (vec4) {
-    if (this.mat4 === undefined) {
-      console.error('_mult4 only works with mat4');
-      return;
-    }
+    if (this.mat4 === undefined) { console.error('_mult4 only works with mat4'); return; }
     return [
-      this.mat4[0] * vec4[0] + this.mat4[4] * vec4[1] + this.mat4[8]  * vec4[2] + this.mat4[12] * vec4[3],
-      this.mat4[1] * vec4[0] + this.mat4[5] * vec4[1] + this.mat4[9]  * vec4[2] + this.mat4[13] * vec4[3],
-      this.mat4[2] * vec4[0] + this.mat4[6] * vec4[1] + this.mat4[10] * vec4[2] + this.mat4[14] * vec4[3],
-      this.mat4[3] * vec4[0] + this.mat4[7] * vec4[1] + this.mat4[11] * vec4[2] + this.mat4[15] * vec4[3]
+      this.mat4[0]*vec4[0]+this.mat4[4]*vec4[1]+this.mat4[8]*vec4[2]+this.mat4[12]*vec4[3],
+      this.mat4[1]*vec4[0]+this.mat4[5]*vec4[1]+this.mat4[9]*vec4[2]+this.mat4[13]*vec4[3],
+      this.mat4[2]*vec4[0]+this.mat4[6]*vec4[1]+this.mat4[10]*vec4[2]+this.mat4[14]*vec4[3],
+      this.mat4[3]*vec4[0]+this.mat4[7]*vec4[1]+this.mat4[11]*vec4[2]+this.mat4[15]*vec4[3]
     ];
   };
 
-  /**
-   * Returns the transpose of a matrix (immutable).
-   * @param {p5.Matrix} matrix
-   * @returns {p5.Matrix}
-   */
-  fn.tMatrix = function (matrix) {
-    return _transpose(matrix);
-  };
-
-  /**
-   * Returns the inverse of a matrix.
-   * @param {p5.Matrix} matrix
-   * @returns {p5.Matrix}
-   */
-  fn.iMatrix = function (matrix) {
-    return _invert(matrix);
-  };
-
-  /**
-   * Returns A * B without mutating A (immutable).
-   * @param {p5.Matrix} a
-   * @param {p5.Matrix} b
-   * @returns {p5.Matrix}
-   */
-  fn.axbMatrix = function (a, b) {
-    return a.clone().mult(b);
-  };
-  
-  /**
-   * Creates a new p5.Matrix.
-   * (Wrapper for `new p5.Matrix(...args)`.)
-   *
-   * - `createMatrix()` → identity 4×4
-   * - `createMatrix(n)` → identity n×n (typically 3 or 4)
-   * - `createMatrix(coeffs)` → matrix from coefficients (length 9 or 16)
-   *
-   * @param {...(number|Array<number>)} [args] Arguments forwarded to the p5.Matrix constructor.
-   * @returns {p5.Matrix}
-   */
+  fn.tMatrix = function (matrix) { return _transpose(matrix); };
+  fn.iMatrix = function (matrix) { return _invert(matrix); };
+  fn.axbMatrix = function (a, b) { return a.clone().mult(b); };
   fn.createMatrix = (...args) => new p5.Matrix(...args);
 
-  // ---------------------------------------------------------------------------
-  // Matrix queries (immutable, cache-friendly)
-  // ---------------------------------------------------------------------------
+  // ── Matrix queries (immutable copies) ──────────────────────────────
 
-  /**
-   * Returns the current projection matrix (immutable copy).
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.pMatrix = function () {
-    return this.states.uPMatrix.clone();
-  };
+  p5.Renderer3D.prototype.pMatrix = function () { return this.states.uPMatrix.clone(); };
+  fn.pMatrix = function () { return this._renderer.pMatrix(); };
 
-  /**
-   * Returns the current projection matrix (immutable copy).
-   * Requires 3D renderer.
-   * @returns {p5.Matrix}
-   */
-  fn.pMatrix = function () {
-    return this._renderer.pMatrix();
-  };
+  p5.Renderer3D.prototype.mMatrix = function () { return this.states.uModelMatrix.clone(); };
+  fn.mMatrix = function () { return this._renderer.mMatrix(); };
 
-  /**
-   * Returns the current model matrix (immutable copy).
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.mMatrix = function () {
-    return this.states.uModelMatrix.clone();
-  };
+  p5.Camera.prototype.vMatrix = function () { return this.cameraMatrix.clone(); };
 
-  /**
-   * Returns the current model matrix (immutable copy).
-   * Requires 3D renderer.
-   * @returns {p5.Matrix}
-   */
-  fn.mMatrix = function () {
-    return this._renderer.mMatrix();
-  };
-
-  /**
-   * Returns the view matrix (world -> camera) for this camera (immutable copy).
-   * @returns {p5.Matrix}
-   */
-  p5.Camera.prototype.vMatrix = function () {
-    return this.cameraMatrix.clone();
-  };
-
-  /**
-   * Returns the eye matrix (camera -> world) for this camera (immutable).
-   * @returns {p5.Matrix}
-   */
   p5.Camera.prototype.eMatrix = function () {
-    return _invert(this.cameraMatrix);
+    mat4Invert(_inv, this.cameraMatrix.mat4);
+    return new p5.Matrix(Array.from(_inv));
   };
 
-  /**
-   * Returns the current view matrix (world → camera) as an immutable copy.
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.vMatrix = function () {
-    return this.states.curCamera.vMatrix();
-  };
+  p5.Renderer3D.prototype.vMatrix = function () { return this.states.curCamera.vMatrix(); };
+  fn.vMatrix = function () { return this._renderer.vMatrix(); };
 
-  /**
-   * Returns the current view matrix (world -> camera) (immutable copy).
-   * Requires 3D renderer.
-   * @returns {p5.Matrix}
-   */
-  fn.vMatrix = function () {
-    return this._renderer.vMatrix();
-  };
+  p5.Renderer3D.prototype.eMatrix = function () { return this.states.curCamera.eMatrix(); };
+  fn.eMatrix = function () { return this._renderer.eMatrix(); };
 
-  /**
-   * Returns the current eye matrix (camera -> world) (immutable).
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.eMatrix = function () {
-    return this.states.curCamera.eMatrix();
-  };
+  // ── lMatrix / dMatrix ──────────────────────────────────────────────
 
-  /**
-   * Returns the current eye matrix (camera -> world) (immutable).
-   * Requires 3D renderer.
-   * @returns {p5.Matrix}
-   */
-  fn.eMatrix = function () {
-    return this._renderer.eMatrix();
-  };
-
-  /**
-   * lMatrix({ from, to }):
-   * Location transform (mat4) mapping points from `from` space to `to` space.
-   * treegl semantics: to^-1 * from.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.from=new p5.Matrix()] Source frame matrix.
-   * @param {p5.Matrix} [opts.to=this.eMatrix()] Target frame matrix.
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.lMatrix = function ({
-    from = new p5.Matrix(4),
-    to = this.eMatrix()
-  } = {}) {
+  p5.Renderer3D.prototype.lMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix() } = {}) {
     return _invert(to).mult(from);
   };
+  fn.lMatrix = function (opts = {}) { return this._renderer.lMatrix(opts); };
 
-  /**
-   * lMatrix({ from, to }):
-   * Location transform (mat4) mapping points from `from` space to `to` space.
-   * Requires 3D renderer.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.from]
-   * @param {p5.Matrix} [opts.to]
-   * @returns {p5.Matrix}
-   */
-  fn.lMatrix = function (opts = {}) {
-    return this._renderer.lMatrix(opts);
-  };
-
-  /**
-   * dMatrix({ from, to, matrix }):
-   * Direction transform (mat3) mapping vectors from `from` space to `to` space.
-   * Translation ignored. treegl semantics: linear_part(from^-1 * to).
-   * If `matrix` (mat4) is provided, uses linear_part(matrix).
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.from=new p5.Matrix()] Source frame matrix.
-   * @param {p5.Matrix} [opts.to=this.eMatrix()] Target frame matrix.
-   * @param {p5.Matrix} [opts.matrix] Precomputed mat4 override.
-   * @returns {p5.Matrix} mat3
-   */
-  p5.Renderer3D.prototype.dMatrix = function ({
-    from = new p5.Matrix(4),
-    to = this.eMatrix(),
-    matrix
-  } = {}) {
+  p5.Renderer3D.prototype.dMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix(), matrix } = {}) {
     const m = (matrix || _invert(from).mult(to));
-    const a = m.mat4 || m.matrix; // v2: mat4 getter if 4x4, else fallback
-    // Note: this is the same "mat4 -> mat3 transpose" as treegl (baked into indices)
-    return new p5.Matrix([
-      a[0], a[4], a[8],
-      a[1], a[5], a[9],
-      a[2], a[6], a[10]
-    ]);
+    const a = m.mat4 || m.matrix;
+    return new p5.Matrix([a[0],a[4],a[8], a[1],a[5],a[9], a[2],a[6],a[10]]);
   };
+  fn.dMatrix = function (opts = {}) { return this._renderer.dMatrix(opts); };
 
-  /**
-   * dMatrix({ from, to, matrix }):
-   * Direction transform (mat3) mapping vectors from `from` space to `to` space.
-   * Requires 3D renderer.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.from]
-   * @param {p5.Matrix} [opts.to]
-   * @param {p5.Matrix} [opts.matrix]
-   * @returns {p5.Matrix} mat3
-   */
-  fn.dMatrix = function (opts = {}) {
-    return this._renderer.dMatrix(opts);
-  };
-  
-  /**
-   * mvMatrix({ vMatrix, mMatrix }):
-   * ModelView matrix (mat4) = M * V (p5-v2 convention).
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.vMatrix] View matrix override.
-   * @param {p5.Matrix} [opts.mMatrix] Model matrix override.
-   * @returns {p5.Matrix}
-   */
+  // ── Derived matrices (use core ops on raw buffers) ────────────────
+
   p5.Renderer3D.prototype.mvMatrix = function ({ vMatrix, mMatrix } = {}) {
     return (mMatrix || this.states.uModelMatrix).clone().mult(vMatrix || this.states.curCamera.cameraMatrix);
   };
+  fn.mvMatrix = function (opts = {}) { return this._renderer.mvMatrix(opts); };
 
-  /**
-   * mvMatrix({ vMatrix, mMatrix }):
-   * ModelView matrix (mat4) = M * V (p5-v2 convention).
-   * Requires 3D renderer.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.mMatrix]
-   * @returns {p5.Matrix}
-   */
-  fn.mvMatrix = function (opts = {}) {
-    return this._renderer.mvMatrix(opts);
+  p5.Renderer3D.prototype.nMatrix = function ({ vMatrix, mMatrix, mvMatrix = this.mvMatrix({ mMatrix, vMatrix }) } = {}) {
+    mat3NormalFromMat4(_nMat, mvMatrix.mat4);
+    return new p5.Matrix(Array.from(_nMat));
   };
+  fn.nMatrix = function (opts = {}) { return this._renderer.nMatrix(opts); };
 
-  /**
-   * nMatrix({ vMatrix, mMatrix, mvMatrix }):
-   * Normal matrix (mat3) = inverseTranspose(linear_part(MV)).
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.vMatrix] Optional view matrix.
-   * @param {p5.Matrix} [opts.mMatrix] Optional model matrix.
-   * @param {p5.Matrix} [opts.mvMatrix=this.mvMatrix({ mMatrix, vMatrix })] Optional MV matrix override.
-   * @returns {p5.Matrix} mat3
-   */
-  p5.Renderer3D.prototype.nMatrix = function ({
-    vMatrix,
-    mMatrix,
-    mvMatrix = this.mvMatrix({ mMatrix, vMatrix })
-  } = {}) {
-    return _transpose(_invert(mvMatrix.createSubMatrix3x3()));
-  };
-
-  /**
-   * nMatrix({ vMatrix, mMatrix, mvMatrix }):
-   * Normal matrix (mat3) = inverseTranspose(linear_part(MV)).
-   * Requires 3D renderer.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.mMatrix]
-   * @param {p5.Matrix} [opts.mvMatrix]
-   * @returns {p5.Matrix} mat3
-   */
-  fn.nMatrix = function (opts = {}) {
-    return this._renderer.nMatrix(opts);
-  };
-
-  /**
-   * pmvMatrix({ pMatrix, vMatrix, mMatrix, mvMatrix }):
-   * PMV (mat4) = M * V * P (p5-v2 convention).
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.pMatrix=this.pMatrix()] Projection matrix.
-   * @param {p5.Matrix} [opts.vMatrix] Optional view matrix (used if mvMatrix is computed).
-   * @param {p5.Matrix} [opts.mMatrix] Optional model matrix (used if mvMatrix is computed).
-   * @param {p5.Matrix} [opts.mvMatrix=this.mvMatrix({ mMatrix, vMatrix })] Optional MV matrix override.
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.pmvMatrix = function ({
-    pMatrix = this.pMatrix(),
-    vMatrix,
-    mMatrix,
-    mvMatrix
-  } = {}) {
+  p5.Renderer3D.prototype.pmvMatrix = function ({ pMatrix = this.pMatrix(), vMatrix, mMatrix, mvMatrix } = {}) {
     return (mvMatrix ? mvMatrix.clone() : this.mvMatrix({ mMatrix, vMatrix })).mult(pMatrix);
   };
+  fn.pmvMatrix = function (opts = {}) { return this._renderer.pmvMatrix(opts); };
 
-  /**
-   * pmvMatrix({ pMatrix, vMatrix, mMatrix, mvMatrix }):
-   * PMV (mat4) = M * V * P (p5-v2 convention).
-   * Requires 3D renderer.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.mMatrix]
-   * @param {p5.Matrix} [opts.mvMatrix]
-   * @returns {p5.Matrix}
-   */
-  fn.pmvMatrix = function (opts = {}) {
-    return this._renderer.pmvMatrix(opts);
-  };
-
-  /**
-   * pvMatrix({ pMatrix, vMatrix }):
-   * PV (mat4) = V * P (p5-v2 convention).
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.pMatrix=this.pMatrix()] Projection matrix.
-   * @param {p5.Matrix} [opts.vMatrix=this.vMatrix()] View matrix.
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.pvMatrix = function ({
-    pMatrix = this.pMatrix(),
-    vMatrix
-  } = {}) {
+  p5.Renderer3D.prototype.pvMatrix = function ({ pMatrix = this.pMatrix(), vMatrix } = {}) {
     return (vMatrix || (this.states.uViewMatrix || this.states.curCamera.cameraMatrix)).clone().mult(pMatrix);
   };
+  fn.pvMatrix = function (opts = {}) { return this._renderer.pvMatrix(opts); };
 
-  /**
-   * pvMatrix({ pMatrix, vMatrix }):
-   * PV (mat4) = V * P (p5-v2 convention).
-   * Requires 3D renderer.
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @returns {p5.Matrix}
-   */
-  fn.pvMatrix = function (opts = {}) {
-    return this._renderer.pvMatrix(opts);
-  };
-  
-  /**
-   * ipvMatrix({ pMatrix, vMatrix, pvMatrix }):
-   * Inverse(PV) (mat4).
-   * @param {object} [opts]
-   * @param {p5.Matrix} [opts.pMatrix] Optional projection matrix (used if pvMatrix is computed).
-   * @param {p5.Matrix} [opts.vMatrix] Optional view matrix (used if pvMatrix is computed).
-   * @param {p5.Matrix} [opts.pvMatrix=this.pvMatrix({ pMatrix, vMatrix })] Optional PV matrix override.
-   * @returns {p5.Matrix}
-   */
-  p5.Renderer3D.prototype.ipvMatrix = function ({
-    pMatrix,
-    vMatrix,
-    pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
-  } = {}) {
+  p5.Renderer3D.prototype.ipvMatrix = function ({ pMatrix, vMatrix, pvMatrix = this.pvMatrix({ pMatrix, vMatrix }) } = {}) {
     return _invert(pvMatrix);
   };
-  
-  /**
-   * ipvMatrix({ pMatrix, vMatrix, pvMatrix }):
-   * Inverse(PV) (mat4). Requires 3D renderer.
-   * @param {object} [opts]
-   * @returns {p5.Matrix}
-   */
-  fn.ipvMatrix = function (opts = {}) {
-    return this._renderer.ipvMatrix(opts);
-  };
+  fn.ipvMatrix = function (opts = {}) { return this._renderer.ipvMatrix(opts); };
 
-  // ---------------------------------------------------------------------------
-  // Projection matrix queries (isOrtho, planes, fov, hfov)
-  // ---------------------------------------------------------------------------
+  // ── Projection queries ────────────────────────────────────────────
 
-  /**
-   * Returns true if this projection matrix is orthographic.
-   * @returns {boolean}
-   */
-  p5.Matrix.prototype.isOrtho = function () {
-    return this.mat4[15] !== 0;
-  };
+  p5.Matrix.prototype.isOrtho = function () { return projIsOrtho(this.mat4); };
+  p5.Renderer3D.prototype.isOrtho = function () { return projIsOrtho(_projMat4(this)); };
+  fn.isOrtho = function () { return this._renderer.isOrtho(); };
 
-  /**
-   * Returns true if the current projection is orthographic.
-   * @returns {boolean}
-   */
-  p5.Renderer3D.prototype.isOrtho = function () {
-    return this.pMatrix().isOrtho();
-  };
+  p5.Matrix.prototype.nPlane = function () { return projNear(this.mat4, _ndcZ); };
+  p5.Matrix.prototype.fPlane = function () { return projFar(this.mat4); };
+  p5.Matrix.prototype.lPlane = function () { return projLeft(this.mat4, _ndcZ); };
+  p5.Matrix.prototype.rPlane = function () { return projRight(this.mat4, _ndcZ); };
+  p5.Matrix.prototype.tPlane = function () { return projTop(this.mat4, _ndcZ); };
+  p5.Matrix.prototype.bPlane = function () { return projBottom(this.mat4, _ndcZ); };
 
-  /**
-   * Returns true if the current projection is orthographic.
-   * Requires 3D renderer.
-   * @returns {boolean}
-   */
-  fn.isOrtho = function () {
-    return this._renderer.isOrtho();
-  };
+  p5.Renderer3D.prototype.nPlane = function () { return projNear(_projMat4(this), _ndcZ); };
+  p5.Renderer3D.prototype.fPlane = function () { return projFar(_projMat4(this)); };
+  p5.Renderer3D.prototype.lPlane = function () { return projLeft(_projMat4(this), _ndcZ); };
+  p5.Renderer3D.prototype.rPlane = function () { return projRight(_projMat4(this), _ndcZ); };
+  p5.Renderer3D.prototype.tPlane = function () { return projTop(_projMat4(this), _ndcZ); };
+  p5.Renderer3D.prototype.bPlane = function () { return projBottom(_projMat4(this), _ndcZ); };
 
-  /**
-   * Near plane distance.
-   * @returns {number}
-   */
-  p5.Matrix.prototype.nPlane = function () {
-    const m = this.mat4;
-    return m[15] === 0 ? m[14] / (m[10] - 1) : (1 + m[14]) / m[10];
-  };
+  fn.nPlane = function () { return this._renderer.nPlane(); };
+  fn.fPlane = function () { return this._renderer.fPlane(); };
+  fn.lPlane = function () { return this._renderer.lPlane(); };
+  fn.rPlane = function () { return this._renderer.rPlane(); };
+  fn.tPlane = function () { return this._renderer.tPlane(); };
+  fn.bPlane = function () { return this._renderer.bPlane(); };
 
-  /**
-   * Far plane distance.
-   * @returns {number}
-   */
-  p5.Matrix.prototype.fPlane = function () {
-    const m = this.mat4;
-    return m[15] === 0 ? m[14] / (1 + m[10]) : (m[14] - 1) / m[10];
-  };
-
-  /**
-   * Left plane at the near plane.
-   * @returns {number}
-   */
-  p5.Matrix.prototype.lPlane = function () {
-    const m = this.mat4;
-    return m[15] === 1 ? -(1 + m[12]) / m[0] : this.nPlane() * (m[8] - 1) / m[0];
-  };
-
-  /**
-   * Right plane at the near plane.
-   * @returns {number}
-   */
-  p5.Matrix.prototype.rPlane = function () {
-    const m = this.mat4;
-    return m[15] === 1 ? (1 - m[12]) / m[0] : this.nPlane() * (1 + m[8]) / m[0];
-  };
-
-  /**
-   * Top plane at the near plane.
-   * @returns {number}
-   */
-  p5.Matrix.prototype.tPlane = function () {
-    const m = this.mat4;
-    return m[15] === 1 ? (m[13] - 1) / m[5] : this.nPlane() * (m[9] - 1) / m[5];
-  };
-
-  /**
-   * Bottom plane at the near plane.
-   * @returns {number}
-   */
-  p5.Matrix.prototype.bPlane = function () {
-    const m = this.mat4;
-    return m[15] === 1 ? (1 + m[13]) / m[5] : this.nPlane() * (1 + m[9]) / m[5];
-  };
-
-  /**
-   * Near plane distance for the current projection.
-   * @returns {number}
-   */
-  p5.Renderer3D.prototype.nPlane = function () {
-    return this.states.uPMatrix.nPlane();
-  };
-
-  /**
-   * Far plane distance for the current projection.
-   * @returns {number}
-   */
-  p5.Renderer3D.prototype.fPlane = function () {
-    return this.states.uPMatrix.fPlane();
-  };
-
-  /**
-   * Left plane for the current projection.
-   * @returns {number}
-   */
-  p5.Renderer3D.prototype.lPlane = function () {
-    return this.states.uPMatrix.lPlane();
-  };
-
-  /**
-   * Right plane for the current projection.
-   * @returns {number}
-   */
-  p5.Renderer3D.prototype.rPlane = function () {
-    return this.states.uPMatrix.rPlane();
-  };
-
-  /**
-   * Top plane for the current projection.
-   * @returns {number}
-   */
-  p5.Renderer3D.prototype.tPlane = function () {
-    return this.states.uPMatrix.tPlane();
-  };
-
-  /**
-   * Bottom plane for the current projection.
-   * @returns {number}
-   */
-  p5.Renderer3D.prototype.bPlane = function () {
-    return this.states.uPMatrix.bPlane();
-  };
-
-  /**
-   * Near plane distance for the current projection.
-   * Requires 3D renderer.
-   * @returns {number}
-   */
-  fn.nPlane = function () {
-    return this._renderer.nPlane();
-  };
-
-  /**
-   * Far plane distance for the current projection.
-   * Requires 3D renderer.
-   * @returns {number}
-   */
-  fn.fPlane = function () {
-    return this._renderer.fPlane();
-  };
-
-  /**
-   * Left plane for the current projection.
-   * Requires 3D renderer.
-   * @returns {number}
-   */
-  fn.lPlane = function () {
-    return this._renderer.lPlane();
-  };
-
-  /**
-   * Right plane for the current projection.
-   * Requires 3D renderer.
-   * @returns {number}
-   */
-  fn.rPlane = function () {
-    return this._renderer.rPlane();
-  };
-
-  /**
-   * Top plane for the current projection.
-   * Requires 3D renderer.
-   * @returns {number}
-   */
-  fn.tPlane = function () {
-    return this._renderer.tPlane();
-  };
-
-  /**
-   * Bottom plane for the current projection.
-   * Requires 3D renderer.
-   * @returns {number}
-   */
-  fn.bPlane = function () {
-    return this._renderer.bPlane();
-  };
-
-  /**
-   * Vertical field of view (radians), perspective only.
-   * @returns {number|undefined}
-   */
   p5.Matrix.prototype.fov = function () {
-    if (this.mat4[15] !== 0) {
-      console.error('[tree.matrix] fov only works for a perspective projection.');
-      return;
-    }
-    return Math.abs(2 * Math.atan(1 / this.mat4[5]));
+    if (this.mat4[15] !== 0) { console.error('[tree.matrix] fov only works for a perspective projection.'); return; }
+    return projFov(this.mat4);
   };
-
-  /**
-   * Horizontal field of view (radians), perspective only.
-   * @returns {number|undefined}
-   */
   p5.Matrix.prototype.hfov = function () {
-    if (this.mat4[15] !== 0) {
-      console.error('[tree.matrix] hfov only works for a perspective projection.');
-      return;
-    }
-    return Math.abs(2 * Math.atan(1 / this.mat4[0]));
+    if (this.mat4[15] !== 0) { console.error('[tree.matrix] hfov only works for a perspective projection.'); return; }
+    return projHfov(this.mat4);
   };
 
-  /**
-   * Vertical field of view (radians) of the current projection.
-   * @returns {number|undefined}
-   */
-  p5.Renderer3D.prototype.fov = function () {
-    return this.states.uPMatrix.fov();
-  };
+  p5.Renderer3D.prototype.fov = function () { return this.states.uPMatrix.fov(); };
+  p5.Renderer3D.prototype.hfov = function () { return this.states.uPMatrix.hfov(); };
+  fn.fov = function () { return this._renderer.fov(); };
+  fn.hfov = function () { return this._renderer.hfov(); };
 
-  /**
-   * Horizontal field of view (radians) of the current projection.
-   * @returns {number|undefined}
-   */
-  p5.Renderer3D.prototype.hfov = function () {
-    return this.states.uPMatrix.hfov();
-  };
+  // ── HUD (beginHUD / endHUD) ──────────────────────────────────────
 
-  /**
-   * Vertical field of view (radians) of the current projection.
-   * Requires 3D renderer.
-   * @returns {number|undefined}
-   */
-  fn.fov = function () {
-    return this._renderer.fov();
-  };
+  fn.beginHUD = function (...args) { this._renderer?.beginHUD?.(...args); return this; };
+  fn.endHUD = function (...args) { this._renderer?.endHUD?.(...args); return this; };
 
-  /**
-   * Horizontal field of view (radians) of the current projection.
-   * Requires 3D renderer.
-   * @returns {number|undefined}
-   */
-  fn.hfov = function () {
-    return this._renderer.hfov();
-  };
-  
-  fn.beginHUD = function (...args) {
-    this._renderer?.beginHUD?.(...args);
-    return this;
-  };
-
-  fn.endHUD = function (...args) {
-    this._renderer?.endHUD?.(...args);
-    return this;
-  };
-  
-  /*
-  // treegl approach:
-  p5.Renderer3D.prototype.beginHUD = function () {
-    if (this._hudActive === true) return;
-    const p = this._pInst;
-    const gl = this.drawingContext;
-    const states = this.states;
-    if (!p || !gl || !states) return;
-    // ------------------------------------------------------------------
-    // Save world state (treegl: m, v, p)
-    // ------------------------------------------------------------------
-    this._hudPrevCamera = states.curCamera;
-    // push isolates renderer state (tree-style equivalent of treegl push)
-    p.push();
-    p.resetShader();
-    // Ensure HUD does not inherit model transforms
-    p.resetMatrix();
-    // ------------------------------------------------------------------
-    // Depth state
-    // ------------------------------------------------------------------
-    this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
-    gl.flush();
-    gl.disable(gl.DEPTH_TEST);
-    // ------------------------------------------------------------------
-    // HUD camera
-    // ------------------------------------------------------------------
-    if (this._hudCam === undefined) {
-      this._hudCam = p.createCamera();
-    }
-    const z = Number.MAX_VALUE;
-    // HUD coordinates:
-    // x ∈ [0, width], y ∈ [0, height], origin at top-left
-    this._hudCam.ortho(0, p.width, -p.height, 0, -z, z);
-    // this._hudCam.ortho(0, p.width, 0, -p.height, -z, z); // flipped variant
-    this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
-    p.setCamera(this._hudCam);
-    this._hudActive = true;
-  };
-  
-  p5.Renderer3D.prototype.endHUD = function () {
-    if (this._hudActive !== true) return;
-    const p = this._pInst;
-    const gl = this.drawingContext;
-    const states = this.states;
-    if (!p || !gl || !states) return;
-    gl.flush();
-    // Restore depth test
-    this._hudDepthWasEnabled ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
-    // Restore renderer state
-    p.pop();
-    // Restore camera (tree equivalent of restoring u* matrices)
-    if (this._hudPrevCamera !== undefined) {
-      p.setCamera(this._hudPrevCamera);
-    }
-    this._hudPrevCamera = undefined;
-    this._hudDepthWasEnabled = undefined;
-    this._hudActive = false;
-  };
-  */
-  
   p5.Renderer3D.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
     const p = this._pInst;
@@ -786,8 +258,8 @@ export function installMatrix(p5, fn) {
     this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
     p.setCamera(this._hudCam);
     this._hudActive = true;
-  }
-  
+  };
+
   p5.Renderer3D.prototype.endHUD = function () {
     if (this._hudActive !== true) return;
     const p = this._pInst;
@@ -805,521 +277,164 @@ export function installMatrix(p5, fn) {
     this._hudDepthWasEnabled = undefined;
     this._hudDepthMode = undefined;
     this._hudActive = false;
-  }
-  
-  // ---------------------------------------------------------------------------
-  // Space transforms: mapLocation / mapDirection
-  // ---------------------------------------------------------------------------
-  
+  };
+
+  // ── _parseTransformArgs ──────────────────────────────────────────
+
   p5.Renderer3D.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
     let mainArg = defaultMainArg;
     const options = {};
     for (const arg of args) {
-      if (arg instanceof p5.Vector || Array.isArray(arg)) {
-        mainArg = arg;
-      } else if (arg && typeof arg === 'object') {
-        Object.assign(options, arg);
-      }
+      if (arg instanceof p5.Vector || Array.isArray(arg)) { mainArg = arg; }
+      else if (arg && typeof arg === 'object') { Object.assign(options, arg); }
     }
     return { mainArg, options };
   };
 
-  // ---------------------------------------------------------------------------
-  // Points (positions)
-  // ---------------------------------------------------------------------------
-  
-  fn.mapLocation = function (...args) {
-    return this._renderer.mapLocation(...args);
-  };
-  
-  /**
-   * Converts a point (location) from one space into another.
-   *
-   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
-   * @param {Object} [opts]
-   * @param {p5.Matrix|string} [opts.from=p5.Tree.EYE]
-   * @param {p5.Matrix|string} [opts.to=p5.Tree.WORLD]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.eMatrix]
-   * @param {p5.Matrix} [opts.pvMatrix]
-   * @param {p5.Matrix} [opts.ipvMatrix]
-   * @returns {p5.Vector}
-   */
+  // ── mapLocation ──────────────────────────────────────────────────
+
+  fn.mapLocation = function (...args) { return this._renderer.mapLocation(...args); };
+
   p5.Renderer3D.prototype.mapLocation = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree.ORIGIN, ...args);
-    return this._location(mainArg, options);
+
+    const px = mainArg.x ?? mainArg[0] ?? 0;
+    const py = mainArg.y ?? mainArg[1] ?? 0;
+    const pz = mainArg.z ?? mainArg[2] ?? 0;
+
+    let from = options.from ?? p5.Tree.EYE;
+    let to   = options.to   ?? p5.Tree.WORLD;
+
+    // Resolve MODEL → model matrix
+    if (from == p5.Tree.MODEL) from = this.mMatrix();
+    if (to == p5.Tree.MODEL) to = this.mMatrix();
+
+    // Build matrices bag
+    const bag = {
+      proj: options.pMatrix?.mat4 ?? _projMat4(this),
+      view: options.vMatrix?.mat4 ?? _viewMat4(this),
+      eye: null,
+      pv: null,
+      ipv: null,
+    };
+
+    let fromStr, toStr;
+
+    // Resolve custom p5.Matrix frames
+    if (from instanceof p5.Matrix) {
+      bag.fromFrame = from.mat4; fromStr = MATRIX;
+    } else { fromStr = from; }
+
+    if (to instanceof p5.Matrix) {
+      mat4Invert(_inv2, to.mat4);
+      bag.toFrameInv = _inv2; bag.toFrame = to.mat4; toStr = MATRIX;
+    } else { toStr = to; }
+
+    // Pre-compute derived matrices as needed
+    if (fromStr === EYE || toStr === EYE || fromStr === SCREEN || toStr === SCREEN ||
+        fromStr === NDC || toStr === NDC) {
+      if (options.eMatrix) { bag.eye = options.eMatrix.mat4; }
+      else { mat4Invert(_inv, bag.view); bag.eye = new Float32Array(_inv); }
+    }
+    if (toStr === SCREEN || toStr === NDC || fromStr === SCREEN || fromStr === NDC) {
+      if (options.pvMatrix) { bag.pv = options.pvMatrix.mat4; }
+      else { mat4Mul(_pv, bag.proj, bag.view); bag.pv = _pv; }
+
+      if (fromStr === SCREEN || fromStr === NDC) {
+        if (options.ipvMatrix) { bag.ipv = options.ipvMatrix.mat4; }
+        else { mat4Invert(_ipv, bag.pv); bag.ipv = _ipv; }
+      }
+    }
+
+    const vp = [0, this.height, this.width, -this.height];
+
+    coreMapLocation(_v3, px, py, pz, fromStr, toStr, bag, vp, _ndcZ);
+
+    return new p5.Vector(_v3[0], _v3[1], _v3[2]);
   };
-  
-  p5.Renderer3D.prototype._location = function (
-    point = p5.Tree.ORIGIN,
-    {
-      from = p5.Tree.EYE,
-      to = p5.Tree.WORLD,
-      pMatrix,
-      vMatrix,
-      eMatrix,
-      pvMatrix,
-      ipvMatrix
-    } = {}
-  ) {
-    if (Array.isArray(point)) {
-      point = new p5.Vector(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0);
-    }
-    if (from == p5.Tree.MODEL) {
-      from = this.mMatrix({ eMatrix });
-    }
-    if (to == p5.Tree.MODEL) {
-      to = this.mMatrix({ eMatrix });
-    }
-    if ((from == p5.Tree.WORLD) && (to == p5.Tree.SCREEN)) {
-      return this._worldToScreenLocation({ point, pMatrix, vMatrix, pvMatrix });
-    }
-    if ((from == p5.Tree.SCREEN) && (to == p5.Tree.WORLD)) {
-      return this._screenToWorldLocation({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix });
-    }
-    if (from == p5.Tree.SCREEN && to == p5.Tree.NDC) {
-      return this._screenToNDCLocation(point);
-    }
-    if (from == p5.Tree.NDC && to == p5.Tree.SCREEN) {
-      return this._ndcToScreenLocation(point);
-    }
-    if (from == p5.Tree.WORLD && to == p5.Tree.NDC) {
-      return this._screenToNDCLocation(
-        this._worldToScreenLocation({ point, pMatrix, vMatrix, pvMatrix })
-      );
-    }
-    if (from == p5.Tree.NDC && to == p5.Tree.WORLD) {
-      return this._screenToWorldLocation({
-        point: this._ndcToScreenLocation(point),
-        pMatrix,
-        vMatrix,
-        pvMatrix,
-        ipvMatrix
-      });
-    }
-    if (from == p5.Tree.NDC && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
-      return (to == p5.Tree.EYE
-        ? (vMatrix ?? this.vMatrix())
-        : to.copy().invert(to)
-      ).mult4(
-        this._screenToWorldLocation({
-          point: this._ndcToScreenLocation(point),
-          pMatrix,
-          vMatrix,
-          pvMatrix,
-          ipvMatrix
-        })
-      );
-    }
-    if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.NDC) {
-      return this._screenToNDCLocation(
-        this._worldToScreenLocation({
-          point: (from == p5.Tree.EYE
-            ? (eMatrix ?? this.eMatrix())
-            : from
-          ).mult4(point),
-          pMatrix,
-          vMatrix,
-          pvMatrix
-        })
-      );
-    }
-    if (from == p5.Tree.WORLD && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
-      return (to == p5.Tree.EYE
-        ? (vMatrix ?? this.vMatrix())
-        : to.copy().invert(to)
-      ).mult4(point);
-    }
-    if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.WORLD) {
-      return (from == p5.Tree.EYE
-        ? (eMatrix ?? this.eMatrix())
-        : from
-      ).mult4(point);
-    }
-    if (from instanceof p5.Matrix && to instanceof p5.Matrix) {
-      return this.lMatrix({ from: from, to: to }).mult4(point);
-    }
-    if (from == p5.Tree.SCREEN && (to instanceof p5.Matrix || to == p5.Tree.EYE)) {
-      return (to == p5.Tree.EYE
-        ? (vMatrix ?? this.vMatrix())
-        : to.copy().invert(to)
-      ).mult4(
-        this._screenToWorldLocation({ point, pMatrix, vMatrix, pvMatrix, ipvMatrix })
-      );
-    }
-    if ((from instanceof p5.Matrix || from == p5.Tree.EYE) && to == p5.Tree.SCREEN) {
-      return this._worldToScreenLocation({
-        point: (from == p5.Tree.EYE
-          ? (eMatrix ?? this.eMatrix())
-          : from
-        ).mult4(point),
-        pMatrix,
-        vMatrix,
-        pvMatrix
-      });
-    }
-    if (from instanceof p5.Matrix && to == p5.Tree.EYE) {
-      return (vMatrix ?? this.vMatrix()).mult4(from.mult4(point));
-    }
-    if (from == p5.Tree.EYE && to instanceof p5.Matrix) {
-      return to.copy().invert(to).mult4((eMatrix ?? this.eMatrix()).mult4(point));
-    }
-    console.error('couldn\'t parse your mapLocation query!');
-    return point;
-  };
-  
-  p5.Renderer3D.prototype._ndcToScreenLocation = function (point) {
-    const p = this._pInst;
-    return p.createVector(
-      p.map(point.x, -1, 1, 0, this.width),
-      p.map(point.y, -1, 1, 0, this.height),
-      p.map(point.z, -1, 1, 0, 1)
-    );
-  };
-  
-  p5.Renderer3D.prototype._screenToNDCLocation = function (point) {
-    const p = this._pInst;
-    return p.createVector(
-      p.map(point.x, 0, this.width, -1, 1),
-      p.map(point.y, 0, this.height, -1, 1),
-      p.map(point.z, 0, 1, -1, 1)
-    );
-  };
-  
-  p5.Renderer3D.prototype._worldToScreenLocation = function ({
-    point = new p5.Vector(0, 0, 0.5),
-    pMatrix,
-    vMatrix,
-    pvMatrix = this.pvMatrix({ pMatrix, vMatrix })
-  } = {}) {
-    let target = pvMatrix._mult4([point.x, point.y, point.z, 1]);
-    if (target[3] === 0) {
-      console.error('[p5.tree] World->Screen broken: check pvMatrix.');
-      return point.copy();
-    }
-    const viewport = [0, this.height, this.width, -this.height];
-    target[0] /= target[3];
-    target[1] /= target[3];
-    target[2] /= target[3];
-    target[0] = target[0] * 0.5 + 0.5;
-    target[1] = target[1] * 0.5 + 0.5;
-    target[2] = target[2] * 0.5 + 0.5;
-    target[0] = target[0] * viewport[2] + viewport[0];
-    target[1] = target[1] * viewport[3] + viewport[1];
-    return new p5.Vector(target[0], target[1], target[2]);
-  };
-  
-  p5.Renderer3D.prototype._screenToWorldLocation = function ({
-    point = new p5.Vector(this.width / 2, this.height / 2, 0.5),
-    pMatrix,
-    vMatrix,
-    pvMatrix,
-    ipvMatrix = this.ipvMatrix({ pMatrix, vMatrix, pvMatrix })
-  } = {}) {
-    const viewport = [0, this.height, this.width, -this.height];
-    const source = [point.x, point.y, point.z, 1];
-    source[0] = (source[0] - viewport[0]) / viewport[2];
-    source[1] = (source[1] - viewport[1]) / viewport[3];
-    source[0] = source[0] * 2 - 1;
-    source[1] = source[1] * 2 - 1;
-    source[2] = source[2] * 2 - 1;
-    let target = ipvMatrix._mult4(source);
-    if (target[3] === 0) {
-      console.error('[p5.tree] Screen->World broken: check ipvMatrix.');
-      return point.copy();
-    }
-    target[0] /= target[3];
-    target[1] /= target[3];
-    target[2] /= target[3];
-    return new p5.Vector(target[0], target[1], target[2]);
-  };
-  
-  // ---------------------------------------------------------------------------
-  // Directions (vector displacements)
-  // ---------------------------------------------------------------------------
-  
-  fn.mapDirection = function (...args) {
-    return this._renderer.mapDirection(...args);
-  };
-  
-  /**
-   * Converts a vector displacement from one space into another.
-   *
-   * @param {p5.Vector|number[]} [vector=p5.Tree._k]
-   * @param {Object} [opts]
-   * @param {p5.Matrix|string} [opts.from=p5.Tree.EYE]
-   * @param {p5.Matrix|string} [opts.to=p5.Tree.WORLD]
-   * @param {p5.Matrix} [opts.vMatrix]
-   * @param {p5.Matrix} [opts.eMatrix]
-   * @param {p5.Matrix} [opts.pMatrix]
-   * @returns {p5.Vector}
-   */
+
+  // ── mapDirection ──────────────────────────────────────────────────
+
+  fn.mapDirection = function (...args) { return this._renderer.mapDirection(...args); };
+
   p5.Renderer3D.prototype.mapDirection = function (...args) {
     const { mainArg, options } = this._parseTransformArgs(p5.Tree._k, ...args);
-    return this._direction(mainArg, options);
+
+    const dx = mainArg.x ?? mainArg[0] ?? 0;
+    const dy = mainArg.y ?? mainArg[1] ?? 0;
+    const dz = mainArg.z ?? mainArg[2] ?? 0;
+
+    let from = options.from ?? p5.Tree.EYE;
+    let to   = options.to   ?? p5.Tree.WORLD;
+
+    if (from == p5.Tree.MODEL) from = this.mMatrix();
+    if (to == p5.Tree.MODEL) to = this.mMatrix();
+
+    const bag = {
+      proj: options.pMatrix?.mat4 ?? _projMat4(this),
+      view: options.vMatrix?.mat4 ?? _viewMat4(this),
+      eye: null,
+    };
+
+    let fromStr, toStr;
+    if (from instanceof p5.Matrix) {
+      bag.fromFrame = from.mat4; fromStr = MATRIX;
+    } else { fromStr = from; }
+    if (to instanceof p5.Matrix) {
+      mat4Invert(_inv2, to.mat4);
+      bag.toFrameInv = _inv2; bag.toFrame = to.mat4; toStr = MATRIX;
+    } else { toStr = to; }
+
+    // Eye matrix needed for most direction paths
+    if (options.eMatrix) { bag.eye = options.eMatrix.mat4; }
+    else { mat4Invert(_inv, bag.view); bag.eye = new Float32Array(_inv); }
+
+    const vp = [0, this.height, this.width, -this.height];
+
+    coreMapDirection(_v3, dx, dy, dz, fromStr, toStr, bag, vp, _ndcZ);
+
+    return new p5.Vector(_v3[0], _v3[1], _v3[2]);
   };
-  
-  p5.Renderer3D.prototype._direction = function (
-    vector = p5.Tree._k,
-    {
-      from = p5.Tree.EYE,
-      to = p5.Tree.WORLD,
-      vMatrix,
-      eMatrix,
-      pMatrix
-    } = {}
-  ) {
-    if (Array.isArray(vector)) {
-      vector = new p5.Vector(vector[0] ?? 0, vector[1] ?? 0, vector[2] ?? 0);
-    }
-    if (from === p5.Tree.MODEL) from = this.mMatrix({ eMatrix });
-    if (to === p5.Tree.MODEL) to = this.mMatrix({ eMatrix });
-    if (from === p5.Tree.WORLD && to === p5.Tree.SCREEN) return this._worldToScreenDirection(vector, pMatrix);
-    if (from === p5.Tree.SCREEN && to === p5.Tree.WORLD) return this._screenToWorldDirection(vector, pMatrix);
-    if (from === p5.Tree.SCREEN && to === p5.Tree.NDC) return this._screenToNDCDirection(vector);
-    if (from === p5.Tree.NDC && to === p5.Tree.SCREEN) return this._ndcToScreenDirection(vector);
-    if (from === p5.Tree.WORLD && to === p5.Tree.NDC) {
-      return this._screenToNDCDirection(this._worldToScreenDirection(vector, pMatrix));
-    }
-    if (from === p5.Tree.NDC && to === p5.Tree.WORLD) {
-      return this._screenToWorldDirection(this._ndcToScreenDirection(vector), pMatrix);
-    }
-    if (from === p5.Tree.NDC && to === p5.Tree.EYE) {
-      const m = this.dMatrix({ matrix: eMatrix ?? this.eMatrix() }); // mat3
-      return m.multiplyVec3(
-        this._screenToWorldDirection(this._ndcToScreenDirection(vector), pMatrix)
-      );
-    }
-    if (from === p5.Tree.EYE && to === p5.Tree.NDC) {
-      const m = this.dMatrix({ matrix: vMatrix ?? this.vMatrix() }); // mat3
-      return this._screenToNDCDirection(
-        this._worldToScreenDirection(m.multiplyVec3(vector), pMatrix)
-      );
-    }
-    if (from === p5.Tree.SCREEN && to instanceof p5.Matrix) {
-      const m = this.dMatrix({ matrix: to }); // mat3
-      return m.multiplyVec3(this._screenToWorldDirection(vector, pMatrix));
-    }
-    if (from instanceof p5.Matrix && to === p5.Tree.SCREEN) {
-      const m = this.dMatrix({ matrix: _invert(from) }); // mat3
-      return this._worldToScreenDirection(m.multiplyVec3(vector), pMatrix);
-    }
-    if (from instanceof p5.Matrix && to instanceof p5.Matrix) {
-      return this.dMatrix({ from, to }).multiplyVec3(vector); // mat3
-    }
-    if (from === p5.Tree.EYE && to === p5.Tree.WORLD) {
-      return this.dMatrix({ matrix: vMatrix ?? this.vMatrix() }).multiplyVec3(vector); // mat3
-    }
-    if (from === p5.Tree.WORLD && to === p5.Tree.EYE) {
-      return this.dMatrix({ matrix: eMatrix ?? this.eMatrix() }).multiplyVec3(vector); // mat3
-    }
-    if (from === p5.Tree.EYE && to === p5.Tree.SCREEN) {
-      return this._worldToScreenDirection(
-        this.dMatrix({ matrix: vMatrix ?? this.vMatrix() }).multiplyVec3(vector),
-        pMatrix
-      );
-    }
-    if (from === p5.Tree.SCREEN && to === p5.Tree.EYE) {
-      return this.dMatrix({ matrix: eMatrix ?? this.eMatrix() }).multiplyVec3(
-        this._screenToWorldDirection(vector, pMatrix)
-      );
-    }
-    if (from === p5.Tree.EYE && to instanceof p5.Matrix) {
-      const m = this.dMatrix({ matrix: (vMatrix ?? this.vMatrix()).apply(to) }); // mat3
-      return m.multiplyVec3(vector);
-    }
-    if (from instanceof p5.Matrix && to === p5.Tree.EYE) {
-      const m = this.dMatrix({ matrix: _invert(from).apply(eMatrix ?? this.eMatrix()) }); // mat3
-      return m.multiplyVec3(vector);
-    }
-    if (from === p5.Tree.WORLD && to instanceof p5.Matrix) {
-      return this.dMatrix({ matrix: to }).multiplyVec3(vector); // mat3
-    }
-    if (from instanceof p5.Matrix && to === p5.Tree.WORLD) {
-      return this.dMatrix({ matrix: _invert(from) }).multiplyVec3(vector); // mat3
-    }
-  
-    if (from instanceof p5.Matrix && to === p5.Tree.NDC) {
-      const m = this.dMatrix({ matrix: _invert(from) }); // mat3
-      return this._screenToNDCDirection(this._worldToScreenDirection(m.multiplyVec3(vector), pMatrix));
-    }
-    if (from === p5.Tree.NDC && to instanceof p5.Matrix) {
-      const m = this.dMatrix({ matrix: to }); // mat3
-      return m.multiplyVec3(
-        this._screenToWorldDirection(this._ndcToScreenDirection(vector), pMatrix)
-      );
-    }
-    console.error('[p5.tree] mapDirection: could not parse query.');
-    return vector;
-  };
-  
-  p5.Renderer3D.prototype._worldToScreenDirection = function (vector, pMatrix) {
-    pMatrix = pMatrix ?? this.pMatrix();
-    const eyeVector = this._direction(vector, { from: p5.Tree.WORLD, to: p5.Tree.EYE });
-    let dx = eyeVector.x;
-    let dy = eyeVector.y;
-    const perspective = pMatrix.mat4[15] === 0;
-    if (perspective) {
-      const zEye = this._location(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
-      const k = Math.abs(zEye * Math.tan(pMatrix.fov() / 2));
-      dx /= 2 * k / this.height;
-      dy /= 2 * k / this.height;
-    }
-    let dz = eyeVector.z;
-    dz /= (pMatrix.nPlane() - pMatrix.fPlane()) / (
-      perspective
-        ? Math.tan(pMatrix.fov() / 2)
-        : Math.abs(pMatrix.rPlane() - pMatrix.lPlane()) / this.width
-    );
-    return new p5.Vector(dx, dy, dz);
-  };
-  
-  p5.Renderer3D.prototype._screenToWorldDirection = function (vector, pMatrix) {
-    pMatrix = pMatrix ?? this.pMatrix();
-  
-    let dx = vector.x;
-    let dy = vector.y;
-  
-    const perspective = pMatrix.mat4[15] === 0;
-    if (perspective) {
-      const zEye = this._location(p5.Tree.ORIGIN, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z;
-      const k = Math.abs(zEye * Math.tan(pMatrix.fov() / 2));
-      dx *= 2 * k / this.height;
-      dy *= 2 * k / this.height;
-    }
-  
-    let dz = vector.z;
-    dz *= (pMatrix.nPlane() - pMatrix.fPlane()) / (
-      perspective
-        ? Math.tan(pMatrix.fov() / 2)
-        : Math.abs(pMatrix.rPlane() - pMatrix.lPlane()) / this.width
-    );
-  
-    return this._direction(new p5.Vector(dx, dy, dz), { from: p5.Tree.EYE, to: p5.Tree.WORLD });
-  };
-  
-  p5.Renderer3D.prototype._ndcToScreenDirection = function (vector) {
-    return new p5.Vector(this.width * vector.x / 2, this.height * vector.y / 2, vector.z / 2);
-  };
-  
-  p5.Renderer3D.prototype._screenToNDCDirection = function (vector) {
-    return new p5.Vector(2 * vector.x / this.width, 2 * vector.y / this.height, 2 * vector.z);
-  };
-  
-  // ---------------------------------------------------------------------------
-  // Utilities
-  // ---------------------------------------------------------------------------
-  
-  /**
-   * Returns the world-to-pixel ratio units at a given world point position.
-   *
-   * A line of `n * pixelRatio(point)` world units will be projected with a
-   * length of `n` pixels on screen (locally around that point).
-   *
-   * - In orthographic projection, the ratio is constant.
-   * - In perspective projection, the ratio depends on eye-space depth.
-   *
-   * Requires 3D renderer.
-   *
-   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN] World-space point.
-   * @returns {number|undefined} World units per pixel at the given point.
-   */
-  fn.pixelRatio = function (point) {
-    return this._renderer.pixelRatio(point);
-  };
-  
-  /**
-   * Returns the world-to-pixel ratio units at a given world point position.
-   * @param {p5.Vector|number[]} [point=p5.Tree.ORIGIN]
-   * @returns {number}
-   */
+
+  // ── Utilities ────────────────────────────────────────────────────
+
+  fn.pixelRatio = function (point) { return this._renderer.pixelRatio(point); };
+
   p5.Renderer3D.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
-    return this.isOrtho()
-      ? Math.abs(this.tPlane() - this.bPlane()) / this.height
-      : 2 * Math.abs(
-        this.mapLocation(point, { from: p5.Tree.WORLD, to: p5.Tree.EYE }).z
-      ) * Math.tan(this.fov() / 2) / this.height;
+    const proj = _projMat4(this);
+    if (projIsOrtho(proj)) {
+      return corePixelRatio(proj, this.height, 0, _ndcZ);
+    }
+    // Need eye-space Z of the point
+    const px = point.x ?? point[0] ?? 0;
+    const py = point.y ?? point[1] ?? 0;
+    const pz = point.z ?? point[2] ?? 0;
+    const view = _viewMat4(this);
+    // Inline WORLD→EYE for just z component
+    const eyeZ = view[2]*px + view[6]*py + view[10]*pz + view[14];
+    return corePixelRatio(proj, this.height, eyeZ, _ndcZ);
   };
 
-  /**
-   * Returns the normalized texel size for an image/texture.
-   * Useful for offsetting UVs by exactly one pixel.
-   *
-   * @param {p5.Image|p5.Framebuffer|Object} image Any object exposing `width` and `height`.
-   * @returns {number[]} `[1 / width, 1 / height]`
-   */
-  fn.texOffset = function (image) {
-    return [1 / image.width, 1 / image.height];
-  };
+  fn.texOffset = function (image) { return [1 / image.width, 1 / image.height]; };
 
-  /**
-   * Returns the current mouse position in *pixel* coordinates.
-   * By default the y-axis is flipped so y=0 is at the bottom (HUD-style).
-   *
-   * @param {boolean} [flip=true] Whether to flip the y coordinate.
-   * @returns {number[]} `[x, y]` in pixels (includes pixelDensity scaling).
-   */
   fn.mousePosition = function (flip = true) {
     const pd = this.pixelDensity();
     return [pd * this.mouseX, pd * (flip ? this.height - this.mouseY : this.mouseY)];
   };
 
-  /**
-   * Returns a pointer position in *pixel* coordinates from an arbitrary (x, y) pair.
-   * Delegates to the active 3D renderer.
-   *
-   * Accepts parameters in any order:
-   * - `number, number` → pointerX, pointerY
-   * - optional `boolean` → `flip`
-   *
-   * @param  {...(number|boolean)} args
-   * @returns {number[]|undefined} `[x, y]` in pixels, or undefined if no 3D renderer is active.
-   */
-  fn.pointerPosition = function (...args) {
-    return this._renderer.pointerPosition(...args);
-  };
+  fn.pointerPosition = function (...args) { return this._renderer.pointerPosition(...args); };
+  fn.resolution = function () { return this._renderer.resolution(); };
 
-  /**
-   * Returns the canvas resolution in *pixel* coordinates.
-   * Delegates to the active 3D renderer.
-   *
-   * @returns {number[]|undefined} `[width, height]` in pixels, or undefined if no 3D renderer is active.
-   */
-  fn.resolution = function () {
-    return this._renderer.resolution();
-  };
-
-  /**
-   * Returns a pointer position in *pixel* coordinates from an arbitrary (x, y) pair.
-   *
-   * Accepts parameters in any order:
-   * - `number, number` → pointerX, pointerY
-   * - optional `boolean` → `flip`
-   *
-   * @param  {...(number|boolean)} args
-   * @returns {number[]} `[x, y]` in pixels (includes pixelDensity scaling).
-   */
   p5.Renderer3D.prototype.pointerPosition = function (...args) {
-    let pointerX;
-    let pointerY;
-    let flip = true;
+    let pointerX, pointerY, flip = true;
     for (const arg of args) {
-      if (typeof arg === 'number') {
-        // First number is x, second is y.
-        pointerX === undefined ? (pointerX = arg) : (pointerY = arg);
-      } else if (typeof arg === 'boolean') {
-        flip = arg;
-      }
+      if (typeof arg === 'number') { pointerX === undefined ? (pointerX = arg) : (pointerY = arg); }
+      else if (typeof arg === 'boolean') { flip = arg; }
     }
     const pd = this.pixelDensity();
     return [pd * pointerX, pd * (flip ? this.height - pointerY : pointerY)];
   };
 
-  /**
-   * Returns the canvas resolution in *pixel* coordinates.
-   * @returns {number[]} `[width, height]` in pixels (includes pixelDensity scaling).
-   */
   p5.Renderer3D.prototype.resolution = function () {
     const pd = this.pixelDensity();
     return [pd * this.width, pd * this.height];
