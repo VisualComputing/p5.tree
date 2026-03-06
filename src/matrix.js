@@ -9,6 +9,7 @@
 import {
   WORLD, EYE, NDC, SCREEN, MODEL, MATRIX, WEBGL, WEBGPU,
   mat4Mul, mat4Invert, mat3NormalFromMat4,
+  mat4Location, mat3Direction,
   mapLocation as coreMapLocation,
   mapDirection as coreMapDirection,
   projIsOrtho, projNear, projFar, projFov, projHfov,
@@ -141,16 +142,16 @@ export function installMatrix(p5, fn) {
   fn.eMatrix = function () { return this._renderer.eMatrix(); };
 
   // ── lMatrix / dMatrix ──────────────────────────────────────────────
-
+  
   p5.Renderer3D.prototype.lMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix() } = {}) {
-    return _invert(to).mult(from);
+    mat4Location(_inv, from.mat4, to.mat4);
+    return new p5.Matrix(Array.from(_inv));
   };
   fn.lMatrix = function (opts = {}) { return this._renderer.lMatrix(opts); };
-
-  p5.Renderer3D.prototype.dMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix(), matrix } = {}) {
-    const m = (matrix || _invert(from).mult(to));
-    const a = m.mat4 || m.matrix;
-    return new p5.Matrix([a[0],a[4],a[8], a[1],a[5],a[9], a[2],a[6],a[10]]);
+  
+  p5.Renderer3D.prototype.dMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix() } = {}) {
+    mat3Direction(_nMat, from.mat4, to.mat4);
+    return new p5.Matrix(Array.from(_nMat));
   };
   fn.dMatrix = function (opts = {}) { return this._renderer.dMatrix(opts); };
 

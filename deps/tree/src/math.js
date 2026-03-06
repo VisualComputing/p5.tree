@@ -319,6 +319,69 @@ export function mat4PMV(out, proj, model, view) {
 // All intermediates are stack locals (zero shared state).
 //
 
+// ── Location Transform ───────────────────────────────────────────────────
+
+/**
+ * out = inv(to) * from
+ *
+ * Relative 4×4 transform that maps locations (points) expressed in the
+ * `from` frame into the `to` frame.
+ *
+ * Column-major.
+ * Returns null if `to` is singular.
+ */
+export function mat4Location(out, from, to) {
+  return mat4Invert(out, to) && mat4Mul(out, from, out);
+}
+
+// ── Direction Transform ──────────────────────────────────────────────────
+
+/**
+ * out = linear(inv(to) * from)
+ *
+ * Relative 3×3 transform that maps directions expressed in the `from` frame
+ * into the `to` frame. Translation is ignored.
+ *
+ * Column-major 3×3.
+ * Returns null if the upper-left 3×3 of `to` is singular.
+ */
+export function mat3Direction(out, from, to) {
+  const a00=from[0], a01=from[1], a02=from[2],
+        a10=from[4], a11=from[5], a12=from[6],
+        a20=from[8], a21=from[9], a22=from[10];
+  const b01=a22*a11-a12*a21,
+        b11=a12*a20-a22*a10,
+        b21=a21*a10-a11*a20;
+  let det=a00*b01+a01*b11+a02*b21;
+  if (Math.abs(det) < 1e-12) return null;
+  det=1/det;
+  const i00=b01*det;
+  const i01=(a02*a21-a22*a01)*det;
+  const i02=(a12*a01-a02*a11)*det;
+  const i10=b11*det;
+  const i11=(a22*a00-a02*a20)*det;
+  const i12=(a02*a10-a12*a00)*det;
+  const i20=b21*det;
+  const i21=(a01*a20-a21*a00)*det;
+  const i22=(a11*a00-a01*a10)*det;
+  const t00=to[0], t01=to[1], t02=to[2],
+        t10=to[4], t11=to[5], t12=to[6],
+        t20=to[8], t21=to[9], t22=to[10];
+  const m00=t00*i00+t10*i01+t20*i02;
+  const m01=t01*i00+t11*i01+t21*i02;
+  const m02=t02*i00+t12*i01+t22*i02;
+  const m10=t00*i10+t10*i11+t20*i12;
+  const m11=t01*i10+t11*i11+t21*i12;
+  const m12=t02*i10+t12*i11+t22*i12;
+  const m20=t00*i20+t10*i21+t20*i22;
+  const m21=t01*i20+t11*i21+t21*i22;
+  const m22=t02*i20+t12*i21+t22*i22;
+  out[0]=m00; out[1]=m10; out[2]=m20;
+  out[3]=m01; out[4]=m11; out[5]=m21;
+  out[6]=m02; out[7]=m12; out[8]=m22;
+  return out;
+}
+
 // ── Location leaf helpers ────────────────────────────────────────────────
 
 function _worldToScreen(out, px, py, pz, pv, vp, ndcZMin) {
