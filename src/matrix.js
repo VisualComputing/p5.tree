@@ -101,20 +101,6 @@ export function installMatrix(p5, fn) {
 
   // ── p5.Matrix operations ─────────────────────────────────────────────
 
-  p5.Matrix.prototype.mult4 = function (vector) {
-    return new p5.Vector(...this._mult4([vector.x, vector.y, vector.z, 1]));
-  };
-
-  p5.Matrix.prototype._mult4 = function (vec4) {
-    if (this.mat4 === undefined) { console.error('_mult4 only works with mat4'); return; }
-    return [
-      this.mat4[0]*vec4[0]+this.mat4[4]*vec4[1]+this.mat4[8]*vec4[2]+this.mat4[12]*vec4[3],
-      this.mat4[1]*vec4[0]+this.mat4[5]*vec4[1]+this.mat4[9]*vec4[2]+this.mat4[13]*vec4[3],
-      this.mat4[2]*vec4[0]+this.mat4[6]*vec4[1]+this.mat4[10]*vec4[2]+this.mat4[14]*vec4[3],
-      this.mat4[3]*vec4[0]+this.mat4[7]*vec4[1]+this.mat4[11]*vec4[2]+this.mat4[15]*vec4[3]
-    ];
-  };
-
   fn.tMatrix = function (matrix) { return _transpose(matrix); };
   fn.iMatrix = function (matrix) { return _invert(matrix); };
   fn.axbMatrix = function (a, b) { return a.clone().mult(b); };
@@ -440,35 +426,4 @@ export function installMatrix(p5, fn) {
     const pd = this.pixelDensity();
     return [pd * this.width, pd * this.height];
   };
-  
-  // debug
-  fn.lMatrixgl = function (...args) {
-    return this._renderer.lMatrixgl(...args);
-  }
-
-  // defaults: from: iMatrix, to: eMatrix
-  p5.Renderer3D.prototype.lMatrixgl = function (
-    {
-      from = new p5.Matrix(),
-      to = this.eMatrix()
-    } = {}) {
-    return to.copy().invert(to).apply(from);
-  }
-
-  fn.dMatrixgl = function (...args) {
-    return this._renderer.dMatrixgl(...args);
-  }
-
-  // defaults: from: iMatrix, to: eMatrix
-  p5.Renderer3D.prototype.dMatrixgl = function (
-    {
-      from = new p5.Matrix(),
-      to = this.eMatrix(),
-      matrix = from.copy().invert(from).apply(to)
-    } = {}) {
-    // Note that this transposes mat4 into mat3
-    return new p5.Matrix([matrix.mat4[0], matrix.mat4[4], matrix.mat4[8],
-    matrix.mat4[1], matrix.mat4[5], matrix.mat4[9],
-    matrix.mat4[2], matrix.mat4[6], matrix.mat4[10]]);
-  }
 }
