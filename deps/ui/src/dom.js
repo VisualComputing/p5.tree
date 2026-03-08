@@ -90,7 +90,7 @@ export function createLabel(text) {
   return l;
 }
 
-// ── Color helpers (no p5 dependency) ────────────────────────────────────
+// ── Color helpers (no p5 dependency) ────────────────────────────────────────
 
 /** '#rrggbb' -> [r, g, b, a] normalised 0-1 */
 export function hexToVec4(hex) {
@@ -110,9 +110,15 @@ export function vec4ToHex(v) {
   return `#${c(v[0])}${c(v[1])}${c(v[2])}`;
 }
 
-// ── Visibility helpers (Safari-safe) ────────────────────────────────────
+// ── Visibility helpers (Safari-safe) ────────────────────────────────────────
 
-/** Show/hide a DOM element robustly (Safari input[range] workaround). */
+/**
+ * Show/hide a DOM element robustly.
+ * Uses a data attribute to remember the previous display value so that
+ * Safari input[range] workarounds are preserved on re-show.
+ * @param {HTMLElement} el
+ * @param {boolean} show
+ */
 export function setVisible(el, show) {
   if (!el || !el.style) return;
   if (show) {
@@ -125,7 +131,13 @@ export function setVisible(el, show) {
   }
 }
 
-/** Mount `child` into `parent`, ensuring parent is non-static for abs positioning. */
+/**
+ * Append `child` to `parent`, ensuring parent has non-static positioning
+ * so absolute children are anchored correctly.
+ * Falls back to `document.body` when parent is null/undefined.
+ * @param {HTMLElement} child
+ * @param {HTMLElement|null} [parent]
+ */
 export function mount(child, parent) {
   const p = parent || document.body;
   if (p.style && getComputedStyle(p).position === 'static') {

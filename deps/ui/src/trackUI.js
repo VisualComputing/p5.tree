@@ -5,41 +5,51 @@
  *
  * Zero p5 dependencies.  Pure vanilla DOM.
  *
- * Transport model:
- *   The rate slider doubles as a jog control — the sole play/stop mechanism.
- *     rate !== 0  →  auto-play at that rate (negative = reverse)
- *     rate === 0  →  auto-stop
- *   The seek slider scrubs position (stops playback while dragging).
- *   The mode select sets once / loop / pingPong.
+ * Transport model
+ * ---------------
+ *   The Play/Pause button is the **sole** control that starts or stops playback.
+ *   The rate slider adjusts speed while playing but never starts or stops.
+ *   rate === 0 is treated as "frozen" — playback state is unchanged.
+ *   The seek slider scrubs position without affecting the playing flag.
+ *   The mode select changes loop/pingPong/once without starting playback.
  *
- * Target contract (duck-typed):
- *   target.play(opts?)   Start playback.
- *   target.stop(reset?)  Stop; if truthy, reset cursor.
- *   target.seek(t)       Set normalised position 0-1.
- *   target.time()        Returns normalised position 0-1.
+ * Target contract (duck-typed)
+ * ----------------------------
+ *   target.play(opts?)   Start or update playback.
+ *   target.stop()        Stop playback.
+ *   target.seek(t)       Set normalised position [0, 1].
+ *   target.time()        Returns normalised position [0, 1].
  *   target.playing       Boolean — true while playing.
  *   target.onPlay        Callback hook (chained, not clobbered).
  *   target.onEnd         Callback hook (chained, not clobbered).
  *
  * Optional:
- *   target.add()         Add keyframe (e.g. snapshot current camera).
+ *   target.add()         Add keyframe (e.g. snapshot current camera/pose).
  *   target.reset()       Clear all keyframes and stop.
  *   target.info()        Returns { keyframes, segments, seg, f, time, ... }.
  *
- * ---------------------------------------------------------------------------
+ * Layout (top → bottom)
+ * ---------------------
+ *   Row 1 — controls:   [+]  [▶/⏸]  [↺]   (always visible)
+ *   Row 2 — seek:       seek slider         (hidden when keyframes ≤ 1)
+ *   Row 3 — rate:       rate label + slider (when showProps)
+ *   Row 4 — mode:       mode label + select (when showProps, always last)
+ *   Row 5 — info:       time / keyframe     (when showInfo)
+ *
  * Returned API
- * ---------------------------------------------------------------------------
- *   ui.el             HTMLElement container
- *   ui.visible        get/set boolean
- *   ui.tick()         Sync seek slider & info from target state
- *   ui.dispose()      Remove DOM, restore original hooks
+ * ------------
+ *   ui.el              HTMLElement container
+ *   ui.visible         get/set boolean
+ *   ui.parent(el)      Re-mount container into a new parent HTMLElement.
+ *   ui.tick()          Sync seek slider, play button, and enabled state from target.
+ *   ui.dispose()       Remove DOM, restore original hooks.
  */
 
 'use strict';
 
 import {
   createContainer, createSlider, createButton,
-  createSelect, createLabel, mount
+  createSelect, createLabel, setVisible, mount
 } from './dom.js';
 
 /**
@@ -50,15 +60,16 @@ import {
  * @param {boolean} [opt.seek=true]       Show seek slider.
  * @param {boolean} [opt.props=true]      Show rate slider + mode select.
  * @param {boolean} [opt.info=false]      Show time/keyframe readout.
- * @param {number}  [opt.rate=1]          Default rate (-2 to 2; 0 = stopped).
- * @param {boolean} [opt.loop=false]      Default loop flag (sets initial mode).
- * @param {boolean} [opt.pingPong=false]  Default pingPong flag (overrides loop).
- * @param {number}  [opt.x=0]            Container left.
- * @param {number}  [opt.y=0]            Container top.
+ * @param {number}  [opt.rate=1]          Initial rate.
+ * @param {boolean} [opt.loop=false]      Initial loop mode.
+ * @param {boolean} [opt.pingPong=false]  Initial pingPong mode (overrides loop).
+ * @param {number}  [opt.x=0]            Container left (px).
+ * @param {number}  [opt.y=0]            Container top (px).
  * @param {number}  [opt.width=220]      Seek slider width (px).
+ * @param {number}  [opt.rateWidth]      Rate slider width (px). Defaults to opt.width.
  * @param {string}  [opt.color]          Text color.
  * @param {boolean} [opt.hidden=false]   Start hidden.
- * @param {HTMLElement} [opt.parent]     Mount target.
+ * @param {HTMLElement} [opt.parent]     Mount target (defaults to document.body).
  * @returns {Object} UI handle.
  */
 export function createTrackUI(target, opt) {
@@ -67,9 +78,10 @@ export function createTrackUI(target, opt) {
   const showSeek  = opt.seek !== false;
   const showProps = opt.props !== false;
   const showInfo  = opt.info === true;
-  const sliderW   = opt.width ?? 220;
+  const sliderW     = opt.width     ?? 120;
+  const rateSliderW = opt.rateWidth ?? sliderW;
 
-  // Mutable playback parameters — UI controls update these
+  // Mutable playback parameters — only updated by UI controls
   let _rate = opt.rate ?? 1;
   let _mode = opt.pingPong ? 'pingPong' : opt.loop ? 'loop' : 'once';
 
@@ -78,202 +90,261 @@ export function createTrackUI(target, opt) {
   container.style.top  = `${opt.y ?? 0}px`;
   if (opt.color) container.style.color = opt.color;
 
-  let _vis = true;
+  let _vis     = true;
   let _seeking = false;
+  let _lastKf  = -1;   // keyframe count last seen — avoids DOM thrashing
 
-  /** Convert current mode + rate into play() options. */
+  /** Assemble play() options from current UI state. */
   function _playOpts() {
     return {
-      rate: _rate,
+      rate:     _rate,
       loop:     _mode === 'loop' || _mode === 'pingPong',
       pingPong: _mode === 'pingPong'
     };
   }
 
-  // ── Seek slider ───────────────────────────────────────────────────
+  /** Keyframe count from target.info(), or -1 if unavailable. */
+  function _kfCount() {
+    return (typeof target.info === 'function') ? target.info().keyframes : -1;
+  }
 
-  let seekSlider;
+  // ── Row 1 — controls: [+] [▶/⏸] [↺] ────────────────────────────────────
+
+  const ctrlRow = document.createElement('div');
+  ctrlRow.className = 'p5t-controls';
+  ctrlRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;align-items:center;';
+
+  // + button (add keyframe) — only if target supports it
+  const hasAdd = typeof target.add === 'function';
+  if (hasAdd) {
+    const btnAdd = createButton('\u002B', () => {
+      target.add();
+      // Force enabled-state refresh on the next tick
+      _lastKf = -1;
+    });
+    btnAdd.title = 'Add keyframe';
+    ctrlRow.appendChild(btnAdd);
+  }
+
+  // Play/Pause button — sole play/stop control
+  const btnPlay = createButton('\u25B6', () => {
+    if (target.playing) {
+      target.stop();
+    } else {
+      target.play(_playOpts());
+    }
+    _syncPlayBtn();
+  });
+  btnPlay.title = 'Play / Pause';
+  ctrlRow.appendChild(btnPlay);
+
+  // ↺ reset button (clear keyframes) — only if target supports it
+  const hasReset = typeof target.reset === 'function';
+  if (hasReset) {
+    const btnReset = createButton('\u21BA', () => {
+      target.reset();
+      _syncPlayBtn();
+      _lastKf = -1;   // force enabled-state refresh
+    });
+    btnReset.title = 'Reset (clear keyframes)';
+    ctrlRow.appendChild(btnReset);
+  }
+
+  container.appendChild(ctrlRow);
+
+  // ── Row 2 — seek slider (conditional) ───────────────────────────────────
+
+  let seekSlider, seekLabel, seekRow;
   if (showSeek) {
+    seekRow = document.createElement('div');
+    seekRow.className = 'p5t-seek';
+    seekRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:11px;';
+
+    seekLabel = createLabel('seek: 0.000');
+    seekLabel.style.minWidth = '72px';
+
     seekSlider = createSlider(0, 1, 0, 0.001, v => {
       _seeking = true;
-      if (target.playing) target.stop();
+      seekLabel.textContent = `seek: ${parseFloat(v).toFixed(3)}`;
       target.seek(v);
     });
-    seekSlider.style.width = `${sliderW}px`;
-    seekSlider.style.marginBottom = '4px';
+    seekSlider.style.width  = `${sliderW}px`;
     seekSlider.addEventListener('change',    () => { _seeking = false; });
     seekSlider.addEventListener('pointerup', () => { _seeking = false; });
     seekSlider.addEventListener('touchend',  () => { _seeking = false; });
-    container.appendChild(seekSlider);
+
+    seekRow.appendChild(seekLabel);
+    seekRow.appendChild(seekSlider);
+    container.appendChild(seekRow);
   }
 
-  // ── Action buttons (add / reset — shown if target supports them) ────
+  // ── Row 3 — rate slider ──────────────────────────────────────────────────
+  // Rate changes the speed but never starts or stops playback.
 
-  const hasAdd   = typeof target.add === 'function';
-  const hasReset = typeof target.reset === 'function';
-  if (hasAdd || hasReset) {
-    const actRow = document.createElement('div');
-    actRow.className = 'p5t-actions';
-    actRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;';
-
-    if (hasAdd) {
-      const btnAdd = createButton('\u002B', () => {
-        target.add();
-        showInfo && updateInfo();
-      });
-      btnAdd.title = 'Add keyframe';
-      actRow.appendChild(btnAdd);
-    }
-
-    if (hasReset) {
-      const btnReset = createButton('\u21BA', () => {
-        target.reset();
-        // Snap rate to 0 since there's nothing to play
-        if (rateSlider) {
-          _rate = 0;
-          rateSlider.value = 0;
-          if (rateLabel) rateLabel.textContent = 'rate: 0.00';
-        }
-        showInfo && updateInfo();
-      });
-      btnReset.title = 'Reset (clear keyframes)';
-      actRow.appendChild(btnReset);
-    }
-
-    container.appendChild(actRow);
-  }
-
-  // ── Rate slider (jog control — sole transport) + mode select ──────
-
-  let rateSlider, rateLabel, modeSelect;
+  let rateSlider, rateLabel;
   if (showProps) {
-    const propsRow = document.createElement('div');
-    propsRow.className = 'p5t-props';
-    propsRow.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin-bottom:4px;font-size:11px;';
-
-    // Rate slider [-2, 2]
     const rateRow = document.createElement('div');
-    rateRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    rateRow.className = 'p5t-rate';
+    rateRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:11px;';
+
     rateLabel = createLabel(`rate: ${_rate.toFixed(2)}`);
     rateLabel.style.minWidth = '72px';
+
     rateSlider = createSlider(-2, 2, _rate, 0.05, v => {
       _rate = v;
       rateLabel.textContent = `rate: ${v.toFixed(2)}`;
-      // Jog-control: rate away from 0 auto-plays, rate at 0 auto-stops
-      if (v !== 0 && !target.playing) target.play(_playOpts());
-      else if (v === 0 && target.playing) target.stop();
-      else if (target.playing) target.play(_playOpts());
+      // Only update rate mid-play; never start playback from here
+      if (target.playing) {
+        target.play({ rate: _rate });
+      }
     });
-    rateSlider.style.width = '120px';
+    rateSlider.style.width = `${rateSliderW}px`;
+
     rateRow.appendChild(rateLabel);
     rateRow.appendChild(rateSlider);
-    propsRow.appendChild(rateRow);
+    container.appendChild(rateRow);
+  }
 
-    // Mode select (once / loop / pingPong)
+  // ── Row 4 — mode select (always last transport row) ──────────────────────
+
+  let modeSelect;
+  if (showProps) {
     const modeRow = document.createElement('div');
-    modeRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    modeRow.className = 'p5t-mode';
+    modeRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;';
+
     const modeLabel = createLabel('mode:');
     modeLabel.style.minWidth = '72px';
+
     modeSelect = createSelect(
-      [{ label: 'once', value: 'once' },
-       { label: 'loop', value: 'loop' },
+      [{ label: 'once',     value: 'once'     },
+       { label: 'loop',     value: 'loop'     },
        { label: 'pingPong', value: 'pingPong' }],
       _mode,
       v => {
         _mode = v;
-        if (target.playing) target.play(_playOpts());
+        // Update loop/pingPong if already playing
+        if (target.playing) {
+          target.play({
+            loop:     _mode === 'loop' || _mode === 'pingPong',
+            pingPong: _mode === 'pingPong'
+          });
+        }
       }
     );
+
     modeRow.appendChild(modeLabel);
     modeRow.appendChild(modeSelect);
-    propsRow.appendChild(modeRow);
-
-    container.appendChild(propsRow);
+    container.appendChild(modeRow);
   }
 
-  // ── Info label ────────────────────────────────────────────────────
+  // ── Row 5 — info label (optional) ────────────────────────────────────────
 
   let infoLabel;
   if (showInfo) {
     infoLabel = createLabel('');
-    infoLabel.style.fontSize = '11px';
-    infoLabel.style.opacity = '0.8';
-    infoLabel.style.marginBottom = '4px';
+    infoLabel.style.cssText = 'font-size:11px;opacity:0.8;margin-bottom:4px;';
     container.appendChild(infoLabel);
   }
 
-  // ── Hook chaining ─────────────────────────────────────────────────
-  // When playback ends naturally (onEnd), snap rate slider to 0 so the
-  // visual state stays consistent (stopped = 0).
+  // ── Hook chaining ─────────────────────────────────────────────────────────
+  // Chain onPlay/onEnd so the play button stays in sync with external state
+  // changes (e.g. playback ending naturally in once mode).
 
   const _prevOnPlay = target.onPlay;
   const _prevOnEnd  = target.onEnd;
 
   target.onPlay = function () {
+    _syncPlayBtn();
     if (typeof _prevOnPlay === 'function') {
       try { _prevOnPlay.apply(this, arguments); } catch (_) {}
     }
   };
 
   target.onEnd = function () {
+    _syncPlayBtn();
     if (typeof _prevOnEnd === 'function') {
       try { _prevOnEnd.apply(this, arguments); } catch (_) {}
     }
-    // Playback ended naturally — snap rate to 0 so UI reflects "stopped"
-    if (rateSlider) {
-      _rate = 0;
-      rateSlider.value = 0;
-      rateLabel.textContent = 'rate: 0.00';
-    }
   };
 
-  // ── Internal sync ─────────────────────────────────────────────────
+  // ── Internal helpers ──────────────────────────────────────────────────────
 
-  function updateInfo() {
+  function _syncPlayBtn() {
+    if (!btnPlay) return;
+    btnPlay.textContent = target.playing ? '\u23F8' : '\u25B6';
+  }
+
+  /**
+   * Update enabled/visible state based on keyframe count.
+   * Only writes to DOM when count has actually changed.
+   */
+  function _updateEnabledState() {
+    const kf = _kfCount();
+    if (kf === _lastKf) return;
+    _lastKf = kf;
+    // Play button: disabled with 0 keyframes
+    btnPlay.disabled = kf === 0;
+    // Seek row: only meaningful when there are 2+ keyframes
+    if (seekRow) setVisible(seekRow, kf > 1);
+  }
+
+  function _updateInfo() {
     if (!infoLabel) return;
     if (typeof target.info !== 'function') { infoLabel.textContent = ''; return; }
-    const i = target.info();
+    const i   = target.info();
     const pct = (i.time * 100).toFixed(1);
     infoLabel.textContent = `${pct}%  seg ${i.seg}/${i.segments}  kf ${i.keyframes}`;
   }
 
-  // ── Visibility ────────────────────────────────────────────────────
+  // ── Visibility ────────────────────────────────────────────────────────────
 
-  function setVis(show) {
+  function _setVis(show) {
     _vis = show !== false;
     container.style.display = _vis ? 'flex' : 'none';
   }
 
-  // ── Public API ────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
 
   const ui = {};
   ui.el = container;
 
   Object.defineProperty(ui, 'visible', {
     get() { return _vis; },
-    set(v) { setVis(v); }
+    set(v) { _setVis(v); }
   });
 
-  /** Call every frame.  Syncs seek slider + info from target state. */
+  /** Re-mount container into a new parent HTMLElement. */
+  ui.parent = parentEl => mount(container, parentEl);
+
+  /**
+   * Call every frame.
+   * Syncs seek slider position, play button text, and enabled/visible state.
+   */
   ui.tick = () => {
-    if (seekSlider && !_seeking) {
+    if (!_seeking && seekSlider) {
       const t = typeof target.time === 'function' ? target.time() : 0;
       seekSlider.value = t;
+      if (seekLabel) seekLabel.textContent = `seek: ${t.toFixed(3)}`;
     }
-    showInfo && updateInfo();
+    _syncPlayBtn();
+    _updateEnabledState();
+    if (showInfo) _updateInfo();
   };
 
-  /** Remove DOM and restore original hooks. */
+  /** Remove DOM and restore original hook chain. */
   ui.dispose = () => {
     target.onPlay = _prevOnPlay;
     target.onEnd  = _prevOnEnd;
     container.parentNode && container.parentNode.removeChild(container);
   };
 
-  // ── Mount & initial state ─────────────────────────────────────────
+  // ── Mount & initial state ─────────────────────────────────────────────────
 
   mount(container, opt.parent);
-  setVis(!opt.hidden);
+  _setVis(!opt.hidden);
+  _syncPlayBtn();
+  _updateEnabledState();
 
   return ui;
 }

@@ -16,17 +16,17 @@
  * Supported control types (explicit or inferred)
  * ---------------------------------------------------------------------------
  * 'float'  : slider          'int'    : slider (integer step)
- * 'bool'   : checkbox         'color'  : color picker (-> normalised RGBA vec4)
- * 'vec2'   : 2 sliders        'vec3'   : 3 sliders      'vec4' : 4 sliders
- * 'select' : dropdown         'button' : action button (no uniform)
+ * 'bool'   : checkbox        'color'  : color picker (-> normalised RGBA vec4)
+ * 'vec2'   : 2 sliders       'vec3'   : 3 sliders      'vec4' : 4 sliders
+ * 'select' : dropdown        'button' : action button (no uniform)
  *
  * Type inference (when cfg.type is omitted):
- *   cfg.options       -> 'select'
- *   cfg.onClick fn    -> 'button'
- *   boolean value     -> 'bool'
- *   array [2..4]      -> 'vec2'/'vec3'/'vec4'
- *   string value      -> 'color'
- *   number / default  -> 'float'
+ *   cfg.options        -> 'select'
+ *   cfg.onClick fn     -> 'button'
+ *   boolean value      -> 'bool'
+ *   array [2..4]       -> 'vec2'/'vec3'/'vec4'
+ *   string value       -> 'color'
+ *   number / default   -> 'float'
  *
  * ---------------------------------------------------------------------------
  * Returned API
@@ -40,7 +40,7 @@
  *   ui.each(fn)                 iterate controls in schema order
  *   ui.elts()                   flat array of DOM elements
  *   ui.reset()                  reset all controls
- *   ui.parent(el)               re-parent container
+ *   ui.parent(el)               re-mount container into a new parent HTMLElement
  *   ui.tick()                   sync all values to target.setUniform
  *   ui.dispose()                remove DOM, detach listeners
  */
@@ -53,13 +53,12 @@ import {
   createLabel, hexToVec4, vec4ToHex, setVisible, mount
 } from './dom.js';
 
-// ── Helpers ─────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const isBool  = v => typeof v === 'boolean';
 const isArr   = Array.isArray;
 const isVec   = v => isArr(v) && v.length >= 2 && v.length <= 4;
 const isStr   = v => typeof v === 'string';
-const isNum   = v => typeof v === 'number' && Number.isFinite(v);
 const toFloat = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
 function inferType(cfg) {
@@ -68,12 +67,12 @@ function inferType(cfg) {
   if (typeof cfg.onClick === 'function') return 'button';
   const v = cfg.value;
   if (isBool(v)) return 'bool';
-  if (isVec(v)) return ['','vec2','vec3','vec4'][v.length] || 'vec4';
+  if (isVec(v)) return ['', 'vec2', 'vec3', 'vec4'][v.length] || 'vec4';
   if (isStr(v)) return 'color';
   return 'float';
 }
 
-// ── Factory ─────────────────────────────────────────────────────────────
+// ── Factory ──────────────────────────────────────────────────────────────────
 
 /**
  * Build a uniform UI.
@@ -83,49 +82,49 @@ function inferType(cfg) {
  * @param {Object}  [opt.target]     Anything with `.setUniform(name, value)`.
  *   If provided, `tick()` auto-applies values. Otherwise values are read
  *   manually via `ui[name].value()` (e.g. for p5.strands closures).
- * @param {number}  [opt.x=0]       Container left.
- * @param {number}  [opt.y=0]       Container top.
+ * @param {number}  [opt.x=0]       Container left (px).
+ * @param {number}  [opt.y=0]       Container top (px).
  * @param {number}  [opt.width=120] Default slider/select width (px).
  * @param {number}  [opt.offset=6]  Vertical gap between rows (px).
  * @param {string}  [opt.color]     Container text color.
  * @param {boolean} [opt.hidden]    Start hidden.
  * @param {boolean} [opt.labels]    Show per-control labels.
  * @param {string}  [opt.title]     Bold title row.
- * @param {HTMLElement} [opt.parent] Mount target (default: document.body).
+ * @param {HTMLElement} [opt.parent] Mount target (defaults to document.body).
  * @returns {Object} UI handle — see "Returned API" above.
  */
 export function createUniformUI(schema, opt) {
   schema = schema || {};
-  opt = opt || {};
+  opt    = opt    || {};
   const _target = opt.target || null;
 
-  const _order = Object.keys(schema);
-  const _defaults = {};
-  const _labels = {};
-  const _w = opt.width ?? 120;
-  const _off = opt.offset ?? 6;
+  const _order      = Object.keys(schema);
+  const _defaults   = {};
+  const _labels     = {};
+  const _w          = opt.width  ?? 120;
+  const _off        = opt.offset ?? 6;
   const _showLabels = !!opt.labels;
 
-  const ui = {};
+  const ui        = {};
   const container = createContainer('uniform-ui');
   container.style.left = `${opt.x ?? 0}px`;
-  container.style.top = `${opt.y ?? 0}px`;
+  container.style.top  = `${opt.y ?? 0}px`;
   if (opt.color) container.style.color = opt.color;
 
   let _vis = true;
 
-  // ── Title ──────────────────────────────────────────────────────────
+  // ── Title ──────────────────────────────────────────────────────────────
   if (opt.title) {
     const t = createLabel(opt.title);
-    t.style.fontWeight = 'bold';
+    t.style.fontWeight   = 'bold';
     t.style.marginBottom = `${_off}px`;
     container.appendChild(t);
   }
 
-  // ── Per-control builder ────────────────────────────────────────────
+  // ── Per-control builder ────────────────────────────────────────────────
 
   function _setWidth(el) { el.style.width = `${_w}px`; }
-  function _setGap(el) { el.style.marginBottom = `${_off}px`; }
+  function _setGap(el)   { el.style.marginBottom = `${_off}px`; }
 
   function addLabel(name, cfg) {
     if (!_showLabels) return;
@@ -151,7 +150,7 @@ export function createUniformUI(schema, opt) {
     const c = ui[name];
     if (!c) return;
     const show = _vis && c._vis;
-    const els = isArr(c.el) ? c.el : [c.el];
+    const els  = isArr(c.el) ? c.el : [c.el];
     els.forEach(e => setVisible(e, show));
     _labels[name] && setVisible(_labels[name], show);
   }
@@ -159,26 +158,27 @@ export function createUniformUI(schema, opt) {
   function buildControl(name, cfg) {
     cfg = cfg || {};
     const type = inferType(cfg);
-    const w = cfg.width ?? _w;
+    const w    = cfg.width ?? _w;
 
     addLabel(name, cfg);
 
     // ── bool ──
     if (type === 'bool') {
-      const el = createCheckbox('', cfg.value ?? false);
+      const el  = createCheckbox('', cfg.value ?? false);
       _setGap(el);
       container.appendChild(el);
       const inp = el.firstChild;
       return wrap(name, 'bool', el,
         () => inp.checked,
-        v => { inp.checked = !!v; },
+        v  => { inp.checked = !!v; },
         () => { inp.checked = !!_defaults[name]; }
       );
     }
 
     // ── button ──
     if (type === 'button') {
-      const el = createButton(cfg.label || name, typeof cfg.onClick === 'function' ? cfg.onClick : null);
+      const el = createButton(cfg.label || name,
+        typeof cfg.onClick === 'function' ? cfg.onClick : null);
       el.style.width = `${w}px`;
       _setGap(el);
       container.appendChild(el);
@@ -193,7 +193,7 @@ export function createUniformUI(schema, opt) {
       container.appendChild(el);
       return wrap(name, 'select', el,
         () => el.value,
-        v => { el.value = v; },
+        v  => { el.value = v; },
         () => { el.value = _defaults[name]; }
       );
     }
@@ -206,18 +206,19 @@ export function createUniformUI(schema, opt) {
       container.appendChild(el);
       return wrap(name, 'color', el,
         () => hexToVec4(el.value),
-        v => { el.value = isStr(v) ? v : isArr(v) ? vec4ToHex(v) : v; },
+        v  => { el.value = isStr(v) ? v : isArr(v) ? vec4ToHex(v) : v; },
         () => { el.value = _defaults[name] || '#ffffff'; }
       );
     }
 
     // ── vec2 / vec3 / vec4 ──
     if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
-      const n = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
+      const n    = type === 'vec2' ? 2 : type === 'vec3' ? 3 : 4;
       const vals = isArr(cfg.value) ? cfg.value : new Array(n).fill(0);
-      const min = cfg.min ?? 0, max = cfg.max ?? 1;
+      const min  = cfg.min  ?? 0;
+      const max  = cfg.max  ?? 1;
       const step = cfg.step ?? (cfg.type === 'int' ? 1 : 0.01);
-      const els = [];
+      const els  = [];
       for (let i = 0; i < n; i++) {
         const s = createSlider(min, max, toFloat(vals[i] ?? 0), step);
         s.style.width = `${w}px`;
@@ -226,45 +227,46 @@ export function createUniformUI(schema, opt) {
         els.push(s);
       }
       return wrap(name, type, els,
-        () => els.map(s => toFloat(s.value)),
-        arr => { isArr(arr) && els.forEach((s, i) => { s.value = toFloat(arr[i] ?? 0); }); },
-        () => { const d = _defaults[name]; isArr(d) && els.forEach((s, i) => { s.value = toFloat(d[i] ?? 0); }); }
+        ()    => els.map(s => toFloat(s.value)),
+        arr   => { isArr(arr) && els.forEach((s, i) => { s.value = toFloat(arr[i] ?? 0); }); },
+        ()    => { const d = _defaults[name]; isArr(d) && els.forEach((s, i) => { s.value = toFloat(d[i] ?? 0); }); }
       );
     }
 
     // ── float / int (default) ──
-    const val = toFloat(cfg.value ?? 0);
-    const min = cfg.min ?? 0, max = cfg.max ?? 1;
+    const val  = toFloat(cfg.value ?? 0);
+    const min  = cfg.min  ?? 0;
+    const max  = cfg.max  ?? 1;
     const step = cfg.step ?? (cfg.type === 'int' ? 1 : 0.01);
-    const el = createSlider(min, max, val, step);
+    const el   = createSlider(min, max, val, step);
     el.style.width = `${w}px`;
     _setGap(el);
     container.appendChild(el);
     return wrap(name, cfg.type === 'int' ? 'int' : 'float', el,
       () => toFloat(el.value),
-      v => { el.value = toFloat(v); },
+      v  => { el.value = toFloat(v); },
       () => { el.value = toFloat(_defaults[name]); }
     );
   }
 
-  // ── Build all controls ─────────────────────────────────────────────
+  // ── Build all controls ─────────────────────────────────────────────────
 
   _order.forEach(name => {
     _defaults[name] = schema[name] ? schema[name].value : null;
     ui[name] = buildControl(name, schema[name]);
   });
 
-  // ── Container visibility ───────────────────────────────────────────
+  // ── Container visibility ───────────────────────────────────────────────
 
   function setContainerVis(show) {
     _vis = show !== false;
     if (_vis) {
-      container.style.display = 'flex';
-      container.style.visibility = 'visible';
+      container.style.display       = 'flex';
+      container.style.visibility    = 'visible';
       container.style.pointerEvents = 'auto';
     } else {
-      container.style.display = 'none';
-      container.style.visibility = 'hidden';
+      container.style.display       = 'none';
+      container.style.visibility    = 'hidden';
       container.style.pointerEvents = 'none';
     }
     _order.forEach(applyControlVis);
@@ -275,7 +277,7 @@ export function createUniformUI(schema, opt) {
     set(v) { setContainerVis(v); }
   });
 
-  // ── Public API ─────────────────────────────────────────────────────
+  // ── Public API ─────────────────────────────────────────────────────────
 
   ui.el = container;
 
@@ -297,10 +299,12 @@ export function createUniformUI(schema, opt) {
     _order.forEach(name => { const c = ui[name]; c && c.reset(); });
   };
 
-  ui.parent = p => {
-    const parentEl = (p && p.elt) ? p.elt : p;
-    mount(container, parentEl);
-  };
+  /**
+   * Re-mount container into a new parent HTMLElement.
+   * Accepts a raw HTMLElement (p5.Element unwrapping is the bridge's job).
+   * @param {HTMLElement} el
+   */
+  ui.parent = el => mount(container, el);
 
   /** Sync all current values to opt.target.setUniform() if target was provided. */
   ui.tick = () => {
@@ -317,7 +321,7 @@ export function createUniformUI(schema, opt) {
     container.parentNode && container.parentNode.removeChild(container);
   };
 
-  // ── Mount & initial visibility ─────────────────────────────────────
+  // ── Mount & initial visibility ─────────────────────────────────────────
 
   mount(container, opt.parent);
   setContainerVis(!opt.hidden);
