@@ -11,7 +11,7 @@ import p5 from 'p5';
 import { installConstants } from './constants.js';
 import { installMatrix, detectNDC } from './matrix.js';
 import { installDrawing } from './drawing.js';
-import { installTrack, tickPlayers, clearPlayers } from './track.js';
+import { installPath, tickPlayers, clearPlayers } from './path.js';
 import { installPipe } from './pipe.js';
 import { installUI } from './ui.js';
 
@@ -27,7 +27,7 @@ p5.registerAddon((p5, fn, lifecycles) => {
   installDrawing(p5, fn);
 
   // §4 — PoseTrack, adapters, camera path API + global forwarders
-  installTrack(p5, fn);
+  installPath(p5, fn);
 
   // §5 — Pipe (post-processing chain)
   installPipe(p5, fn);

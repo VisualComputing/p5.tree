@@ -21,7 +21,7 @@ import { createUniformUI as _uniformUI, createTrackUI as _trackUI } from '@naked
 import { qFromMat4 } from '@nakednous/tree';
 import {
   registerPlayer, getCamTrack, tickCamera, _applyCamAtCursor
-} from './track.js';
+} from './path.js';
 
 // ── Shared parent resolution ──────────────────────────────────────────────────
 

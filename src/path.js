@@ -1,6 +1,6 @@
 /**
- * @file Camera path API + PoseTrack bridge.
- * @module p5.tree/track
+ * @file Camera path player + PoseTrack bridge.
+ * @module p5.tree/path
  * @license GPL-3.0-only
  *
  * Imports PoseTrack from core (tree/track). All p5.Camera-specific code,
@@ -243,7 +243,7 @@ function _addPathHelpers(p5) {
 // Install
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function installTrack(p5, fn) {
+export function installPath(p5, fn) {
   // Expose core type on p5.Tree
   p5.Tree.PoseTrack = PoseTrack;
 
@@ -565,7 +565,9 @@ export function installTrack(p5, fn) {
   fn.pathTime   = function ()     { const c = this._renderer.states.curCamera; return c && c.pathTime(); };
   fn.pathInfo   = function ()     { const c = this._renderer.states.curCamera; return c && c.pathInfo(); };
 
+  // ── Non-PoseTrack helpers ─────────────────────────────────────────────
   // ── rotateQuat / applyPose ────────────────────────────────────────────
+  // TODO: consider moving them to p5.tree/pose.js (own file) or p5.tree/ui.js
 
   /**
    * Rotate by a quaternion, derived as an axis-angle rotation.
