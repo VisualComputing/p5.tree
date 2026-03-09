@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/p5.tree?color=1f6feb)](https://www.npmjs.com/package/p5.tree)
 
-Shader development, camera keyframe interpolation, space transformations, and uniform UI controls for 3D rendering in [p5.js v2](https://beta.p5js.org/) ([WEBGL](https://beta.p5js.org/reference/p5/constants/webgl/) / [WEBGL2](https://beta.p5js.org/reference/p5/constants/webgl2/) / [WebGPU](https://beta.p5js.org/reference/p5/constants/webgpu/)).
+Shader tools, animation tracks, camera keyframe interpolation, space transforms, and uniform UI controls for 3D rendering with [p5.js v2](https://beta.p5js.org/) ([WEBGL](https://beta.p5js.org/reference/p5/constants/webgl/) / [WEBGL2](https://beta.p5js.org/reference/p5/constants/webgl2/) / [WebGPU](https://beta.p5js.org/reference/p5/constants/webgpu/)).
 
 ![A non-Euclidean geometry cube with faces showcasing teapot, bunny, and Buddha models.](p5.tree.png)
 
@@ -531,9 +531,9 @@ Latest:
 
 Tagged example:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.14/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.14/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.14/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.14/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.14/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.14/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.15/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.15/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.15/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.15/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.15/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.15/dist/p5.tree.esm.js)
 
 ---
 
