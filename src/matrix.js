@@ -7,7 +7,7 @@
  */
 
 import {
-  WORLD, EYE, NDC, SCREEN, MODEL, MATRIX, WEBGL, WEBGPU,
+  EYE, NDC, SCREEN, MATRIX, WEBGL, WEBGPU,
   mat4Mul, mat4Invert, mat3NormalFromMat4,
   mat4Location, mat3Direction,
   mapLocation as coreMapLocation,

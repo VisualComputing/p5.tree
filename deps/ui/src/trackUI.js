@@ -24,17 +24,18 @@
  *   target.onEnd         Callback hook (chained, not clobbered).
  *
  * Optional:
- *   target.add()         Add keyframe (e.g. snapshot current camera/pose).
+ *   target.add(d?)       Add keyframe at depth d [0..1] (near..far plane centre).
  *   target.reset()       Clear all keyframes and stop.
  *   target.info()        Returns { keyframes, segments, seg, f, time, ... }.
  *
  * Layout (top → bottom)
  * ---------------------
- *   Row 1 — controls:   [+]  [▶/⏸]  [↺]   (always visible)
- *   Row 2 — seek:       seek slider         (hidden when keyframes ≤ 1)
- *   Row 3 — rate:       rate label + slider (when showProps)
- *   Row 4 — mode:       mode label + select (when showProps, always last)
- *   Row 5 — info:       time / keyframe     (when showInfo)
+ *   Row 1  — controls:  [+]  [▶/⏸]  [↺]   (always visible)
+ *   Row 1b — depth:     depth slider        (when target supports add)
+ *   Row 2  — seek:      seek slider         (hidden when keyframes ≤ 1)
+ *   Row 3  — rate:      rate label + slider (when showProps)
+ *   Row 4  — mode:      mode label + select (when showProps, always last)
+ *   Row 5  — info:      time / keyframe     (when showInfo)
  *
  * Returned API
  * ------------
@@ -63,10 +64,12 @@ import {
  * @param {number}  [opt.rate=1]          Initial rate.
  * @param {boolean} [opt.loop=false]      Initial loop mode.
  * @param {boolean} [opt.pingPong=false]  Initial pingPong mode (overrides loop).
+ * @param {number}  [opt.depth=0.5]       Initial add-pose depth [0..1]: 0 = near plane, 1 = far plane.
  * @param {number}  [opt.x=0]            Container left (px).
  * @param {number}  [opt.y=0]            Container top (px).
- * @param {number}  [opt.width=220]      Seek slider width (px).
+ * @param {number}  [opt.width=220]      Slider width (px).
  * @param {number}  [opt.rateWidth]      Rate slider width (px). Defaults to opt.width.
+ * @param {number}  [opt.depthWidth]     Depth slider width (px). Defaults to opt.width.
  * @param {string}  [opt.color]          Text color.
  * @param {boolean} [opt.hidden=false]   Start hidden.
  * @param {HTMLElement} [opt.parent]     Mount target (defaults to document.body).
@@ -75,15 +78,17 @@ import {
 export function createTrackUI(target, opt) {
   opt = opt || {};
 
-  const showSeek  = opt.seek !== false;
+  const showSeek  = opt.seek  !== false;
   const showProps = opt.props !== false;
-  const showInfo  = opt.info === true;
-  const sliderW     = opt.width     ?? 120;
-  const rateSliderW = opt.rateWidth ?? sliderW;
+  const showInfo  = opt.info  === true;
+  const sliderW      = opt.width      ?? 120;
+  const rateSliderW  = opt.rateWidth  ?? sliderW;
+  const depthSliderW = opt.depthWidth ?? sliderW;
 
-  // Mutable playback parameters — only updated by UI controls
-  let _rate = opt.rate ?? 1;
-  let _mode = opt.pingPong ? 'pingPong' : opt.loop ? 'loop' : 'once';
+  // Mutable playback / capture parameters — only updated by UI controls
+  let _rate  = opt.rate ?? 1;
+  let _mode  = opt.pingPong ? 'pingPong' : opt.loop ? 'loop' : 'once';
+  let _depth = (typeof opt.depth === 'number') ? opt.depth : 0.5;
 
   const container = createContainer('track-ui');
   container.style.left = `${opt.x ?? 0}px`;
@@ -118,7 +123,7 @@ export function createTrackUI(target, opt) {
   const hasAdd = typeof target.add === 'function';
   if (hasAdd) {
     const btnAdd = createButton('\u002B', () => {
-      target.add();
+      target.add(_depth);
       // Force enabled-state refresh on the next tick
       _lastKf = -1;
     });
@@ -139,9 +144,11 @@ export function createTrackUI(target, opt) {
   ctrlRow.appendChild(btnPlay);
 
   // ↺ reset button (clear keyframes) — only if target supports it
+  // Declared in outer scope so _updateEnabledState can disable it.
+  let btnReset = null;
   const hasReset = typeof target.reset === 'function';
   if (hasReset) {
-    const btnReset = createButton('\u21BA', () => {
+    btnReset = createButton('\u21BA', () => {
       target.reset();
       _syncPlayBtn();
       _lastKf = -1;   // force enabled-state refresh
@@ -151,6 +158,29 @@ export function createTrackUI(target, opt) {
   }
 
   container.appendChild(ctrlRow);
+
+  // ── Row 1b — depth slider (when target supports add) ─────────────────────
+  // Controls where along the frustum centre ray the new pose is placed.
+  // 0 = near plane centre,  1 = far plane centre.
+
+  if (hasAdd && opt.depth !== false) {
+    const depthRow = document.createElement('div');
+    depthRow.className = 'p5t-depth';
+    depthRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:11px;';
+
+    const depthLabel = createLabel(`depth: ${_depth.toFixed(2)}`);
+    depthLabel.style.minWidth = '72px';
+
+    const depthSlider = createSlider(0, 1, _depth, 0.01, v => {
+      _depth = v;
+      depthLabel.textContent = `depth: ${v.toFixed(2)}`;
+    });
+    depthSlider.style.width = `${depthSliderW}px`;
+
+    depthRow.appendChild(depthLabel);
+    depthRow.appendChild(depthSlider);
+    container.appendChild(depthRow);
+  }
 
   // ── Row 2 — seek slider (conditional) ───────────────────────────────────
 
@@ -285,8 +315,10 @@ export function createTrackUI(target, opt) {
     _lastKf = kf;
     // Play button: disabled with 0 keyframes
     btnPlay.disabled = kf === 0;
-    // Seek row: only meaningful when there are 2+ keyframes
-    if (seekRow) setVisible(seekRow, kf > 1);
+    // Reset button: nothing to reset when empty
+    if (btnReset) btnReset.disabled = kf === 0;
+    // Seek slider: only meaningful with 2+ keyframes, but stays visible
+    if (seekSlider) seekSlider.disabled = kf < 2;
   }
 
   function _updateInfo() {

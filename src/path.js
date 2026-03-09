@@ -10,7 +10,7 @@
 'use strict';
 
 import {
-  PoseTrack, qFromMat4, qToMat4, qSlerp, quatToAxisAngle
+  PoseTrack, qFromMat4, qToMat4
 } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════

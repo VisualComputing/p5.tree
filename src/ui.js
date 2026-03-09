@@ -18,10 +18,21 @@
 'use strict';
 
 import { createUniformUI as _uniformUI, createTrackUI as _trackUI } from '@nakednous/ui';
-import { qFromMat4 } from '@nakednous/tree';
+import {
+  qFromMat4,
+  NDC, WORLD,
+  mapLocation as coreMapLocation,
+  mat4Mul, mat4Invert,
+} from '@nakednous/tree';
 import {
   registerPlayer, getCamTrack, tickCamera, _applyCamAtCursor
 } from './path.js';
+
+// ── Module-level scratch (allocated once at import time) ──────────────────────
+
+const _sc_pv  = new Float32Array(16);  // proj * view
+const _sc_ipv = new Float32Array(16);  // inv(proj * view)
+const _sc_v3  = new Float32Array(3);   // scratch 3-vector
 
 // ── Shared parent resolution ──────────────────────────────────────────────────
 
@@ -40,6 +51,47 @@ function _resolveParent(pInst, parent) {
   return (pInst._renderer && pInst._renderer.canvas)
     ? pInst._renderer.canvas.parentElement
     : document.body;
+}
+
+// ── Depth helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Detect NDC Z minimum from the renderer's drawing context.
+ * Returns −1 for WebGL, 0 for WebGPU.
+ * @param {Object} renderer
+ * @returns {number}
+ */
+function _ndcZMin(renderer) {
+  if (renderer.drawingContext &&
+      typeof WebGL2RenderingContext !== 'undefined' &&
+      renderer.drawingContext instanceof WebGL2RenderingContext) return -1;
+  return 0;
+}
+
+/**
+ * Unproject the frustum centre at parametric depth d [0..1] into world space.
+ * d=0 → near plane centre,  d=1 → far plane centre.
+ *
+ * Uses coreMapLocation (NDC→WORLD) directly to avoid going through the p5
+ * bridge wrapper. Returns a plain [x, y, z] array, or null if renderer
+ * state is unavailable.
+ *
+ * @param {p5} pInst
+ * @param {number} d  Depth in [0..1].
+ * @returns {number[]|null}
+ */
+function _centerAtDepth(pInst, d) {
+  const renderer = pInst._renderer;
+  if (!renderer || !renderer.states) return null;
+  const proj = renderer.states.uPMatrix?.mat4;
+  const view = renderer.states.curCamera?.cameraMatrix?.mat4;
+  if (!proj || !view) return null;
+  const ndcMin = _ndcZMin(renderer);
+  const ndcZ   = ndcMin + d * (1 - ndcMin);
+  mat4Mul(_sc_pv, proj, view);
+  if (!mat4Invert(_sc_ipv, _sc_pv)) return null;
+  coreMapLocation(_sc_v3, 0, 0, ndcZ, NDC, WORLD, { ipv: _sc_ipv }, [0, 0, 1, 1], ndcMin);
+  return [_sc_v3[0], _sc_v3[1], _sc_v3[2]];
 }
 
 // ── installUI ─────────────────────────────────────────────────────────────────
@@ -108,7 +160,10 @@ export function installUI(p5, fn) {
    *   If a PoseTrack is passed, the `+` button captures a pose from the
    *   current camera (eye position + orientation).
    *   If omitted (first arg is the options object), defaults to curCamera.
-   * @param {Object} [opt]  Layout options (seek, props, info, rate, loop, ...).
+   * @param {Object} [opt]  Layout options (seek, props, info, rate, loop, depth, ...).
+   * @param {number}  [opt.depth=0.5]  Initial add-pose depth [0..1]: 0 = near plane,
+   *   1 = far plane.  The `+` button places the new keyframe at the frustum centre
+   *   ray unprojected to this NDC depth.
    * @param {(HTMLElement|p5.Element)} [opt.parent]  Mount target.
    *   Defaults to the canvas parent element.
    * @returns {Object} UI handle with .el, .tick(), .dispose().
@@ -148,6 +203,10 @@ export function installUI(p5, fn) {
     opt.parent = _resolveParent(pInst, opt.parent);
 
     const isCam = trackOrCamOrOpt instanceof p5.Camera;
+    // Depth slider is only meaningful for PoseTrack targets (placing an object
+    // at a scene depth). Camera keyframes snapshot the whole camera pose, so
+    // depth does not apply.
+    if (isCam) opt.depth = false;
     let target;
 
     if (isCam) {
@@ -187,8 +246,11 @@ export function installUI(p5, fn) {
         },
         time()  { return track.time(); },
         info()  { return track.info(); },
-        /** Add current camera as a new keyframe. */
-        add()   { cam.addPath(); },
+        /**
+         * Snapshot the current camera pose as a new keyframe.
+         * Depth is not applicable to camera keyframes — the snapshot IS the camera.
+         */
+        add() { cam.addPath(); },
         /** Clear all keyframes and stop. */
         reset() { cam.resetPath(); },
         get playing()  { return track.playing; },
@@ -200,11 +262,18 @@ export function installUI(p5, fn) {
 
     } else {
       // ── PoseTrack target ─────────────────────────────────────────────────
-      // Augment the bare PoseTrack with an add() that captures the current
-      // camera's eye position and orientation as a pose keyframe.
+      // Augment the bare PoseTrack with an add() that captures a pose from the
+      // current camera at the frustum centre unprojected to depth d.
       const track = trackOrCamOrOpt;
 
-      const _captureFromCamera = () => {
+      /**
+       * Capture a pose from the current camera at NDC depth d.
+       * Position: frustum centre at depth d (NDC→WORLD).
+       * Orientation: quaternion extracted from the current camera matrix.
+       * @param {number} [d=0.5]
+       * @returns {{ pos, rot, scl }|null}
+       */
+      const _captureFromCamera = (d = 0.5) => {
         const cam = pInst._renderer && pInst._renderer.states
           ? pInst._renderer.states.curCamera : null;
         if (!cam) return null;
@@ -212,14 +281,8 @@ export function installUI(p5, fn) {
         if (cam.cameraMatrix && cam.cameraMatrix.mat4) {
           qFromMat4(rot, cam.cameraMatrix.mat4);
         }
-        // Eye position via coordinate-space helper if available, else direct
-        let pos;
-        if (typeof pInst.mapLocation === 'function') {
-          const v = pInst.mapLocation([0, 0, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD });
-          pos = [v.x, v.y, v.z];
-        } else {
-          pos = [cam.eyeX, cam.eyeY, cam.eyeZ];
-        }
+        const wp  = _centerAtDepth(pInst, d);
+        const pos = wp ? wp : [cam.eyeX, cam.eyeY, cam.eyeZ];
         return { pos, rot, scl: [1, 1, 1] };
       };
 
@@ -229,9 +292,12 @@ export function installUI(p5, fn) {
         seek(t)  { track.seek(t); },
         time()   { return track.time(); },
         info()   { return track.info(); },
-        /** Capture current camera pose and push it as a new keyframe. */
-        add() {
-          const pose = _captureFromCamera();
+        /**
+         * Capture current camera pose at depth d and push it as a new keyframe.
+         * @param {number} [d=0.5]
+         */
+        add(d = 0.5) {
+          const pose = _captureFromCamera(d);
           if (pose) track.keyframes.push(pose);
         },
         /** Clear all keyframes and stop. */
