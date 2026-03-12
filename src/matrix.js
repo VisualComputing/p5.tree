@@ -3,8 +3,45 @@
  * @module p5.tree/matrix
  * @license GPL-3.0-only
  *
- * Module-level scratch allocated at import time. _ndcZ detected in postsetup.
+ * Thin bridge: reads raw Float32Array refs from p5 renderer state and feeds
+ * them directly into @nakednous/tree core functions.
+ *
+ * All matrix queries follow the same contract as @nakednous/tree:
+ *   - `out` is the first parameter — caller owns the buffer
+ *   - the function returns `out` (or null on a singular matrix)
+ *   - no heap allocations; all intermediates use module-level working buffers
+ *
+ * ── Unified input types ───────────────────────────────────────────────────
+ *
+ *   Matrix params (16-elem): Float32Array | ArrayLike | p5.Matrix
+ *     Internally normalised via _rawMat4(m) = m.mat4 ?? m — zero alloc.
+ *
+ *   Matrix params (9-elem):  Float32Array | ArrayLike | p5.Matrix(.mat3)
+ *     Internally normalised via _rawMat3(m) = m.mat3 ?? m — zero alloc.
+ *
+ *   Vector params (3-elem):  Float32Array | ArrayLike | p5.Vector
+ *     Input:  read via v.x ?? v[0] ?? 0 inline — zero alloc.
+ *     Output: if p5.Vector, core writes into _tmp3 scratch then x/y/z are
+ *             copied back; all other types receive the result directly.
+ *
+ * ── Pattern ───────────────────────────────────────────────────────────────
+ *
+ *   // setup — allocate once
+ *   const e   = new Float32Array(16)
+ *   const pm  = new Float32Array(16)
+ *   const pv  = new Float32Array(16)
+ *   const loc = new Float32Array(3)
+ *
+ *   // draw — zero allocations
+ *   p.eMatrix(e)
+ *   p.pMatrix(pm)
+ *   p.pvMatrix(pv)
+ *   p.viewFrustum({ eMatrix: e, pMatrix: pm })
+ *   p.mousePicking({ pvMatrix: pv, eMatrix: e })
+ *   p.mapLocation(loc, [0,0,0], { from: p5.Tree.EYE, to: p5.Tree.WORLD })
  */
+
+'use strict';
 
 import {
   EYE, NDC, SCREEN, MATRIX, WEBGL, WEBGPU,
@@ -18,15 +55,24 @@ import {
 } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Module-level scratch — allocated once at import time
+// Module-level working buffers — internal intermediates, never returned
 // ═══════════════════════════════════════════════════════════════════════════
 
-const _pv   = new Float32Array(16);
-const _ipv  = new Float32Array(16);
-const _inv  = new Float32Array(16);
-const _inv2 = new Float32Array(16);  // separate scratch for toFrameInv
-const _nMat = new Float32Array(9);
-const _v3   = new Float32Array(3);
+const _pv   = new Float32Array(16);  // PV intermediate
+const _ipv  = new Float32Array(16);  // IPV intermediate
+const _wa   = new Float32Array(16);  // single-step intermediate (eye, MV, …)
+const _wb   = new Float32Array(16);  // toFrameInv for custom MATRIX space
+const _vp   = new Float32Array(4);   // viewport [x, y, w, h]
+const _tmp3 = new Float32Array(3);   // p5.Vector out path in map*** functions
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Unified type normalisers — zero alloc
+// ═══════════════════════════════════════════════════════════════════════════
+
+// p5.Matrix exposes its internal Float32Array via .mat4 (4×4) or .mat3 (3×3).
+// Plain Float32Array / ArrayLike fall through unchanged.
+const _rawMat4 = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
+const _rawMat3 = (m) => (m != null && m.mat3 != null) ? m.mat3 : m;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NDC convention — detected once in postsetup
@@ -36,15 +82,11 @@ let _ndcZ = WEBGL;
 
 /** Called from addon index.js lifecycles.postsetup. */
 export function detectNDC(renderer) {
-  // The renderer type determines the NDC Z convention.
-  // In p5.js, WEBGL and WEBGPU are the 3rd param to createCanvas.
-  // We detect based on the rendering context type.
   if (renderer.drawingContext &&
       typeof WebGL2RenderingContext !== 'undefined' &&
       renderer.drawingContext instanceof WebGL2RenderingContext) {
     _ndcZ = WEBGL;
   } else {
-    // WebGPU or future backends
     _ndcZ = WEBGPU;
   }
 }
@@ -53,17 +95,9 @@ export function detectNDC(renderer) {
 // Raw p5 state access — direct Float32Array refs, no copies
 // ═══════════════════════════════════════════════════════════════════════════
 
-function _projMat4(renderer) {
-  return renderer.states.uPMatrix.mat4;
-}
-
-function _viewMat4(renderer) {
-  return renderer.states.curCamera.cameraMatrix.mat4;
-}
-
-function _modelMat4(renderer) {
-  return renderer.states.uModelMatrix.mat4;
-}
+const _projMat4  = (r) => r.states.uPMatrix.mat4;
+const _viewMat4  = (r) => r.states.curCamera.cameraMatrix.mat4;
+const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Install
@@ -71,116 +105,192 @@ function _modelMat4(renderer) {
 
 export function installMatrix(p5, fn) {
 
-  // ── Private immutable wrappers (p5.Matrix level) ────────────────────────
+  // Detect vec input: Array, TypedArray, or p5.Vector.
+  // Plain opts objects { from, to, … } do not match.
+  const _isVec = (v) => v != null &&
+    (Array.isArray(v) || ArrayBuffer.isView(v) || v instanceof p5.Vector);
 
-  const _invert = function (matrix) {
-    const out = matrix.clone();
-    out.invert(matrix);
-    return out;
+  // ── p5.Matrix utilities ───────────────────────────────────────────────────
+  //
+  // Operate on p5.Matrix objects for callers working with p5's own matrix
+  // stack. Not matrix queries — do not follow the out-first contract.
+
+  fn.tMatrix = function (m) {
+    const s = m.mat4;
+    if (s) return new p5.Matrix([s[0],s[4],s[8],s[12],s[1],s[5],s[9],s[13],s[2],s[6],s[10],s[14],s[3],s[7],s[11],s[15]]);
+    const t = m.mat3;
+    if (t) return new p5.Matrix([t[0],t[3],t[6],t[1],t[4],t[7],t[2],t[5],t[8]]);
   };
-
-  const _transpose = function (matrix) {
-    const m4 = matrix.mat4;
-    if (m4) {
-      return new p5.Matrix([
-        m4[0],m4[4],m4[8],m4[12],
-        m4[1],m4[5],m4[9],m4[13],
-        m4[2],m4[6],m4[10],m4[14],
-        m4[3],m4[7],m4[11],m4[15]
-      ]);
-    }
-    const m3 = matrix.mat3;
-    if (m3) {
-      return new p5.Matrix([
-        m3[0],m3[3],m3[6],
-        m3[1],m3[4],m3[7],
-        m3[2],m3[5],m3[8]
-      ]);
-    }
-  };
-
-  // ── p5.Matrix operations ─────────────────────────────────────────────
-
-  fn.tMatrix = function (matrix) { return _transpose(matrix); };
-  fn.iMatrix = function (matrix) { return _invert(matrix); };
-  fn.axbMatrix = function (a, b) { return a.clone().mult(b); };
+  fn.iMatrix      = function (m)    { const o = m.clone(); o.invert(m); return o; };
+  fn.axbMatrix    = function (a, b) { return a.clone().mult(b); };
   fn.createMatrix = (...args) => new p5.Matrix(...args);
 
-  // ── Matrix queries (immutable copies) ──────────────────────────────
+  // ── Simple matrix queries ────────────────────────────────────────────────
+  //
+  // Each reads from live p5 renderer state and writes into the caller-provided
+  // out buffer. Accepts Float32Array | ArrayLike | p5.Matrix for out.
 
-  p5.Renderer3D.prototype.pMatrix = function () { return this.states.uPMatrix.clone(); };
-  fn.pMatrix = function () { return this._renderer.pMatrix(); };
-
-  p5.Renderer3D.prototype.mMatrix = function () { return this.states.uModelMatrix.clone(); };
-  fn.mMatrix = function () { return this._renderer.mMatrix(); };
-
-  p5.Camera.prototype.vMatrix = function () { return this.cameraMatrix.clone(); };
-
-  p5.Camera.prototype.eMatrix = function () {
-    mat4Invert(_inv, this.cameraMatrix.mat4);
-    return new p5.Matrix(Array.from(_inv));
+  /**
+   * Projection matrix.
+   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.pMatrix = function (out) {
+    const buf = _rawMat4(out), s = _projMat4(this);
+    for (let i = 0; i < 16; i++) buf[i] = s[i];
+    return out;
   };
+  fn.pMatrix = function (out) { return this._renderer.pMatrix(out); };
 
-  p5.Renderer3D.prototype.vMatrix = function () { return this.states.curCamera.vMatrix(); };
-  fn.vMatrix = function () { return this._renderer.vMatrix(); };
-
-  p5.Renderer3D.prototype.eMatrix = function () { return this.states.curCamera.eMatrix(); };
-  fn.eMatrix = function () { return this._renderer.eMatrix(); };
-
-  // ── lMatrix / dMatrix ──────────────────────────────────────────────
-  
-  p5.Renderer3D.prototype.lMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix() } = {}) {
-    mat4Location(_inv, from.mat4, to.mat4);
-    return new p5.Matrix(Array.from(_inv));
+  /**
+   * Model matrix.
+   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.mMatrix = function (out) {
+    const buf = _rawMat4(out), s = _modelMat4(this);
+    for (let i = 0; i < 16; i++) buf[i] = s[i];
+    return out;
   };
-  fn.lMatrix = function (opts = {}) { return this._renderer.lMatrix(opts); };
-  
-  p5.Renderer3D.prototype.dMatrix = function ({ from = new p5.Matrix(4), to = this.eMatrix() } = {}) {
-    mat3Direction(_nMat, from.mat4, to.mat4);
-    return new p5.Matrix(Array.from(_nMat));
+  fn.mMatrix = function (out) { return this._renderer.mMatrix(out); };
+
+  /**
+   * View matrix (world → eye).
+   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @returns {typeof out}
+   */
+  p5.Camera.prototype.vMatrix = function (out) {
+    const buf = _rawMat4(out), s = this.cameraMatrix.mat4;
+    for (let i = 0; i < 16; i++) buf[i] = s[i];
+    return out;
   };
-  fn.dMatrix = function (opts = {}) { return this._renderer.dMatrix(opts); };
+  p5.Renderer3D.prototype.vMatrix = function (out) { return this.states.curCamera.vMatrix(out); };
+  fn.vMatrix = function (out) { return this._renderer.vMatrix(out); };
 
-  // ── Derived matrices (use core ops on raw buffers) ────────────────
-
-  p5.Renderer3D.prototype.mvMatrix = function ({ vMatrix, mMatrix } = {}) {
-    return (mMatrix || this.states.uModelMatrix).clone().mult(vMatrix || this.states.curCamera.cameraMatrix);
+  /**
+   * Eye matrix (eye → world, i.e. inverse view).
+   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @returns {typeof out|null} out, or null if the view matrix is singular.
+   */
+  p5.Camera.prototype.eMatrix = function (out) {
+    const buf = _rawMat4(out);
+    return mat4Invert(buf, this.cameraMatrix.mat4) === null ? null : out;
   };
-  fn.mvMatrix = function (opts = {}) { return this._renderer.mvMatrix(opts); };
+  p5.Renderer3D.prototype.eMatrix = function (out) { return this.states.curCamera.eMatrix(out); };
+  fn.eMatrix = function (out) { return this._renderer.eMatrix(out); };
 
-  p5.Renderer3D.prototype.nMatrix = function ({ vMatrix, mMatrix, mvMatrix = this.mvMatrix({ mMatrix, vMatrix }) } = {}) {
-    mat3NormalFromMat4(_nMat, mvMatrix.mat4);
-    return new p5.Matrix(Array.from(_nMat));
+  // ── Composite matrix queries ─────────────────────────────────────────────
+  //
+  // out is first; optional matrix overrides follow in an opts object.
+  // All matrix opts accept Float32Array | ArrayLike | p5.Matrix.
+
+  /**
+   * Projection-view matrix: P · V.
+   * @param {Float32Array|p5.Matrix} out
+   * @param {{ pMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.pvMatrix = function (out, { pMatrix, vMatrix } = {}) {
+    const buf = _rawMat4(out);
+    mat4Mul(buf, _rawMat4(pMatrix) ?? _projMat4(this), _rawMat4(vMatrix) ?? _viewMat4(this));
+    return out;
   };
-  fn.nMatrix = function (opts = {}) { return this._renderer.nMatrix(opts); };
+  fn.pvMatrix = function (out, opts) { return this._renderer.pvMatrix(out, opts); };
 
-  p5.Renderer3D.prototype.pmvMatrix = function ({ pMatrix = this.pMatrix(), vMatrix, mMatrix, mvMatrix } = {}) {
-    return (mvMatrix ? mvMatrix.clone() : this.mvMatrix({ mMatrix, vMatrix })).mult(pMatrix);
+  /**
+   * Inverse projection-view matrix: inv(P · V).
+   * @param {Float32Array|p5.Matrix} out
+   * @param {{ pMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix, pvMatrix?: Float32Array|p5.Matrix }} [opts]
+   *   Pass `pvMatrix` to skip recomputing P · V.
+   * @returns {typeof out|null} out, or null if singular.
+   */
+  p5.Renderer3D.prototype.ipvMatrix = function (out, { pMatrix, vMatrix, pvMatrix } = {}) {
+    const pv = _rawMat4(pvMatrix) ??
+      (mat4Mul(_pv, _rawMat4(pMatrix) ?? _projMat4(this), _rawMat4(vMatrix) ?? _viewMat4(this)), _pv);
+    const buf = _rawMat4(out);
+    return mat4Invert(buf, pv) === null ? null : out;
   };
-  fn.pmvMatrix = function (opts = {}) { return this._renderer.pmvMatrix(opts); };
+  fn.ipvMatrix = function (out, opts) { return this._renderer.ipvMatrix(out, opts); };
 
-  p5.Renderer3D.prototype.pvMatrix = function ({ pMatrix = this.pMatrix(), vMatrix } = {}) {
-    return (vMatrix || (this.states.uViewMatrix || this.states.curCamera.cameraMatrix)).clone().mult(pMatrix);
+  /**
+   * Model-view matrix: V · M.
+   * @param {Float32Array|p5.Matrix} out
+   * @param {{ mMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.mvMatrix = function (out, { mMatrix, vMatrix } = {}) {
+    const buf = _rawMat4(out);
+    mat4Mul(buf, _rawMat4(vMatrix) ?? _viewMat4(this), _rawMat4(mMatrix) ?? _modelMat4(this));
+    return out;
   };
-  fn.pvMatrix = function (opts = {}) { return this._renderer.pvMatrix(opts); };
+  fn.mvMatrix = function (out, opts) { return this._renderer.mvMatrix(out, opts); };
 
-  p5.Renderer3D.prototype.ipvMatrix = function ({ pMatrix, vMatrix, pvMatrix = this.pvMatrix({ pMatrix, vMatrix }) } = {}) {
-    return _invert(pvMatrix);
+  /**
+   * Projection-model-view matrix: P · V · M.
+   * @param {Float32Array|p5.Matrix} out
+   * @param {{ pMatrix?: Float32Array|p5.Matrix, mMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.pmvMatrix = function (out, { pMatrix, mMatrix, vMatrix } = {}) {
+    mat4Mul(_wa, _rawMat4(vMatrix) ?? _viewMat4(this), _rawMat4(mMatrix) ?? _modelMat4(this));
+    const buf = _rawMat4(out);
+    mat4Mul(buf, _rawMat4(pMatrix) ?? _projMat4(this), _wa);
+    return out;
   };
-  fn.ipvMatrix = function (opts = {}) { return this._renderer.ipvMatrix(opts); };
+  fn.pmvMatrix = function (out, opts) { return this._renderer.pmvMatrix(out, opts); };
 
-  // ── Projection queries ────────────────────────────────────────────
+  /**
+   * Normal matrix: inverseTranspose(upper 3×3 of V · M).
+   * @param {Float32Array|p5.Matrix} out  9-element destination.
+   * @param {{ mMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix, mvMatrix?: Float32Array|p5.Matrix }} [opts]
+   *   Pass `mvMatrix` to skip recomputing V · M.
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.nMatrix = function (out, { mMatrix, vMatrix, mvMatrix } = {}) {
+    const mv = _rawMat4(mvMatrix) ??
+      (mat4Mul(_wa, _rawMat4(vMatrix) ?? _viewMat4(this), _rawMat4(mMatrix) ?? _modelMat4(this)), _wa);
+    const buf = _rawMat3(out);
+    mat3NormalFromMat4(buf, mv);
+    return out;
+  };
+  fn.nMatrix = function (out, opts) { return this._renderer.nMatrix(out, opts); };
 
-  p5.Matrix.prototype.isOrtho = function () { return projIsOrtho(this.mat4); };
+  /**
+   * Location transform matrix: inv(to) · from.
+   *
+   * Maps a point from the `from` frame into the `to` frame: p_to = out · p_from.
+   *
+   * @param {Float32Array|p5.Matrix} out   16-element destination.
+   * @param {Float32Array|p5.Matrix} from  Source frame transform.
+   * @param {Float32Array|p5.Matrix} to    Destination frame transform.
+   * @returns {typeof out|null} out, or null if `to` is singular.
+   */
+  p5.Renderer3D.prototype.lMatrix = function (out, from, to) {
+    const buf = _rawMat4(out);
+    return mat4Location(buf, _rawMat4(from), _rawMat4(to)) === null ? null : out;
+  };
+  fn.lMatrix = function (out, from, to) { return this._renderer.lMatrix(out, from, to); };
+
+  /**
+   * Direction transform matrix: to₃ · inv(from₃).
+   *
+   * Uses only the upper-left 3×3 blocks (rotation/scale, no translation).
+   *
+   * @param {Float32Array|p5.Matrix} out   9-element destination.
+   * @param {Float32Array|p5.Matrix} from  Source frame transform (mat4).
+   * @param {Float32Array|p5.Matrix} to    Destination frame transform (mat4).
+   * @returns {typeof out|null} out, or null if `from` is singular.
+   */
+  p5.Renderer3D.prototype.dMatrix = function (out, from, to) {
+    const buf = _rawMat3(out);
+    return mat3Direction(buf, _rawMat4(from), _rawMat4(to)) === null ? null : out;
+  };
+  fn.dMatrix = function (out, from, to) { return this._renderer.dMatrix(out, from, to); };
+
+  // ── Projection scalar queries ─────────────────────────────────────────────
+
   p5.Renderer3D.prototype.isOrtho = function () { return projIsOrtho(_projMat4(this)); };
   fn.isOrtho = function () { return this._renderer.isOrtho(); };
-
-  p5.Matrix.prototype.nPlane = function () { return projNear(this.mat4, _ndcZ); };
-  p5.Matrix.prototype.fPlane = function () { return projFar(this.mat4); };
-  p5.Matrix.prototype.lPlane = function () { return projLeft(this.mat4, _ndcZ); };
-  p5.Matrix.prototype.rPlane = function () { return projRight(this.mat4, _ndcZ); };
-  p5.Matrix.prototype.tPlane = function () { return projTop(this.mat4, _ndcZ); };
-  p5.Matrix.prototype.bPlane = function () { return projBottom(this.mat4, _ndcZ); };
 
   p5.Renderer3D.prototype.nPlane = function () { return projNear(_projMat4(this), _ndcZ); };
   p5.Renderer3D.prototype.fPlane = function () { return projFar(_projMat4(this)); };
@@ -196,24 +306,15 @@ export function installMatrix(p5, fn) {
   fn.tPlane = function () { return this._renderer.tPlane(); };
   fn.bPlane = function () { return this._renderer.bPlane(); };
 
-  p5.Matrix.prototype.fov = function () {
-    if (this.mat4[15] !== 0) { console.error('[tree.matrix] fov only works for a perspective projection.'); return; }
-    return projFov(this.mat4);
-  };
-  p5.Matrix.prototype.hfov = function () {
-    if (this.mat4[15] !== 0) { console.error('[tree.matrix] hfov only works for a perspective projection.'); return; }
-    return projHfov(this.mat4);
-  };
-
-  p5.Renderer3D.prototype.fov = function () { return this.states.uPMatrix.fov(); };
-  p5.Renderer3D.prototype.hfov = function () { return this.states.uPMatrix.hfov(); };
-  fn.fov = function () { return this._renderer.fov(); };
+  p5.Renderer3D.prototype.fov  = function () { return projFov(_projMat4(this)); };
+  p5.Renderer3D.prototype.hfov = function () { return projHfov(_projMat4(this)); };
+  fn.fov  = function () { return this._renderer.fov(); };
   fn.hfov = function () { return this._renderer.hfov(); };
 
-  // ── HUD (beginHUD / endHUD) ──────────────────────────────────────
+  // ── HUD (beginHUD / endHUD) ───────────────────────────────────────────────
 
   fn.beginHUD = function (...args) { this._renderer?.beginHUD?.(...args); return this; };
-  fn.endHUD = function (...args) { this._renderer?.endHUD?.(...args); return this; };
+  fn.endHUD   = function (...args) { this._renderer?.endHUD?.(...args);   return this; };
 
   p5.Renderer3D.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
@@ -266,138 +367,173 @@ export function installMatrix(p5, fn) {
     this._hudActive = false;
   };
 
-  // ── _parseTransformArgs ──────────────────────────────────────────
+  // ── _buildBag — shared bag-builder for mapLocation / mapDirection ─────────
+  //
+  // from / to are either a space-string constant (EYE, WORLD, SCREEN, …) or a
+  // matrix (Float32Array | ArrayLike | p5.Matrix) for a custom MATRIX frame.
+  // p5.Tree.MODEL must be resolved to the live _modelMat4 ref before calling.
+  // _wb holds toFrameInv for the MATRIX-to path; valid until coreMap* returns.
 
-  p5.Renderer3D.prototype._parseTransformArgs = function (defaultMainArg, ...args) {
-    let mainArg = defaultMainArg;
-    const options = {};
-    for (const arg of args) {
-      if (arg instanceof p5.Vector || Array.isArray(arg)) { mainArg = arg; }
-      else if (arg && typeof arg === 'object') { Object.assign(options, arg); }
-    }
-    return { mainArg, options };
-  };
-
-  // ── mapLocation ──────────────────────────────────────────────────
-
-  fn.mapLocation = function (...args) { return this._renderer.mapLocation(...args); };
-
-  p5.Renderer3D.prototype.mapLocation = function (...args) {
-    const { mainArg, options } = this._parseTransformArgs(p5.Tree.ORIGIN, ...args);
-
-    const px = mainArg.x ?? mainArg[0] ?? 0;
-    const py = mainArg.y ?? mainArg[1] ?? 0;
-    const pz = mainArg.z ?? mainArg[2] ?? 0;
-
-    let from = options.from ?? p5.Tree.EYE;
-    let to   = options.to   ?? p5.Tree.WORLD;
-
-    // Resolve MODEL → model matrix
-    if (from == p5.Tree.MODEL) from = this.mMatrix();
-    if (to == p5.Tree.MODEL) to = this.mMatrix();
-
-    // Build matrices bag
+  function _buildBag(renderer, options, from, to) {
     const bag = {
-      proj: options.pMatrix?.mat4 ?? _projMat4(this),
-      view: options.vMatrix?.mat4 ?? _viewMat4(this),
-      eye: null,
-      pv: null,
-      ipv: null,
+      proj: _rawMat4(options.pMatrix) ?? _projMat4(renderer),
+      view: _rawMat4(options.vMatrix) ?? _viewMat4(renderer),
+      eye: null, pv: null, ipv: null,
     };
-
     let fromStr, toStr;
-
-    // Resolve custom p5.Matrix frames
-    if (from instanceof p5.Matrix) {
-      bag.fromFrame = from.mat4; fromStr = MATRIX;
+    if (from != null && typeof from !== 'string') {
+      bag.fromFrame = _rawMat4(from); fromStr = MATRIX;
     } else { fromStr = from; }
-
-    if (to instanceof p5.Matrix) {
-      mat4Invert(_inv2, to.mat4);
-      bag.toFrameInv = _inv2; bag.toFrame = to.mat4; toStr = MATRIX;
+    if (to != null && typeof to !== 'string') {
+      const toRaw = _rawMat4(to);
+      mat4Invert(_wb, toRaw);
+      bag.toFrameInv = _wb; bag.toFrame = toRaw; toStr = MATRIX;
     } else { toStr = to; }
+    return { bag, fromStr, toStr };
+  }
 
-    // Pre-compute derived matrices as needed
-    if (fromStr === EYE || toStr === EYE || fromStr === SCREEN || toStr === SCREEN ||
-        fromStr === NDC || toStr === NDC) {
-      if (options.eMatrix) { bag.eye = options.eMatrix.mat4; }
-      else { mat4Invert(_inv, bag.view); bag.eye = new Float32Array(_inv); }
+  // ── mapLocation ───────────────────────────────────────────────────────────
+
+  fn.mapLocation = function (out, ...rest) { return this._renderer.mapLocation(out, ...rest); };
+
+  /**
+   * Map a point between coordinate spaces.
+   *
+   * Signatures:
+   *   mapLocation(out, point, opts?)   — explicit input point
+   *   mapLocation(out, opts?)          — defaults to ORIGIN
+   *   mapLocation(out)                 — defaults to ORIGIN, EYE→WORLD
+   *
+   * @param {Float32Array|ArrayLike|p5.Vector} out    3-element destination.
+   * @param {Float32Array|ArrayLike|p5.Vector} [point]  Input coordinates.
+   * @param {{
+   *   from?:      string | Float32Array | p5.Matrix,
+   *   to?:        string | Float32Array | p5.Matrix,
+   *   eMatrix?:   Float32Array | p5.Matrix,
+   *   pMatrix?:   Float32Array | p5.Matrix,
+   *   vMatrix?:   Float32Array | p5.Matrix,
+   *   pvMatrix?:  Float32Array | p5.Matrix,
+   *   ipvMatrix?: Float32Array | p5.Matrix,
+   * }} [opts]
+   * @returns {typeof out}
+   *
+   * @example
+   * const loc = new Float32Array(3)
+   * p.mapLocation(loc, [0,0,0], { from: p5.Tree.EYE, to: p5.Tree.WORLD })
+   */
+  p5.Renderer3D.prototype.mapLocation = function (out, ...rest) {
+    // Disambiguate: rest[0] is the input point if it looks like a vector.
+    const hasVec = _isVec(rest[0]);
+    const point  = hasVec ? rest[0] : p5.Tree.ORIGIN;
+    const opts   = (hasVec ? rest[1] : rest[0]) ?? {};
+
+    const px = point.x ?? point[0] ?? 0;
+    const py = point.y ?? point[1] ?? 0;
+    const pz = point.z ?? point[2] ?? 0;
+
+    let from = opts.from ?? p5.Tree.EYE;
+    let to   = opts.to   ?? p5.Tree.WORLD;
+    if (from === p5.Tree.MODEL) from = _modelMat4(this);
+    if (to   === p5.Tree.MODEL) to   = _modelMat4(this);
+
+    const { bag, fromStr, toStr } = _buildBag(this, opts, from, to);
+
+    if (fromStr === EYE || toStr === EYE ||
+        fromStr === SCREEN || toStr === SCREEN ||
+        fromStr === NDC    || toStr === NDC) {
+      bag.eye = _rawMat4(opts.eMatrix) ??
+        (mat4Invert(_wa, bag.view), _wa);
     }
     if (toStr === SCREEN || toStr === NDC || fromStr === SCREEN || fromStr === NDC) {
-      if (options.pvMatrix) { bag.pv = options.pvMatrix.mat4; }
-      else { mat4Mul(_pv, bag.proj, bag.view); bag.pv = _pv; }
-
+      bag.pv = _rawMat4(opts.pvMatrix) ??
+        (mat4Mul(_pv, bag.proj, bag.view), _pv);
       if (fromStr === SCREEN || fromStr === NDC) {
-        if (options.ipvMatrix) { bag.ipv = options.ipvMatrix.mat4; }
-        else { mat4Invert(_ipv, bag.pv); bag.ipv = _ipv; }
+        bag.ipv = _rawMat4(opts.ipvMatrix) ??
+          (mat4Invert(_ipv, bag.pv), _ipv);
       }
     }
 
-    const vp = [0, this.height, this.width, -this.height];
+    _vp[0] = 0; _vp[1] = this.height; _vp[2] = this.width; _vp[3] = -this.height;
 
-    coreMapLocation(_v3, px, py, pz, fromStr, toStr, bag, vp, _ndcZ);
-
-    return new p5.Vector(_v3[0], _v3[1], _v3[2]);
+    // If out is p5.Vector, core writes into _tmp3, then we copy back.
+    const isVecOut = out instanceof p5.Vector;
+    const buf = isVecOut ? _tmp3 : out;
+    coreMapLocation(buf, px, py, pz, fromStr, toStr, bag, _vp, _ndcZ);
+    if (isVecOut) { out.x = buf[0]; out.y = buf[1]; out.z = buf[2]; }
+    return out;
   };
 
-  // ── mapDirection ──────────────────────────────────────────────────
+  // ── mapDirection ──────────────────────────────────────────────────────────
 
-  fn.mapDirection = function (...args) { return this._renderer.mapDirection(...args); };
+  fn.mapDirection = function (out, ...rest) { return this._renderer.mapDirection(out, ...rest); };
 
-  p5.Renderer3D.prototype.mapDirection = function (...args) {
-    const { mainArg, options } = this._parseTransformArgs(p5.Tree._k, ...args);
+  /**
+   * Map a direction vector between coordinate spaces.
+   *
+   * Signatures:
+   *   mapDirection(out, dir, opts?)   — explicit input direction
+   *   mapDirection(out, opts?)        — defaults to −Z (look direction)
+   *   mapDirection(out)               — defaults to −Z, EYE→WORLD
+   *
+   * @param {Float32Array|ArrayLike|p5.Vector} out   3-element destination.
+   * @param {Float32Array|ArrayLike|p5.Vector} [dir] Input direction.
+   * @param {{
+   *   from?:    string | Float32Array | p5.Matrix,
+   *   to?:      string | Float32Array | p5.Matrix,
+   *   eMatrix?: Float32Array | p5.Matrix,
+   *   pMatrix?: Float32Array | p5.Matrix,
+   *   vMatrix?: Float32Array | p5.Matrix,
+   * }} [opts]
+   * @returns {typeof out}
+   *
+   * @example
+   * const dir = new Float32Array(3)
+   * p.mapDirection(dir, [0,0,-1], { from: p5.Tree.EYE, to: p5.Tree.WORLD })
+   */
+  p5.Renderer3D.prototype.mapDirection = function (out, ...rest) {
+    const hasVec = _isVec(rest[0]);
+    const dir    = hasVec ? rest[0] : p5.Tree._k;
+    const opts   = (hasVec ? rest[1] : rest[0]) ?? {};
 
-    const dx = mainArg.x ?? mainArg[0] ?? 0;
-    const dy = mainArg.y ?? mainArg[1] ?? 0;
-    const dz = mainArg.z ?? mainArg[2] ?? 0;
+    const dx = dir.x ?? dir[0] ?? 0;
+    const dy = dir.y ?? dir[1] ?? 0;
+    const dz = dir.z ?? dir[2] ?? 0;
 
-    let from = options.from ?? p5.Tree.EYE;
-    let to   = options.to   ?? p5.Tree.WORLD;
+    let from = opts.from ?? p5.Tree.EYE;
+    let to   = opts.to   ?? p5.Tree.WORLD;
+    if (from === p5.Tree.MODEL) from = _modelMat4(this);
+    if (to   === p5.Tree.MODEL) to   = _modelMat4(this);
 
-    if (from == p5.Tree.MODEL) from = this.mMatrix();
-    if (to == p5.Tree.MODEL) to = this.mMatrix();
+    const { bag, fromStr, toStr } = _buildBag(this, opts, from, to);
 
-    const bag = {
-      proj: options.pMatrix?.mat4 ?? _projMat4(this),
-      view: options.vMatrix?.mat4 ?? _viewMat4(this),
-      eye: null,
-    };
+    bag.eye = _rawMat4(opts.eMatrix) ??
+      (mat4Invert(_wa, bag.view), _wa);
 
-    let fromStr, toStr;
-    if (from instanceof p5.Matrix) {
-      bag.fromFrame = from.mat4; fromStr = MATRIX;
-    } else { fromStr = from; }
-    if (to instanceof p5.Matrix) {
-      mat4Invert(_inv2, to.mat4);
-      bag.toFrameInv = _inv2; bag.toFrame = to.mat4; toStr = MATRIX;
-    } else { toStr = to; }
+    _vp[0] = 0; _vp[1] = this.height; _vp[2] = this.width; _vp[3] = -this.height;
 
-    // Eye matrix needed for most direction paths
-    if (options.eMatrix) { bag.eye = options.eMatrix.mat4; }
-    else { mat4Invert(_inv, bag.view); bag.eye = new Float32Array(_inv); }
-
-    const vp = [0, this.height, this.width, -this.height];
-
-    coreMapDirection(_v3, dx, dy, dz, fromStr, toStr, bag, vp, _ndcZ);
-
-    return new p5.Vector(_v3[0], _v3[1], _v3[2]);
+    const isVecOut = out instanceof p5.Vector;
+    const buf = isVecOut ? _tmp3 : out;
+    coreMapDirection(buf, dx, dy, dz, fromStr, toStr, bag, _vp, _ndcZ);
+    if (isVecOut) { out.x = buf[0]; out.y = buf[1]; out.z = buf[2]; }
+    return out;
   };
 
-  // ── Utilities ────────────────────────────────────────────────────
+  // ── Utilities ─────────────────────────────────────────────────────────────
 
   fn.pixelRatio = function (point) { return this._renderer.pixelRatio(point); };
 
+  /**
+   * World-units-per-pixel at the given world-space point.
+   * @param {ArrayLike|p5.Vector} [point]  Defaults to origin.
+   * @returns {number}
+   */
   p5.Renderer3D.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
     const proj = _projMat4(this);
-    if (projIsOrtho(proj)) {
-      return corePixelRatio(proj, this.height, 0, _ndcZ);
-    }
-    // Need eye-space Z of the point
+    if (projIsOrtho(proj)) return corePixelRatio(proj, this.height, 0, _ndcZ);
     const px = point.x ?? point[0] ?? 0;
     const py = point.y ?? point[1] ?? 0;
     const pz = point.z ?? point[2] ?? 0;
     const view = _viewMat4(this);
-    // Inline WORLD→EYE for just z component
     const eyeZ = view[2]*px + view[6]*py + view[10]*pz + view[14];
     return corePixelRatio(proj, this.height, eyeZ, _ndcZ);
   };
@@ -410,12 +546,12 @@ export function installMatrix(p5, fn) {
   };
 
   fn.pointerPosition = function (...args) { return this._renderer.pointerPosition(...args); };
-  fn.resolution = function () { return this._renderer.resolution(); };
+  fn.resolution      = function ()        { return this._renderer.resolution(); };
 
   p5.Renderer3D.prototype.pointerPosition = function (...args) {
     let pointerX, pointerY, flip = true;
     for (const arg of args) {
-      if (typeof arg === 'number') { pointerX === undefined ? (pointerX = arg) : (pointerY = arg); }
+      if (typeof arg === 'number') { pointerX == null ? (pointerX = arg) : (pointerY = arg); }
       else if (typeof arg === 'boolean') { flip = arg; }
     }
     const pd = this.pixelDensity();

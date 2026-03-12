@@ -3,54 +3,132 @@
  * @module p5.tree/drawing
  * @license GPL-3.0-only
  *
- * Depends on p5.tree/matrix (uses mapLocation, pixelRatio, beginHUD/endHUD,
- * isOrtho, plane queries, p5.Tree constants).
+ * Depends on p5.tree/matrix (mapLocation, mapDirection, pixelRatio,
+ * beginHUD/endHUD, isOrtho, plane queries, p5.Tree constants).
+ *
+ * All internal calls to mapLocation / mapDirection write into module-level
+ * Float32Array buffers — no p5.Vector allocations anywhere.
+ *
+ * ── Visibility pattern ────────────────────────────────────────────────────
+ *
+ *   // setup
+ *   m._c1 = new Float32Array(3)
+ *   m._c2 = new Float32Array(3)
+ *
+ *   // draw — zero allocations
+ *   m._c1.set([px - hw, py - hh, pz - hd])
+ *   m._c2.set([px + hw, py + hh, pz + hd])
+ *   m.visibility = p.visibility({ corner1: m._c1, corner2: m._c2 })
  */
 
 'use strict';
 
+import {
+  mat4Invert,
+  projIsOrtho, projNear, projFar,
+  projLeft, projRight, projTop, projBottom,
+  frustumPlanes,
+  pointVisibility, sphereVisibility, boxVisibility,
+} from '@nakednous/tree';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Module-level working buffers — never returned to caller
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _sl     = new Float32Array(3);   // screen location (picking, cross, bullsEye)
+const _wl     = new Float32Array(3);   // world location  (pixelRatio input)
+const _eye    = new Float32Array(16);  // eye matrix for _computePlanes / viewFrustum
+const _planes = new Float64Array(24);  // 6 frustum planes × [a,b,c,d]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Unified type normaliser — zero alloc
+// p5.Matrix exposes its internal Float32Array via .mat4.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _rawMat4 = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Local p5 state accessors
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _projMat4  = (r) => r.states.uPMatrix.mat4;
+const _viewMat4  = (r) => r.states.curCamera.cameraMatrix.mat4;
+const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// _computePlanes — fill _planes from renderer state, zero allocations
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fill the module-level _planes buffer from the current renderer state.
+ * @param {p5.Renderer3D} renderer
+ * @param {Float32Array}  [eRaw]  Pre-computed eye matrix — skips inversion.
+ * @returns {Float64Array} _planes
+ */
+function _computePlanes(renderer, eRaw) {
+  const view = _viewMat4(renderer);
+  const e    = eRaw ?? (mat4Invert(_eye, view), _eye);
+  const proj = _projMat4(renderer);
+  frustumPlanes(
+    _planes,
+    e[12], e[13], e[14],    // position
+    -e[8], -e[9], -e[10],   // viewDir = −col2
+     e[4],  e[5],  e[6],    // up      =  col1
+     e[0],  e[1],  e[2],    // right   =  col0
+    projIsOrtho(proj),
+    projNear(proj, -1), projFar(proj),
+    projLeft(proj, -1), projRight(proj, -1),
+    projTop(proj, -1),  projBottom(proj, -1)
+  );
+  return _planes;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Install
+// ═══════════════════════════════════════════════════════════════════════════
+
 export function installDrawing(p5, fn) {
 
-  // ── Axes ────────────────────────────────────────────────────────────────
+  // ── Axes ──────────────────────────────────────────────────────────────────
 
   fn.axes = function (opts) { this._renderer.axes(opts); return this; };
 
   p5.Renderer3D.prototype.axes = function ({
-    size = 100,
+    size   = 100,
     colors = ['Red', 'Lime', 'DodgerBlue'],
-    bits = p5.Tree.LABELS | p5.Tree.X | p5.Tree.Y | p5.Tree.Z
+    bits   = p5.Tree.LABELS | p5.Tree.X | p5.Tree.Y | p5.Tree.Z
   } = {}) {
     const p = this._pInst;
     if (!p) return;
     p.push();
     if ((bits & p5.Tree.LABELS) !== 0) {
-      const charWidth = size / 40.0, charHeight = size / 30.0, charShift = 1.04 * size;
+      const cw = size / 40.0, ch = size / 30.0, cs = 1.04 * size;
       p.stroke(colors[0 % colors.length]);
-      p.line(charShift, charWidth, -charHeight, charShift, -charWidth, charHeight);
-      p.line(charShift, -charWidth, -charHeight, charShift, charWidth, charHeight);
+      p.line(cs,  cw, -ch, cs, -cw,  ch);
+      p.line(cs, -cw, -ch, cs,  cw,  ch);
       p.stroke(colors[1 % colors.length]);
-      p.line(charWidth, charShift, charHeight, 0, charShift, 0);
-      p.line(0, charShift, 0, -charWidth, charShift, charHeight);
-      p.line(-charWidth, charShift, charHeight, 0, charShift, 0);
-      p.line(0, charShift, 0, 0, charShift, -charHeight);
+      p.line( cw, cs,  ch,  0, cs,   0);
+      p.line(  0, cs,   0, -cw, cs,  ch);
+      p.line(-cw, cs,  ch,  0, cs,   0);
+      p.line(  0, cs,   0,  0, cs, -ch);
       p.stroke(colors[2 % colors.length]);
-      p.line(-charWidth, -charHeight, charShift, charWidth, -charHeight, charShift);
-      p.line(charWidth, -charHeight, charShift, -charWidth, charHeight, charShift);
-      p.line(-charWidth, charHeight, charShift, charWidth, charHeight, charShift);
+      p.line(-cw, -ch, cs,  cw, -ch, cs);
+      p.line( cw, -ch, cs, -cw,  ch, cs);
+      p.line(-cw,  ch, cs,  cw,  ch, cs);
     }
     p.stroke(colors[0 % colors.length]);
-    (bits & p5.Tree.X) !== 0 && p.line(0, 0, 0, size, 0, 0);
-    (bits & p5.Tree._X) !== 0 && p.line(0, 0, 0, -size, 0, 0);
+    (bits & p5.Tree.X)  !== 0 && p.line(0,0,0,  size,0,0);
+    (bits & p5.Tree._X) !== 0 && p.line(0,0,0, -size,0,0);
     p.stroke(colors[1 % colors.length]);
-    (bits & p5.Tree.Y) !== 0 && p.line(0, 0, 0, 0, size, 0);
-    (bits & p5.Tree._Y) !== 0 && p.line(0, 0, 0, 0, -size, 0);
+    (bits & p5.Tree.Y)  !== 0 && p.line(0,0,0, 0, size,0);
+    (bits & p5.Tree._Y) !== 0 && p.line(0,0,0, 0,-size,0);
     p.stroke(colors[2 % colors.length]);
-    (bits & p5.Tree.Z) !== 0 && p.line(0, 0, 0, 0, 0, size);
-    (bits & p5.Tree._Z) !== 0 && p.line(0, 0, 0, 0, 0, -size);
+    (bits & p5.Tree.Z)  !== 0 && p.line(0,0,0, 0,0, size);
+    (bits & p5.Tree._Z) !== 0 && p.line(0,0,0, 0,0,-size);
     p.pop();
   };
 
-  // ── Grid ────────────────────────────────────────────────────────────────
+  // ── Grid ──────────────────────────────────────────────────────────────────
 
   fn.grid = function (opts) { this._renderer.grid(opts); return this; };
 
@@ -67,20 +145,51 @@ export function installDrawing(p5, fn) {
     p.pop();
   };
 
-  // ── Picking ─────────────────────────────────────────────────────────────
+  // ── Picking ───────────────────────────────────────────────────────────────
 
-  fn.mousePicking = function (opts) { return this._renderer.mousePicking(opts); };
+  fn.mousePicking   = function (opts)    { return this._renderer.mousePicking(opts); };
   fn.pointerPicking = function (...args) { return this._renderer.pointerPicking(...args); };
 
+  /**
+   * Test whether the mouse cursor is over the current model's origin.
+   * @param {{
+   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   x?, y?,
+   *   size?:     number,
+   *   shape?:    number,
+   *   eMatrix?:  Float32Array | p5.Matrix,
+   *   pMatrix?:  Float32Array | p5.Matrix,
+   *   vMatrix?:  Float32Array | p5.Matrix,
+   *   pvMatrix?: Float32Array | p5.Matrix,
+   * }} [opts]
+   * @returns {boolean}
+   */
   p5.Renderer3D.prototype.mousePicking = function ({
-    mMatrix = this.mMatrix(), x, y, size = 50, shape = p5.Tree.CIRCLE,
+    mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
     eMatrix, pMatrix, vMatrix, pvMatrix
   } = {}) {
     const p = this._pInst;
     if (!p) return false;
-    return this.pointerPicking(p.mouseX, p.mouseY, { mMatrix, x, y, size, shape, eMatrix, pMatrix, vMatrix, pvMatrix });
+    return this.pointerPicking(p.mouseX, p.mouseY,
+      { mMatrix: mMatrix ?? _modelMat4(this), x, y, size, shape, eMatrix, pMatrix, vMatrix, pvMatrix });
   };
 
+  /**
+   * Test whether an arbitrary pointer is over the current model's origin.
+   * @param {number}  [pointerX]
+   * @param {number}  [pointerY]
+   * @param {{
+   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   x?, y?,
+   *   size?:     number,
+   *   shape?:    number,
+   *   eMatrix?:  Float32Array | p5.Matrix,
+   *   pMatrix?:  Float32Array | p5.Matrix,
+   *   vMatrix?:  Float32Array | p5.Matrix,
+   *   pvMatrix?: Float32Array | p5.Matrix,
+   * }} [opts]
+   * @returns {boolean}
+   */
   p5.Renderer3D.prototype.pointerPicking = function (...args) {
     let pointerX, pointerY;
     const config = {};
@@ -90,21 +199,28 @@ export function installDrawing(p5, fn) {
       } else if (arg && typeof arg === 'object') { Object.assign(config, arg); }
     }
     const p = this._pInst;
-    if (pointerX == null) pointerX = p ? p.mouseX : this.width / 2;
+    if (pointerX == null) pointerX = p ? p.mouseX : this.width  / 2;
     if (pointerY == null) pointerY = p ? p.mouseY : this.height / 2;
-    let { mMatrix = this.mMatrix(), x, y, size = 50, shape = p5.Tree.CIRCLE,
-      eMatrix, pMatrix, vMatrix, pvMatrix } = config;
+
+    let { mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
+          eMatrix, pMatrix, vMatrix, pvMatrix } = config;
+    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
+
     if (x == null || y == null) {
-      const screen = this.mapLocation({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
-      x = screen.x; y = screen.y;
-      const world = this.mapLocation({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
-      size = size / this.pixelRatio(world);
+      // Map model origin through its frame to screen space.
+      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      x = _sl[0]; y = _sl[1];
+      // World position for pixel-ratio scaling.
+      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
+      size = size / this.pixelRatio(_wl);
     }
     const r = size / 2.0, dx = x - pointerX, dy = y - pointerY;
-    return shape === p5.Tree.CIRCLE ? Math.sqrt(dx * dx + dy * dy) < r : (Math.abs(dx) < r && Math.abs(dy) < r);
+    return shape === p5.Tree.CIRCLE
+      ? Math.sqrt(dx * dx + dy * dy) < r
+      : (Math.abs(dx) < r && Math.abs(dy) < r);
   };
 
-  // ── Circle primitive ────────────────────────────────────────────────────
+  // ── Circle primitive ──────────────────────────────────────────────────────
 
   p5.Renderer3D.prototype._circle = function ({
     filled = false, x = this.width / 2, y = this.height / 2, radius = 100, detail = 50
@@ -115,36 +231,50 @@ export function installDrawing(p5, fn) {
     if (filled) {
       p.beginShape(p.TRIANGLE_STRIP);
       for (let t = 0; t <= detail; t++) {
-        const cx = Math.cos(t * (2 * Math.PI) / detail), cy = Math.sin(t * (2 * Math.PI) / detail);
+        const cx = Math.cos(t * (2 * Math.PI) / detail);
+        const cy = Math.sin(t * (2 * Math.PI) / detail);
         p.vertex(0, 0, 0, 0.5, 0.5);
-        p.vertex(radius * cx, radius * cy, 0, (cx * 0.5) + 0.5, (cy * 0.5) + 0.5);
+        p.vertex(radius * cx, radius * cy, 0, cx * 0.5 + 0.5, cy * 0.5 + 0.5);
       }
       p.endShape();
     } else {
       const angle = (2 * Math.PI) / detail;
-      let last = { x: radius, y: 0 };
+      let lx = radius, ly = 0;
       for (let i = 1; i <= detail; i++) {
-        const pos = { x: Math.cos(i * angle) * radius, y: Math.sin(i * angle) * radius };
-        p.line(last.x, last.y, pos.x, pos.y); last = pos;
+        const nx = Math.cos(i * angle) * radius, ny = Math.sin(i * angle) * radius;
+        p.line(lx, ly, nx, ny); lx = nx; ly = ny;
       }
     }
     p.pop();
   };
 
-  // ── Cross / BullsEye ───────────────────────────────────────────────────
+  // ── Cross ─────────────────────────────────────────────────────────────────
 
   fn.cross = function (opts) { this._renderer.cross(opts); return this; };
 
+  /**
+   * Draw a screen-space crosshair centred on the current model's origin.
+   * @param {{
+   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   x?, y?,
+   *   size?:     number,
+   *   eMatrix?:  Float32Array | p5.Matrix,
+   *   pMatrix?:  Float32Array | p5.Matrix,
+   *   vMatrix?:  Float32Array | p5.Matrix,
+   *   pvMatrix?: Float32Array | p5.Matrix,
+   * }} [opts]
+   */
   p5.Renderer3D.prototype.cross = function ({
-    mMatrix = this.mMatrix(), x, y, size = 50, eMatrix, pMatrix, vMatrix, pvMatrix
+    mMatrix, x, y, size = 50, eMatrix, pMatrix, vMatrix, pvMatrix
   } = {}) {
     const p = this._pInst;
     if (!p) return;
+    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
     if (x == null || y == null) {
-      const screen = this.mapLocation({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
-      x = screen.x; y = screen.y;
-      const world = this.mapLocation({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
-      size = size / this.pixelRatio(world);
+      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      x = _sl[0]; y = _sl[1];
+      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
+      size = size / this.pixelRatio(_wl);
     }
     const half = size / 2.0;
     this.beginHUD();
@@ -153,19 +283,35 @@ export function installDrawing(p5, fn) {
     this.endHUD();
   };
 
+  // ── BullsEye ──────────────────────────────────────────────────────────────
+
   fn.bullsEye = function (opts) { this._renderer.bullsEye(opts); return this; };
 
+  /**
+   * Draw a screen-space bulls-eye overlay centred on the current model's origin.
+   * @param {{
+   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   x?, y?,
+   *   size?:     number,
+   *   shape?:    number,
+   *   eMatrix?:  Float32Array | p5.Matrix,
+   *   pMatrix?:  Float32Array | p5.Matrix,
+   *   vMatrix?:  Float32Array | p5.Matrix,
+   *   pvMatrix?: Float32Array | p5.Matrix,
+   * }} [opts]
+   */
   p5.Renderer3D.prototype.bullsEye = function ({
-    mMatrix = this.mMatrix(), x, y, size = 50, shape = p5.Tree.CIRCLE,
+    mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
     eMatrix, pMatrix, vMatrix, pvMatrix
   } = {}) {
     const p = this._pInst;
     if (!p) return;
+    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
     if (x == null || y == null) {
-      const screen = this.mapLocation({ from: mMatrix, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
-      x = screen.x; y = screen.y;
-      const world = this.mapLocation({ from: mMatrix, to: p5.Tree.WORLD, eMatrix });
-      size = size / this.pixelRatio(world);
+      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      x = _sl[0]; y = _sl[1];
+      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
+      size = size / this.pixelRatio(_wl);
     }
     const half = size / 2.0, corner = 0.6 * half;
     this.beginHUD();
@@ -181,73 +327,113 @@ export function installDrawing(p5, fn) {
       p.line(x - half + corner, y + half, x - half, y + half);
       p.line(x - half, y + half, x - half, y + half - corner);
     }
-    const crossHalf = 0.6 * half;
-    p.line(x - crossHalf, y, x + crossHalf, y);
-    p.line(x, y - crossHalf, x, y + crossHalf);
+    const ch = 0.6 * half;
+    p.line(x - ch, y, x + ch, y);
+    p.line(x, y - ch, x, y + ch);
     this.endHUD();
   };
 
-  // ── View frustum ───────────────────────────────────────────────────────
+  // ── View frustum ──────────────────────────────────────────────────────────
 
   fn.viewFrustum = function (opts) { this._renderer.viewFrustum(opts); return this; };
 
+  /**
+   * Draw the view frustum of a secondary renderer / camera into this renderer.
+   *
+   * @param {{
+   *   pg?,
+   *   eMatrix?: Float32Array | p5.Matrix,
+   *   pMatrix?: Float32Array | p5.Matrix,
+   *   vMatrix?: Float32Array | p5.Matrix,
+   *   bits?:    number,
+   *   viewer?:  function,
+   * }} [opts]
+   */
   p5.Renderer3D.prototype.viewFrustum = function ({
-    vMatrix = this.vMatrix(), pg, eMatrix = pg?.eMatrix(), pMatrix = pg?.pMatrix(),
-    bits = p5.Tree.NEAR | p5.Tree.FAR,
-    viewer = () => this.axes({ size: 50, bits: p5.Tree.X | p5.Tree._X | p5.Tree.Y | p5.Tree._Y | p5.Tree.Z | p5.Tree._Z })
+    pg,
+    eMatrix,
+    pMatrix,
+    vMatrix,
+    bits   = p5.Tree.NEAR | p5.Tree.FAR,
+    viewer = () => this.axes({
+      size: 50,
+      bits: p5.Tree.X | p5.Tree._X | p5.Tree.Y | p5.Tree._Y | p5.Tree.Z | p5.Tree._Z
+    })
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    if (this === pg) { console.error('displaying viewFrustum requires a pg different than this'); return; }
-    if (!pMatrix || !eMatrix) { console.error('displaying viewFrustum requires either a pg or projection and eye matrices'); return; }
+    if (this === pg) {
+      console.error('displaying viewFrustum requires a pg different than this'); return;
+    }
+
+    // Resolve raw buffers — accept Float32Array | p5.Matrix | undefined.
+    // pg supplies defaults when eMatrix / pMatrix are not given explicitly.
+    const eRaw = _rawMat4(eMatrix) ?? (pg ? (pg._renderer.eMatrix(_eye), _eye) : null);
+    const pRaw = _rawMat4(pMatrix) ?? (pg ? _projMat4(pg._renderer) : null);
+
+    if (!pRaw || !eRaw) {
+      console.error('displaying viewFrustum requires either a pg or both eMatrix and pMatrix'); return;
+    }
+
     const states = this.states, uView = states?.uViewMatrix;
     if (!uView) return;
-    p.push(); p.resetMatrix();
-    const prevView = uView.copy();
-    uView.set(vMatrix);
-    this.applyMatrix(...eMatrix.mat4);
-    typeof viewer === 'function' && viewer();
-    const isOrtho = pMatrix.isOrtho();
-    const apex = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
-    const n = -pMatrix.nPlane(), f = -pMatrix.fPlane();
-    const l = pMatrix.lPlane(), r = pMatrix.rPlane();
-    const t = isOrtho ? -pMatrix.tPlane() : pMatrix.tPlane();
-    const b = isOrtho ? -pMatrix.bPlane() : pMatrix.bPlane();
+
+    const vRaw = _rawMat4(vMatrix) ?? _viewMat4(this);
+
+    const isOrtho = projIsOrtho(pRaw);
+    const ndcZ    = -1;
+    const apex    = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
+    const n = -projNear(pRaw, ndcZ), f = -projFar(pRaw);
+    const l =  projLeft(pRaw, ndcZ), r  = projRight(pRaw, ndcZ);
+    const t = isOrtho ? -projTop(pRaw, ndcZ)    : projTop(pRaw, ndcZ);
+    const b = isOrtho ? -projBottom(pRaw, ndcZ) : projBottom(pRaw, ndcZ);
     const ratio = isOrtho ? 1 : f / n;
     const _l = ratio * l, _r = ratio * r, _b = ratio * b, _t = ratio * t;
+
+    p.push(); p.resetMatrix();
+    const prevView = uView.copy();
+    uView.set(vRaw);
+    this.applyMatrix(...eRaw);
+    typeof viewer === 'function' && viewer();
+
     if ((bits & p5.Tree.FAR) !== 0) {
-      this.beginShape(); this.vertex(_l, _t, f); this.vertex(_r, _t, f); this.vertex(_r, _b, f); this.vertex(_l, _b, f); this.endShape(p.CLOSE);
+      this.beginShape(); this.vertex(_l,_t,f); this.vertex(_r,_t,f);
+      this.vertex(_r,_b,f); this.vertex(_l,_b,f); this.endShape(p.CLOSE);
     } else {
-      this.line(_l, _t, f, _r, _t, f); this.line(_r, _t, f, _r, _b, f); this.line(_r, _b, f, _l, _b, f); this.line(_l, _b, f, _l, _t, f);
+      this.line(_l,_t,f,_r,_t,f); this.line(_r,_t,f,_r,_b,f);
+      this.line(_r,_b,f,_l,_b,f); this.line(_l,_b,f,_l,_t,f);
     }
     if ((bits & p5.Tree.BODY) !== 0) {
-      this.beginShape(); this.vertex(_l, _t, f); this.vertex(l, t, n); this.vertex(r, t, n); this.vertex(_r, _t, f); this.endShape();
-      this.beginShape(); this.vertex(_r, _t, f); this.vertex(r, t, n); this.vertex(r, b, n); this.vertex(_r, _b, f); this.endShape();
-      this.beginShape(); this.vertex(_r, _b, f); this.vertex(r, b, n); this.vertex(l, b, n); this.vertex(_l, _b, f); this.endShape();
-      this.beginShape(); this.vertex(l, t, n); this.vertex(_l, _t, f); this.vertex(_l, _b, f); this.vertex(l, b, n); this.endShape();
+      this.beginShape(); this.vertex(_l,_t,f); this.vertex(l,t,n); this.vertex(r,t,n); this.vertex(_r,_t,f); this.endShape();
+      this.beginShape(); this.vertex(_r,_t,f); this.vertex(r,t,n); this.vertex(r,b,n); this.vertex(_r,_b,f); this.endShape();
+      this.beginShape(); this.vertex(_r,_b,f); this.vertex(r,b,n); this.vertex(l,b,n); this.vertex(_l,_b,f); this.endShape();
+      this.beginShape(); this.vertex(l,t,n); this.vertex(_l,_t,f); this.vertex(_l,_b,f); this.vertex(l,b,n); this.endShape();
       if (apex) {
-        this.line(0, 0, 0, r, t, n); this.line(0, 0, 0, l, t, n);
-        this.line(0, 0, 0, l, b, n); this.line(0, 0, 0, r, b, n);
+        this.line(0,0,0,r,t,n); this.line(0,0,0,l,t,n);
+        this.line(0,0,0,l,b,n); this.line(0,0,0,r,b,n);
       }
     } else {
-      this.line(apex ? 0 : r, apex ? 0 : t, apex ? 0 : n, _r, _t, f);
-      this.line(apex ? 0 : l, apex ? 0 : t, apex ? 0 : n, _l, _t, f);
-      this.line(apex ? 0 : l, apex ? 0 : b, apex ? 0 : n, _l, _b, f);
-      this.line(apex ? 0 : r, apex ? 0 : b, apex ? 0 : n, _r, _b, f);
+      this.line(apex?0:r, apex?0:t, apex?0:n, _r,_t,f);
+      this.line(apex?0:l, apex?0:t, apex?0:n, _l,_t,f);
+      this.line(apex?0:l, apex?0:b, apex?0:n, _l,_b,f);
+      this.line(apex?0:r, apex?0:b, apex?0:n, _r,_b,f);
     }
     if ((bits & p5.Tree.NEAR) !== 0) {
-      this.beginShape(); this.vertex(l, t, n); this.vertex(r, t, n); this.vertex(r, b, n); this.vertex(l, b, n); this.endShape(p.CLOSE);
+      this.beginShape(); this.vertex(l,t,n); this.vertex(r,t,n);
+      this.vertex(r,b,n); this.vertex(l,b,n); this.endShape(p.CLOSE);
     } else {
-      this.line(l, t, n, r, t, n); this.line(r, t, n, r, b, n); this.line(r, b, n, l, b, n); this.line(l, b, n, l, t, n);
+      this.line(l,t,n,r,t,n); this.line(r,t,n,r,b,n);
+      this.line(r,b,n,l,b,n); this.line(l,b,n,l,t,n);
     }
+
     uView.set(prevView);
     p.pop();
   };
 
-  // ── Visibility ─────────────────────────────────────────────────────────
+  // ── Visibility ────────────────────────────────────────────────────────────
 
-  fn.visibility = function (...args) { return this._renderer.visibility(...args); };
-  fn.bounds = function (opts = {}) { return this._renderer.bounds(opts); };
+  fn.visibility      = function (...args) { return this._renderer.visibility(...args); };
+  fn.bounds          = function (opts)    { return this._renderer.bounds(opts); };
   fn.distanceToBound = function (...args) { return this._renderer.distanceToBound(...args); };
 
   p5.Renderer3D.prototype._parseVisibilityArgs = function (...args) {
@@ -259,126 +445,177 @@ export function installDrawing(p5, fn) {
       return Object.getPrototypeOf(v) === Object.prototype;
     };
     for (const arg of args) {
-      if (arg instanceof p5.Vector || Array.isArray(arg)) { vecs.push(arg); continue; }
+      if (arg instanceof p5.Vector || Array.isArray(arg) || ArrayBuffer.isView(arg)) {
+        vecs.push(arg); continue;
+      }
       if (typeof arg === 'number' && Number.isFinite(arg) && radius === undefined) {
         center ? (radius = arg) : (pendingRadius = arg); continue;
       }
       if (isPlainObject(arg)) {
-        if ('corner1' in arg || 'corner2' in arg || 'center' in arg || 'radius' in arg || 'bounds' in arg) {
+        if ('corner1' in arg || 'corner2' in arg || 'center' in arg ||
+            'radius'  in arg || 'bounds'  in arg) {
           corner1 = arg.corner1 ?? corner1; corner2 = arg.corner2 ?? corner2;
-          center = arg.center ?? center; radius = arg.radius ?? radius; bounds = arg.bounds ?? bounds;
+          center  = arg.center  ?? center;  radius  = arg.radius  ?? radius;
+          bounds  = arg.bounds  ?? bounds;
         } else { bounds = arg; }
       }
     }
     if (!corner1 && !corner2) {
       if (!center && vecs.length === 1) { center = vecs[0]; }
-      else if (!corner1 && !corner2 && vecs.length >= 2) { corner1 = vecs[0]; corner2 = vecs[1]; }
+      else if (vecs.length >= 2) { corner1 = vecs[0]; corner2 = vecs[1]; }
     }
     if (radius === undefined && pendingRadius !== undefined && center) { radius = pendingRadius; }
     return { corner1, corner2, center, radius, bounds };
   };
 
+  /**
+   * Test visibility of a point, sphere, or AABB against the view frustum.
+   *
+   * Fast path (no `bounds` option): calls core boxVisibility / sphereVisibility /
+   * pointVisibility directly — zero allocations per call.
+   * Fallback (user-supplied `bounds` object): scalar arithmetic on the keyed plane
+   * object.
+   *
+   * Accepts Float32Array(3) or plain array for corner1/corner2/center.
+   *
+   * @returns {number} p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
+   */
   p5.Renderer3D.prototype.visibility = function (...args) {
-    const { corner1, corner2, center, radius, bounds } = this._parseVisibilityArgs(...args);
-    const b = bounds ?? this.bounds();
-    return center
-      ? (radius ? this._ballVisibility(center, radius, b) : this._pointVisibility(center, b))
-      : (corner1 && corner2
-        ? this._boxVisibility(corner1, corner2, b)
-        : (console.error('[p5.tree] visibility: could not parse query.'), p5.Tree.INVISIBLE));
+    const { corner1, corner2, center, radius, bounds: userBounds } = this._parseVisibilityArgs(...args);
+
+    if (!userBounds) {
+      // ── Fast path ──────────────────────────────────────────────────────
+      const planes = _computePlanes(this);
+      if (center) {
+        const cx = center.x ?? center[0] ?? 0;
+        const cy = center.y ?? center[1] ?? 0;
+        const cz = center.z ?? center[2] ?? 0;
+        return radius != null
+          ? sphereVisibility(planes, cx, cy, cz, radius)
+          : pointVisibility(planes, cx, cy, cz);
+      }
+      if (corner1 && corner2) {
+        return boxVisibility(
+          planes,
+          corner1.x ?? corner1[0] ?? 0, corner1.y ?? corner1[1] ?? 0, corner1.z ?? corner1[2] ?? 0,
+          corner2.x ?? corner2[0] ?? 0, corner2.y ?? corner2[1] ?? 0, corner2.z ?? corner2[2] ?? 0
+        );
+      }
+      console.error('[p5.tree] visibility: could not parse query.');
+      return p5.Tree.INVISIBLE;
+    }
+
+    // ── Fallback: user-supplied keyed bounds ───────────────────────────────
+    if (center) {
+      return radius != null
+        ? this._ballVisibility(center, radius, userBounds)
+        : this._pointVisibility(center, userBounds);
+    }
+    if (corner1 && corner2) return this._boxVisibility(corner1, corner2, userBounds);
+    console.error('[p5.tree] visibility: could not parse query.');
+    return p5.Tree.INVISIBLE;
   };
 
-  p5.Renderer3D.prototype._pointVisibility = function (point, bounds = this.bounds()) {
+  // ── Keyed-bounds visibility helpers (fallback path) ───────────────────────
+  // All scalar — no p5.Vector allocations.
+
+  p5.Renderer3D.prototype._pointVisibility = function (point, bounds) {
+    const px = point.x ?? point[0] ?? 0;
+    const py = point.y ?? point[1] ?? 0;
+    const pz = point.z ?? point[2] ?? 0;
     for (const key in bounds) {
-      const d = this.distanceToBound(point, key, bounds);
-      if (d > 0) return p5.Tree.INVISIBLE;
-      if (d === 0) return p5.Tree.SEMIVISIBLE;
+      const { a, b, c, d } = bounds[key];
+      const dist = a * px + b * py + c * pz - d;
+      if (dist > 0)   return p5.Tree.INVISIBLE;
+      if (dist === 0) return p5.Tree.SEMIVISIBLE;
     }
     return p5.Tree.VISIBLE;
   };
 
-  p5.Renderer3D.prototype._ballVisibility = function (center, radius, bounds = this.bounds()) {
-    let allInForAllPlanes = true;
+  p5.Renderer3D.prototype._ballVisibility = function (center, radius, bounds) {
+    const cx = center.x ?? center[0] ?? 0;
+    const cy = center.y ?? center[1] ?? 0;
+    const cz = center.z ?? center[2] ?? 0;
+    let allIn = true;
     for (const key in bounds) {
-      const d = this.distanceToBound(center, key, bounds);
-      if (d > radius) return p5.Tree.INVISIBLE;
-      if (d > 0 || -d < radius) allInForAllPlanes = false;
+      const { a, b, c, d } = bounds[key];
+      const dist = a * cx + b * cy + c * cz - d;
+      if (dist > radius)            return p5.Tree.INVISIBLE;
+      if (dist > 0 || -dist < radius) allIn = false;
     }
-    return allInForAllPlanes ? p5.Tree.VISIBLE : p5.Tree.SEMIVISIBLE;
+    return allIn ? p5.Tree.VISIBLE : p5.Tree.SEMIVISIBLE;
   };
 
-  p5.Renderer3D.prototype._boxVisibility = function (corner1, corner2, bounds = this.bounds()) {
-    const asVec3 = v => v instanceof p5.Vector ? v : new p5.Vector(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
-    corner1 = asVec3(corner1); corner2 = asVec3(corner2);
-    let allInForAllPlanes = true;
+  p5.Renderer3D.prototype._boxVisibility = function (corner1, corner2, bounds) {
+    const x0 = corner1.x ?? corner1[0] ?? 0, y0 = corner1.y ?? corner1[1] ?? 0, z0 = corner1.z ?? corner1[2] ?? 0;
+    const x1 = corner2.x ?? corner2[0] ?? 0, y1 = corner2.y ?? corner2[1] ?? 0, z1 = corner2.z ?? corner2[2] ?? 0;
+    let allIn = true;
     for (const key in bounds) {
+      const { a, b, c, d } = bounds[key];
       let allOut = true;
-      for (let c = 0; c < 8; ++c) {
-        const pos = new p5.Vector(
-          (c & 4) !== 0 ? corner1.x : corner2.x,
-          (c & 2) !== 0 ? corner1.y : corner2.y,
-          (c & 1) !== 0 ? corner1.z : corner2.z
-        );
-        if (this.distanceToBound(pos, key, bounds) > 0) { allInForAllPlanes = false; }
-        else { allOut = false; }
+      for (let corner = 0; corner < 8; corner++) {
+        const cx = (corner & 4) ? x0 : x1;
+        const cy = (corner & 2) ? y0 : y1;
+        const cz = (corner & 1) ? z0 : z1;
+        if (a * cx + b * cy + c * cz - d > 0) { allIn  = false; }
+        else                                   { allOut = false; }
       }
       if (allOut) return p5.Tree.INVISIBLE;
     }
-    return allInForAllPlanes ? p5.Tree.VISIBLE : p5.Tree.SEMIVISIBLE;
+    return allIn ? p5.Tree.VISIBLE : p5.Tree.SEMIVISIBLE;
   };
 
-  p5.Renderer3D.prototype.bounds = function ({ vMatrix, eMatrix } = {}) {
-    const n = this.nPlane(), f = this.fPlane(), l = this.lPlane(), r = this.rPlane();
-    const b = this.bPlane(), t = this.tPlane();
-    const normals = Array(6), distances = Array(6);
-    const pos = this.mapLocation([0, 0, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, eMatrix });
-    const viewDir = this.mapDirection([0, 0, -1], { from: p5.Tree.EYE, to: p5.Tree.WORLD, vMatrix });
-    const up = this.mapDirection([0, 1, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, vMatrix });
-    const right = this.mapDirection([1, 0, 0], { from: p5.Tree.EYE, to: p5.Tree.WORLD, vMatrix });
-    const posViewDir = p5.Vector.dot(pos, viewDir);
-    if (this.isOrtho()) {
-      normals[0] = p5.Vector.mult(right, -1); normals[1] = right;
-      normals[4] = up; normals[5] = p5.Vector.mult(up, -1);
-      distances[0] = p5.Vector.dot(p5.Vector.sub(pos, p5.Vector.mult(right, -l)), normals[0]);
-      distances[1] = p5.Vector.dot(p5.Vector.add(pos, p5.Vector.mult(right, r)), normals[1]);
-      distances[4] = p5.Vector.dot(p5.Vector.add(pos, p5.Vector.mult(up, -b)), normals[4]);
-      distances[5] = p5.Vector.dot(p5.Vector.sub(pos, p5.Vector.mult(up, t)), normals[5]);
-    } else {
-      const hfovr = Math.atan2(r, n), shfovr = Math.sin(hfovr), chfovr = Math.cos(hfovr);
-      const hfovl = Math.atan2(l, n), shfovl = Math.sin(hfovl), chfovl = Math.cos(hfovl);
-      normals[0] = p5.Vector.add(p5.Vector.mult(viewDir, shfovl), p5.Vector.mult(right, -chfovl));
-      normals[1] = p5.Vector.add(p5.Vector.mult(viewDir, -shfovr), p5.Vector.mult(right, chfovr));
-      const fovt = Math.atan2(t, n), sfovt = Math.sin(fovt), cfovt = Math.cos(fovt);
-      const fovb = Math.atan2(b, n), sfovb = Math.sin(fovb), cfovb = Math.cos(fovb);
-      normals[4] = p5.Vector.add(p5.Vector.mult(viewDir, -sfovt), p5.Vector.mult(up, cfovt));
-      normals[5] = p5.Vector.add(p5.Vector.mult(viewDir, sfovb), p5.Vector.mult(up, -cfovb));
-      distances[0] = shfovl * posViewDir - chfovl * p5.Vector.dot(pos, right);
-      distances[1] = -shfovr * posViewDir + chfovr * p5.Vector.dot(pos, right);
-      distances[4] = -sfovt * posViewDir + cfovt * p5.Vector.dot(pos, up);
-      distances[5] = sfovb * posViewDir - cfovb * p5.Vector.dot(pos, up);
+  // ── bounds ────────────────────────────────────────────────────────────────
+
+  /**
+   * Compute the six view-frustum planes as a keyed object.
+   *
+   * Returns `{ [LEFT|RIGHT|NEAR|FAR|TOP|BOTTOM]: { a, b, c, d } }`.
+   * For per-object visibility tests prefer calling `visibility()` directly —
+   * its fast path bypasses this object entirely.
+   *
+   * @param {{ eMatrix?: Float32Array | p5.Matrix }} [opts]
+   * @returns {object}
+   */
+  p5.Renderer3D.prototype.bounds = function ({ eMatrix } = {}) {
+    const eRaw = _rawMat4(eMatrix) ?? (mat4Invert(_eye, _viewMat4(this)), _eye);
+    _computePlanes(this, eRaw);
+    // _planes index order from @nakednous/tree frustumPlanes:
+    //   0=LEFT, 1=RIGHT, 2=NEAR, 3=FAR, 4=TOP, 5=BOTTOM
+    const keys = [p5.Tree.LEFT, p5.Tree.RIGHT, p5.Tree.NEAR, p5.Tree.FAR, p5.Tree.TOP, p5.Tree.BOTTOM];
+    const result = {};
+    for (let i = 0; i < 6; i++) {
+      const b = i * 4;
+      result[keys[i]] = { a: _planes[b], b: _planes[b+1], c: _planes[b+2], d: _planes[b+3] };
     }
-    normals[2] = p5.Vector.mult(viewDir, -1); normals[3] = viewDir;
-    distances[2] = -posViewDir - n; distances[3] = posViewDir + f;
-    const bounds = {};
-    bounds[p5.Tree.LEFT] = { a: normals[0].x, b: normals[0].y, c: normals[0].z, d: distances[0] };
-    bounds[p5.Tree.RIGHT] = { a: normals[1].x, b: normals[1].y, c: normals[1].z, d: distances[1] };
-    bounds[p5.Tree.NEAR] = { a: normals[2].x, b: normals[2].y, c: normals[2].z, d: distances[2] };
-    bounds[p5.Tree.FAR] = { a: normals[3].x, b: normals[3].y, c: normals[3].z, d: distances[3] };
-    bounds[p5.Tree.TOP] = { a: normals[4].x, b: normals[4].y, c: normals[4].z, d: distances[4] };
-    bounds[p5.Tree.BOTTOM] = { a: normals[5].x, b: normals[5].y, c: normals[5].z, d: distances[5] };
-    return bounds;
+    return result;
   };
 
+  // ── distanceToBound ───────────────────────────────────────────────────────
+
+  /**
+   * Signed distance from a point to one frustum plane.
+   * Positive → outside (invisible side).
+   *
+   * @param {ArrayLike|p5.Vector} point
+   * @param {number|string} key  p5.Tree plane constant (LEFT, RIGHT, NEAR, FAR, TOP, BOTTOM).
+   * @param {object} [bounds]    Keyed bounds object. Defaults to current frustum.
+   * @returns {number}
+   */
   p5.Renderer3D.prototype.distanceToBound = function (...args) {
-    let point, key, bounds = this.bounds();
-    const asVec3 = v => v instanceof p5.Vector ? v : new p5.Vector(v?.[0] ?? 0, v?.[1] ?? 0, v?.[2] ?? 0);
+    let point, key, bounds;
     for (const arg of args) {
-      if (arg instanceof p5.Vector || Array.isArray(arg)) { point = asVec3(arg); }
+      if (Array.isArray(arg) || ArrayBuffer.isView(arg) || arg instanceof p5.Vector) { point = arg; }
       else if (typeof arg === 'string' || typeof arg === 'number') { key = arg; }
-      else if (arg && typeof arg === 'object' && !Array.isArray(arg)) { bounds = arg; }
+      else if (arg && typeof arg === 'object') { bounds = arg; }
     }
-    if (!point || key === undefined) { console.error('[p5.tree] distanceToBound: could not parse query.'); return 0; }
-    const eq = bounds[key];
-    return p5.Vector.dot(point, new p5.Vector(eq.a, eq.b, eq.c)) - eq.d;
+    if (!point || key === undefined) {
+      console.error('[p5.tree] distanceToBound: could not parse query.'); return 0;
+    }
+    const { a, b, c, d } = (bounds ?? this.bounds())[key];
+    const px = point.x ?? point[0] ?? 0;
+    const py = point.y ?? point[1] ?? 0;
+    const pz = point.z ?? point[2] ?? 0;
+    return a * px + b * py + c * pz - d;
   };
 }
