@@ -257,7 +257,9 @@ export function installUI(p5, fn) {
         get onPlay()   { return track.onPlay; },
         set onPlay(f)  { track.onPlay = f; },
         get onEnd()    { return track.onEnd; },
-        set onEnd(f)   { track.onEnd = f; }
+        set onEnd(f)   { track.onEnd = f; },
+        get onStop()   { return track.onStop; },
+        set onStop(f)  { track.onStop = f; }
       };
 
     } else {
@@ -306,7 +308,9 @@ export function installUI(p5, fn) {
         get onPlay()   { return track.onPlay; },
         set onPlay(f)  { track.onPlay = f; },
         get onEnd()    { return track.onEnd; },
-        set onEnd(f)   { track.onEnd = f; }
+        set onEnd(f)   { track.onEnd = f; },
+        get onStop()   { return track.onStop; },
+        set onStop(f)  { track.onStop = f; }
       };
     }
 

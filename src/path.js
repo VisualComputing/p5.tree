@@ -66,7 +66,7 @@ const CAM_TRACK    = new WeakMap();
 const PATH_PLAYERS = new WeakMap();
 
 /**
- * Return (or lazily create) the per-camera bundle: { track, adapter, camSnaps, player }.
+ * Return (or lazily create) the per-camera bundle.
  * @param {p5.Camera} cam
  * @returns {{ track: PoseTrack, adapter: CameraAdapter, camSnaps: p5.Camera[], player: Object|null, pathIsOrtho: boolean|undefined }}
  */
@@ -106,6 +106,28 @@ export function registerPlayer(pInst, player) {
 function unregisterPlayer(pInst, player) {
   if (!pInst || !player) return;
   getPlayers(pInst).delete(player);
+}
+
+/**
+ * Tick all registered players for a p5 instance.
+ * Players that return false are automatically unregistered.
+ * @param {p5} pInst
+ */
+export function tickPlayers(pInst) {
+  const players = PATH_PLAYERS.get(pInst);
+  if (!players) return;
+  for (const p of [...players]) {
+    if (!p.tick()) players.delete(p);
+  }
+}
+
+/**
+ * Remove all players for a p5 instance (called on remove lifecycle).
+ * @param {p5} pInst
+ */
+export function clearPlayers(pInst) {
+  const players = PATH_PLAYERS.get(pInst);
+  if (players) players.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -203,7 +225,8 @@ export function tickCamera(cam) {
 function _addPathHelpers(p5) {
   const isVec3 = (v) => v instanceof p5.Vector ||
     (Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && Number.isFinite(n)));
-  const toVec3 = (v) => v instanceof p5.Vector ? [v.x, v.y, v.z] : [v[0], v[1], v[2]];
+  const toVec3 = (v) => v instanceof p5.Vector ?
+    [v.x, v.y, v.z] : [v[0], v[1], v[2]];
   const dot3   = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const len3   = (v) => Math.sqrt(dot3(v, v));
   const norm3  = (v) => { const l = len3(v) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
@@ -442,17 +465,21 @@ export function installPath(p5, fn) {
     } else {
       const o    = rateOrOpts || {};
       const opts = {};
-      if (_isNum(o.duration))            opts.duration = o.duration;
-      if ('loop'     in o)               opts.loop     = !!o.loop;
-      if ('pingPong' in o)               opts.pingPong = !!o.pingPong;
-      if (_isNum(o.rate))                opts.rate     = o.rate;
+      if (_isNum(o.duration))             opts.duration = o.duration;
+      if ('loop'     in o)                opts.loop     = !!o.loop;
+      if ('pingPong' in o)                opts.pingPong = !!o.pingPong;
+      if (_isNum(o.rate))                 opts.rate     = o.rate;
       if (typeof o.onPlay === 'function') {
-        const ucb  = o.onPlay;
+        const ucb   = o.onPlay;
         opts.onPlay = () => { try { ucb(cam); } catch (_) {} };
       }
       if (typeof o.onEnd === 'function') {
-        const ucb = o.onEnd;
+        const ucb  = o.onEnd;
         opts.onEnd = () => { try { ucb(cam); } catch (_) {} };
+      }
+      if (typeof o.onStop === 'function') {
+        const ucb   = o.onStop;
+        opts.onStop = () => { try { ucb(cam); } catch (_) {} };
       }
       track.play(opts);
     }
@@ -567,7 +594,6 @@ export function installPath(p5, fn) {
 
   // ── Non-PoseTrack helpers ─────────────────────────────────────────────
   // ── rotateQuat / applyPose ────────────────────────────────────────────
-  // TODO: consider moving them to p5.tree/pose.js (own file) or p5.tree/ui.js
 
   /**
    * Rotate by a quaternion, derived as an axis-angle rotation.
@@ -578,54 +604,24 @@ export function installPath(p5, fn) {
    * @param {number}  [opts.eps=1e-8]  Minimum sine threshold.
    */
   fn.rotateQuat = function (q, opts) {
-    const eps     = opts && typeof opts.eps === 'number' ? opts.eps : 1e-8;
-    const x = q[0], y = q[1], z = q[2], w = q[3];
-    const sinHalf = Math.sqrt(x * x + y * y + z * z);
-    if (sinHalf < eps) return this;
-    const angle = 2 * Math.atan2(sinHalf, w);
+    const eps  = opts?.eps ?? 1e-8;
+    const x = q[0], y = q[1], z = q[2];
+    const sinHalf = Math.sqrt(x*x + y*y + z*z);
+    if (sinHalf < eps) return;
+    const angle = 2 * Math.atan2(sinHalf, q[3]);
     this.rotate(angle, [x / sinHalf, y / sinHalf, z / sinHalf]);
-    return this;
   };
 
   /**
-   * Apply a pose (translate + rotateQuat + scale) to the current transform.
+   * Apply a TRS pose — translate, rotateQuat, scale — in that order.
    * @method applyPose
    * @memberof p5
-   * @param {{ pos: number[], rot: number[], scl: number[] }} pose
+   * @param {{ pos:number[], rot:number[], scl:number[] }} pose
    */
   fn.applyPose = function (pose) {
-    this.translate(pose.pos[0], pose.pos[1], pose.pos[2]);
-    this.rotateQuat(pose.rot);
-    this.scale(pose.scl[0], pose.scl[1], pose.scl[2]);
-    return this;
+    if (!pose) return;
+    if (pose.pos) this.translate(pose.pos[0], pose.pos[1], pose.pos[2]);
+    if (pose.rot) this.rotateQuat(pose.rot);
+    if (pose.scl) this.scale(pose.scl[0], pose.scl[1], pose.scl[2]);
   };
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Lifecycle helpers (exported for entry point)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Tick all registered players for the given p5 instance.
- * Players that return false (or throw) are automatically removed.
- * @param {p5} pInst
- */
-export function tickPlayers(pInst) {
-  const players = getPlayers(pInst);
-  players.forEach(player => {
-    let alive = false;
-    try { alive = player && typeof player.tick === 'function' ? !!player.tick() : false; }
-    catch (_) { alive = false; }
-    alive || players.delete(player);
-  });
-}
-
-/**
- * Remove all registered players for the given p5 instance.
- * Called on sketch removal / cleanup.
- * @param {p5} pInst
- */
-export function clearPlayers(pInst) {
-  const players = PATH_PLAYERS.get(pInst);
-  players && players.clear();
 }

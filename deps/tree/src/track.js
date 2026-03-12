@@ -25,16 +25,19 @@
  *    Fire exactly on playing transitions: false→true / true→false.
  *    Used by the addon to register/unregister from the draw-loop tick set.
  *
- *  onPlay / onEnd               — user-space (public, set by user)
- *    onPlay : fires in play()  when playback actually starts (transition).
- *    onEnd  : fires in tick()  when cursor reaches a natural boundary.
- *    onEnd does NOT fire on explicit stop() / reset().
+ *  onPlay / onEnd / onStop      — user-space (public, set by user)
+ *    onPlay : fires in play()  when playback starts   (false→true transition).
+ *    onEnd  : fires in tick()  when cursor reaches a natural boundary (once mode).
+ *    onStop : fires in stop()  and reset() — explicit, user-initiated deactivation.
+ *
+ *    onEnd and onStop are mutually exclusive per deactivation event.
+ *    To react to any deactivation, chain both.
  *
  *  Firing order:
- *    play()  → user onPlay → lib _onActivate
- *    tick()  → user onEnd  → lib _onDeactivate
- *    stop()  →               lib _onDeactivate  (no user hook)
- *    reset() →               lib _onDeactivate  (no user hook)
+ *    play()  → onPlay → _onActivate
+ *    tick()  → onEnd  → _onDeactivate   (natural boundary, once mode)
+ *    stop()  → onStop → _onDeactivate
+ *    reset() → onStop → _onDeactivate
  *
  * ── Playback semantics (rate) ─────────────────────────────────────────────────
  *  rate > 0   forward playback
@@ -127,6 +130,11 @@ export const qSlerp = (out, a, b, t) => {
 /**
  * Build a quaternion from an axis-angle rotation.
  * The axis need not be normalised.
+ * @param {number[]} out
+ * @param {number} ax  Axis x.
+ * @param {number} ay  Axis y.
+ * @param {number} az  Axis z.
+ * @param {number} angle  Radians.
  * @returns {number[]} out
  */
 export const qFromAxisAngle = (out, ax, ay, az, angle) => {
@@ -219,13 +227,12 @@ export const qToMat4 = (out, q) => {
   out[0]  = 1-(yy+zz); out[1]  = xy+wz;     out[2]  = xz-wy;     out[3]  = 0;
   out[4]  = xy-wz;     out[5]  = 1-(xx+zz); out[6]  = yz+wx;     out[7]  = 0;
   out[8]  = xz+wy;     out[9]  = yz-wx;     out[10] = 1-(xx+yy); out[11] = 0;
-  out[12] = 0;         out[13] = 0;         out[14] = 0;         out[15] = 1;
+  out[12] = 0;         out[13] = 0;         out[14] = 0;          out[15] = 1;
   return out;
 };
 
 /**
  * Decompose a unit quaternion into { axis:[x,y,z], angle } (radians).
- * out is optional; a new object is returned if omitted.
  * @param {number[]} q  [x,y,z,w].
  * @param {Object}  [out]
  * @returns {{ axis: number[], angle: number }}
@@ -251,13 +258,12 @@ function _dist3(a, b) {
 
 /**
  * Centripetal Catmull-Rom interpolation (alpha = 0.5, Barry-Goldman).
- * out = interp(p0, p1, p2, p3, t) where t in [0,1] maps p1 -> p2.
- * When p0 === p1 or p2 === p3 (boundary), the chord is reused, giving
- * zero-tension clamped end tangents.
+ * out = interp(p0, p1, p2, p3, t) where t in [0,1] maps p1→p2.
+ * Boundary: when p0===p1 or p2===p3 the chord is reused (clamped end tangents).
  * @param {number[]} out  3-element result.
  * @param {number[]} p0   Control point before p1.
- * @param {number[]} p1   Start of this segment.
- * @param {number[]} p2   End of this segment.
+ * @param {number[]} p1   Segment start.
+ * @param {number[]} p2   Segment end.
  * @param {number[]} p3   Control point after p2.
  * @param {number}   t    Blend [0, 1].
  * @returns {number[]} out
@@ -405,6 +411,12 @@ function _sameTransform(a, b) {
  * One-keyframe behaviour:
  *   play() with exactly one keyframe snaps eval() to that keyframe
  *   without setting playing = true and without firing hooks.
+ *
+ * @example
+ * const track = new PoseTrack()
+ * track.add({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] })
+ * track.add({ pos:[0,100,0], rot:[0,0,0,1], scl:[1,1,1] })
+ * track.play({ loop: true, onStop: t => console.log('stopped at', t.time()) })
  */
 export class PoseTrack {
   constructor() {
@@ -436,11 +448,13 @@ export class PoseTrack {
     // Internal rate — assigning never touches playing
     this._rate = 1;
 
-    // User-space hooks
-    /** Called once when play() starts a false->true transition. @type {Function|null} */
+    // User-space hooks — fired on playback state transitions
+    /** Fires when play() starts a false→true transition. @type {Function|null} */
     this.onPlay = null;
-    /** Called once by tick() when cursor reaches a natural boundary (once mode). @type {Function|null} */
+    /** Fires in tick() when cursor hits a natural boundary (once mode only). @type {Function|null} */
     this.onEnd  = null;
+    /** Fires on explicit stop() or reset(). Mutually exclusive with onEnd per event. @type {Function|null} */
+    this.onStop = null;
 
     // Lib-space hooks (set by host layer — e.g. p5 bridge)
     /** @type {Function|null} */
@@ -516,7 +530,8 @@ export class PoseTrack {
 
   /**
    * Start or update playback.
-   * Accepts a numeric rate or an options object: { rate, duration, loop, pingPong, onPlay, onEnd }.
+   * Accepts a numeric rate or an options object:
+   * { rate, duration, loop, pingPong, onPlay, onEnd, onStop }.
    *
    * Zero keyframes: no-op.
    * One keyframe: snaps cursor (seg=0, f=0); no playing=true, no hooks.
@@ -544,6 +559,7 @@ export class PoseTrack {
       if ('pingPong' in o)                this.pingPong = !!o.pingPong;
       if (typeof o.onPlay === 'function') this.onPlay   = o.onPlay;
       if (typeof o.onEnd  === 'function') this.onEnd    = o.onEnd;
+      if (typeof o.onStop === 'function') this.onStop   = o.onStop;
       if (_isNum(o.rate))                 this._rate    = o.rate;
     }
 
@@ -566,27 +582,35 @@ export class PoseTrack {
   }
 
   /**
-   * Stop playback. Does NOT reset time unless reset is true.
-   * @param {boolean} [reset=false]  If true, seek to start or end based on rate direction.
+   * Stop playback. No-op if already stopped.
+   * Fires `onStop` → `_onDeactivate`, then optionally seeks to the
+   * logical start (rate > 0 → t=0, rate < 0 → t=1).
+   * @param {boolean} [rewind=false]  Seek to playback origin after stopping.
    * @returns {PoseTrack} this
    */
-  stop(reset) {
+  stop(rewind) {
     const wasPlaying = this.playing;
     this.playing = false;
-    if (wasPlaying) this._onDeactivate?.();
-    if (!reset || this.keyframes.length <= 1) return this;
-    this.seek(this._rate < 0 ? 1 : 0);
+    if (wasPlaying) {
+      if (typeof this.onStop === 'function') { try { this.onStop(this); } catch (_) {} }
+      this._onDeactivate?.();
+      if (rewind && this.keyframes.length > 1) this.seek(this._rate < 0 ? 1 : 0);
+    }
     return this;
   }
 
   /**
-   * Clear all keyframes and stop. Fires _onDeactivate if was playing.
+   * Clear all keyframes and stop.
+   * Fires `onStop` then `_onDeactivate` if was playing.
    * @returns {PoseTrack} this
    */
   reset() {
     const wasPlaying = this.playing;
     this.playing = false;
-    if (wasPlaying) this._onDeactivate?.();
+    if (wasPlaying) {
+      if (typeof this.onStop === 'function') { try { this.onStop(this); } catch (_) {} }
+      this._onDeactivate?.();
+    }
     this.keyframes.length = 0;
     this.seg = 0; this.f = 0;
     return this;
@@ -650,7 +674,7 @@ export class PoseTrack {
    * Advance the cursor by rate frames.
    *
    * rate === 0: frozen — returns this.playing without moving (no-op).
-   * Returns false and fires onEnd/_onDeactivate when a once-mode boundary is hit.
+   * Returns false and fires onEnd → _onDeactivate when a once-mode boundary is hit.
    * Returns true while playing and continuing.
    *
    * @returns {boolean}

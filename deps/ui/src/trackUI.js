@@ -20,8 +20,9 @@
  *   target.seek(t)       Set normalised position [0, 1].
  *   target.time()        Returns normalised position [0, 1].
  *   target.playing       Boolean — true while playing.
- *   target.onPlay        Callback hook (chained, not clobbered).
- *   target.onEnd         Callback hook (chained, not clobbered).
+ *   target.onPlay        Fires when playback starts (chained, not clobbered).
+ *   target.onEnd         Fires on natural boundary — once mode (chained, not clobbered).
+ *   target.onStop        Fires on explicit stop() / reset() (chained, not clobbered).
  *
  * Optional:
  *   target.add(d?)       Add keyframe at depth d [0..1] (near..far plane centre).
@@ -278,11 +279,13 @@ export function createTrackUI(target, opt) {
   }
 
   // ── Hook chaining ─────────────────────────────────────────────────────────
-  // Chain onPlay/onEnd so the play button stays in sync with external state
-  // changes (e.g. playback ending naturally in once mode).
+  // Chain onPlay/onEnd/onStop so the play button stays in sync with external
+  // state changes (e.g. playback ending naturally in once mode, or an
+  // explicit stop() called from outside the UI).
 
   const _prevOnPlay = target.onPlay;
   const _prevOnEnd  = target.onEnd;
+  const _prevOnStop = target.onStop;
 
   target.onPlay = function () {
     _syncPlayBtn();
@@ -295,6 +298,14 @@ export function createTrackUI(target, opt) {
     _syncPlayBtn();
     if (typeof _prevOnEnd === 'function') {
       try { _prevOnEnd.apply(this, arguments); } catch (_) {}
+    }
+  };
+
+  // Keep play button in sync when playback is explicitly stopped or reset.
+  target.onStop = function () {
+    _syncPlayBtn();
+    if (typeof _prevOnStop === 'function') {
+      try { _prevOnStop.apply(this, arguments); } catch (_) {}
     }
   };
 
@@ -368,6 +379,7 @@ export function createTrackUI(target, opt) {
   ui.dispose = () => {
     target.onPlay = _prevOnPlay;
     target.onEnd  = _prevOnEnd;
+    target.onStop = _prevOnStop;
     container.parentNode && container.parentNode.removeChild(container);
   };
 
