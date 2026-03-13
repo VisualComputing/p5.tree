@@ -1,6 +1,6 @@
 {
   "name": "@nakednous/ui",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "ui — vanilla DOM UI components. Zero p5 deps.",
   "type": "module",
   "main": "dist/index.js",

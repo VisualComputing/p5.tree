@@ -314,6 +314,13 @@ export function installUI(p5, fn) {
       };
     }
 
+    // Wire user-supplied hooks from opt onto target *before* _trackUI chains
+    // them. trackUI.js captures target.on* as _prevOn* and calls them after
+    // its own UI-sync wrapper — so they must be set here, not after.
+    if (typeof opt.onPlay === 'function') { target.onPlay = opt.onPlay; delete opt.onPlay; }
+    if (typeof opt.onEnd  === 'function') { target.onEnd  = opt.onEnd;  delete opt.onEnd;  }
+    if (typeof opt.onStop === 'function') { target.onStop = opt.onStop; delete opt.onStop; }
+
     const ui = _trackUI(target, opt);
 
     // Single persistent player: ticks camera (if applicable) + UI sync
