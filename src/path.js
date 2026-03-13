@@ -134,7 +134,11 @@ export function clearPlayers(pInst) {
 // Camera path helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-const isOrthoCam = (c) => c?.projMatrix?.isOrtho?.();
+// fixed — reads the raw Float32Array and delegates to core
+const isOrthoCam = (c) => {
+  const m = c?.projMatrix?.mat4;
+  return m ? projIsOrtho(m) : undefined;
+}
 
 function initProjBaseline(cam) {
   const b = getCamTrack(cam);

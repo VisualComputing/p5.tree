@@ -574,9 +574,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.16/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.16/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.16/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.16/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.16/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.16/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.17/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.17/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.17/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.17/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.17/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.17/dist/p5.tree.esm.js)
 
 ---
 
