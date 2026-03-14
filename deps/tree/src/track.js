@@ -360,15 +360,50 @@ function _parseVec3(v) {
 
 function _parseQuat(v) {
   if (!v) return null;
+  // [x,y,z,w] raw quaternion
   if (Array.isArray(v) && v.length === 4 && v.every(n => typeof n === 'number')) return [v[0], v[1], v[2], v[3]];
+  // { axis, angle }
   if (v.axis && typeof v.angle === 'number') {
     const a = Array.isArray(v.axis) ? v.axis : [v.axis.x || 0, v.axis.y || 0, v.axis.z || 0];
     return qFromAxisAngle([0, 0, 0, 1], a[0], a[1], a[2], v.angle);
   }
+  // { dir, up? } — object orientation
   if (v.dir) {
     const d = Array.isArray(v.dir) ? v.dir : [v.dir.x || 0, v.dir.y || 0, v.dir.z || 0];
     const u = v.up ? (Array.isArray(v.up) ? v.up : [v.up.x || 0, v.up.y || 0, v.up.z || 0]) : null;
     return qFromLookDir([0, 0, 0, 1], d, u);
+  }
+  // { view } — column-major mat4 (Float32Array, plain array, or {mat4} wrapper).
+  // Matches capturePose() which calls qFromMat4(cameraMatrix.mat4).
+  if (v.view != null) {
+    const m = (ArrayBuffer.isView(v.view) || Array.isArray(v.view))
+      ? v.view
+      : (v.view.mat4 ?? null);
+    if (m && m.length === 16) return qFromMat4([0, 0, 0, 1], m);
+  }
+  // { eye, center, up? } — camera lookat form.
+  // Builds the same quaternion as qFromMat4(viewMatrix) so it is consistent
+  // with capturePose(). Right vector: fwd × up (OpenGL convention).
+  if (v.eye && v.center) {
+    const eye = _parseVec3(v.eye);
+    const ctr = _parseVec3(v.center);
+    if (eye && ctr) {
+      const up = (v.up ? _parseVec3(v.up) : null) || [0, 1, 0];
+      // forward = normalize(center − eye)
+      let fx = ctr[0]-eye[0], fy = ctr[1]-eye[1], fz = ctr[2]-eye[2];
+      const fl = Math.sqrt(fx*fx+fy*fy+fz*fz) || 1;
+      fx /= fl; fy /= fl; fz /= fl;
+      // right = normalize(fwd × up)  — OpenGL / p5 cameraMatrix convention
+      let rx = fy*up[2]-fz*up[1], ry = fz*up[0]-fx*up[2], rz = fx*up[1]-fy*up[0];
+      const rl = Math.sqrt(rx*rx+ry*ry+rz*rz) || 1;
+      rx /= rl; ry /= rl; rz /= rl;
+      // re-ortho: up_ortho = right × fwd
+      const ux = ry*fz-rz*fy, uy = rz*fx-rx*fz, uz = rx*fy-ry*fx;
+      // View matrix is col-major with col0=right, col1=up_ortho, col2=-fwd.
+      // qFromMat4 reads it as qFromRotMat3x3(m[0],m[4],m[8], m[1],m[5],m[9], m[2],m[6],m[10])
+      // which maps to: qFromRotMat3x3(rx,ux,-fx, ry,uy,-fy, rz,uz,-fz)
+      return qFromRotMat3x3([0, 0, 0, 1], rx, ux, -fx, ry, uy, -fy, rz, uz, -fz);
+    }
   }
   return null;
 }

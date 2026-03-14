@@ -4,25 +4,22 @@
  * @license GPL-3.0-only
  *
  * This thin bridge does three things per UI type:
- *   1. Resolves p5-specific types (p5.Camera → wrapped target, p5.Element → DOM).
+ *   1. Resolves p5-specific types (p5.Element → DOM, shader → setUniform wrapper).
  *   2. Mounts the UI container into the canvas parent by default.
  *   3. Registers a persistent player so tick() is called every frame.
  *
- * For createUI specifically, the bridge also intercepts opt.target:
+ * For createUI specifically, the bridge intercepts opt.target:
  *   - p5 shader (has .setUniform) → wrapped as (name, value) => shader.setUniform(name, value)
  *   - function or { set } object  → passed through unchanged
  *
- * This keeps setUniform knowledge out of @nakednous/ui entirely.
- *
- * Parent resolution rule
- * ----------------------
- *   opt.parent is resolved here, before passing to the generic UI factories.
- *   Generic factories (createUI / createTrackUI) receive a plain
- *   HTMLElement and know nothing about p5.Element or canvas structure.
+ * createTrackUI takes a PoseTrack as first argument.
+ * Pass opt.camera to wire the + button to cam.capturePose():
+ *   - omitted → defaults to the current p5 camera
+ *   - null    → + button is hidden (track.add is absent from wrapper)
+ *   - p5.Camera instance → that specific camera is used for capture
  */
 
-// TODO: unify createUI and createTrackUI ?? Really depends on path refactor
-// also renaming then this module (e.g., panel)
+// TODO: unify createUI and createTrackUI onto createPanel (stage 3)
 
 'use strict';
 
@@ -32,9 +29,7 @@ import {
   mapLocation as coreMapLocation,
   mat4Mul, mat4Invert,
 } from '@nakednous/tree';
-import {
-  registerPlayer, getCamTrack, tickCamera, _applyCamAtCursor
-} from './path.js';
+import { registerPlayer } from './path.js';
 
 // ── Module-level scratch (allocated once at import time) ──────────────────────
 
@@ -80,9 +75,7 @@ function _ndcZMin(renderer) {
  * Unproject the frustum centre at parametric depth d [0..1] into world space.
  * d=0 → near plane centre,  d=1 → far plane centre.
  *
- * Uses coreMapLocation (NDC→WORLD) directly to avoid going through the p5
- * bridge wrapper. Returns a plain [x, y, z] array, or null if renderer
- * state is unavailable.
+ * Returns a plain [x, y, z] array, or null if renderer state is unavailable.
  *
  * @param {p5} pInst
  * @param {number} d  Depth in [0..1].
@@ -100,6 +93,64 @@ function _centerAtDepth(pInst, d) {
   if (!mat4Invert(_sc_ipv, _sc_pv)) return null;
   coreMapLocation(_sc_v3, 0, 0, ndcZ, NDC, WORLD, { ipv: _sc_ipv }, [0, 0, 1, 1], ndcMin);
   return [_sc_v3[0], _sc_v3[1], _sc_v3[2]];
+}
+
+// ── createTrackUI helpers ─────────────────────────────────────────────────────
+
+/**
+ * Wrap a PoseTrack with an optional camera for the + button.
+ * The result is a duck-typed object that satisfies the createTrackUI contract.
+ *
+ * Camera resolution priority for + button capture:
+ *   explicit p5.Camera  → use that camera
+ *   null                → no add() exposed (+ button hidden)
+ *   undefined           → use curCamera at call time (dynamic)
+ *
+ * @param {PoseTrack} track
+ * @param {p5.Camera|null|undefined} cam
+ * @returns {Object}
+ */
+function _wrapTrackWithCamera(track, cam) {
+  // Scratch for immediate pose application — allocated once, reused.
+  const _snapOut = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [0, 0, 0] };
+
+  function _applySnap() {
+    if (cam && track.keyframes.length > 0) cam.applyPose(track.eval(_snapOut));
+  }
+
+  // Chain track.onEnd to apply the final pose immediately in predraw.
+  //
+  // The timing problem: tick() runs in predraw, sets playing=false, fires onEnd —
+  // all before draw. The draw guard `if (track.playing)` is then false, so the
+  // final pose is never applied from draw. By applying it here in the onEnd chain
+  // (which fires in predraw), the camera is correctly positioned before draw runs.
+  //
+  // Preserve any user callback already set on track.onEnd before createTrackUI.
+  const _prevOnEnd = track.onEnd;
+  track.onEnd = function (t) {
+    if (typeof _prevOnEnd === 'function') { try { _prevOnEnd(t); } catch (_) {} }
+    _applySnap();
+  };
+
+  const w = {
+    get playing() { return track.playing; },
+    play: (o) => {
+      track.play(o);
+      // 1-KF snap: play() sets cursor but leaves playing=false.
+      if (!track.playing && track.keyframes.length === 1) _applySnap();
+    },
+    stop:  ()  => track.stop(),
+    // Seek while stopped: apply pose immediately so the camera tracks the slider.
+    seek:  (t) => { track.seek(t); _applySnap(); },
+    time:  ()  => track.time(),
+  };
+  if (typeof track.reset === 'function') w.reset = () => track.reset();
+  if (typeof track.info  === 'function') w.info  = () => track.info();
+  // Wire + button: cam=null means explicitly no button; undefined means use curCamera
+  if (cam !== null && typeof track.add === 'function') {
+    w.add = () => track.add(cam.capturePose());
+  }
+  return w;
 }
 
 // ── installUI ─────────────────────────────────────────────────────────────────
@@ -154,15 +205,10 @@ export function installUI(p5, fn) {
    *     blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 }
    *   }, { target: blur, x: 10, y: 10, labels: true })
    * }
-   *
-   * @example <caption>Custom sink — Web Audio</caption>
-   * ui = createUI({
-   *   frequency: { min: 20, max: 20000, value: 440, step: 1 }
-   * }, { target: (name, value) => oscillator[name].value = value })
    */
   fn.createUI = function (schema, opt) {
     const pInst = this;
-    opt         = Object.assign({}, opt);   // do not mutate caller's object
+    opt         = Object.assign({}, opt);
     // Intercept p5 shader targets — wrap setUniform as a plain function
     // so @nakednous/ui never needs to know what a uniform is.
     if (opt.target && typeof opt.target.setUniform === 'function') {
@@ -178,67 +224,55 @@ export function installUI(p5, fn) {
 
   // ── createTrackUI ──────────────────────────────────────────────────────────
   /**
-   * Create transport controls for a PoseTrack or Camera path.
+   * Create transport controls for a PoseTrack.
+   *
+   * The `+` button captures the current camera pose and adds it to the track.
+   * Camera resolution for the `+` button:
+   *   - `opt.camera` (p5.Camera) → use that camera explicitly
+   *   - `opt.camera === null`    → hide the `+` button
+   *   - `opt.camera` omitted    → use `curCamera` (resolved once at createTrackUI time)
    *
    * @method createTrackUI
    * @memberof p5
-   * @param {(PoseTrack|p5.Camera)} [trackOrCam]  Target to control.
-   *   If a Camera is passed, its internal PoseTrack is resolved automatically
-   *   and the `+` button adds the current camera pose as a keyframe.
-   *   If a PoseTrack is passed, the `+` button captures a pose from the
-   *   current camera (eye position + orientation).
-   *   If omitted (first arg is the options object), defaults to curCamera.
+   * @param {PoseTrack} track  The track to control.
    * @param {Object} [opt]  Layout options (seek, props, info, rate, loop, depth, ...).
-   * @param {number}  [opt.depth=0.5]  Initial add-pose depth [0..1]: 0 = near plane,
-   *   1 = far plane.  The `+` button places the new keyframe at the frustum centre
-   *   ray unprojected to this NDC depth.
+   * @param {p5.Camera|null} [opt.camera]  Camera for + button capture (see above).
    * @param {(HTMLElement|p5.Element)} [opt.parent]  Mount target.
    *   Defaults to the canvas parent element.
    * @returns {Object} UI handle with .el, .tick(), .dispose().
+   *
+   * @example <caption>Basic usage</caption>
+   * let track, out
+   * function setup() {
+   *   createCanvas(600, 400, WEBGL)
+   *   track = createPoseTrack()
+   *   out   = { pos: [0,0,0], rot: [0,0,0,1], scl: [1,1,1] }
+   *   createTrackUI(track, { x: 10, y: 10, color: 'white' })
+   * }
+   * function draw() {
+   *   background(20)
+   *   if (track.playing) camera.applyPose(track.eval(out))
+   * }
    */
-  fn.createTrackUI = function (trackOrCam, opt) {
+  fn.createTrackUI = function (track, opt) {
     const pInst = this;
-
-    // Normalise overload: createTrackUI(opt) — no track arg
-    if (trackOrCam && !opt && typeof trackOrCam === 'object' &&
-        !(trackOrCam instanceof p5.Camera) &&
-        typeof trackOrCam.keyframes === 'undefined') {
-      opt = trackOrCam;
-      trackOrCam = undefined;
-    }
     opt = Object.assign({}, opt);
     opt.parent = _resolveParent(pInst, opt.parent);
 
-    // Resolve depth → world position for the + button
-    const depthVal = opt.depth ?? 0.5;
-    opt.getAddPos  = () => _centerAtDepth(pInst, depthVal);
+    // Resolve camera for + button capture.
+    // opt.camera === null → explicitly no button.
+    // opt.camera omitted → fall back to curCamera (resolved now, not per-frame).
+    const explicitCam = opt.camera;
+    delete opt.camera;
+    const cam = explicitCam === null
+      ? null
+      : (explicitCam instanceof p5.Camera
+          ? explicitCam
+          : (pInst._renderer?.states?.curCamera ?? null));
 
-    // Camera overload — wrap path add/play/seek/stop/reset
-    if (trackOrCam instanceof p5.Camera) {
-      const cam = trackOrCam;
-      const wrapped = {
-        get keyframes() { return getCamTrack(cam).keyframes; },
-        add(pose)       { return cam.addPath(pose?.pos ?? opt.getAddPos?.() ?? [0,0,0], pose?.center ?? [0,0,0], pose?.up ?? [0,1,0]); },
-        play(o)         { return tickCamera(cam, o); },
-        stop()          { return cam.stopPath(); },
-        reset()         { return cam.resetPath(); },
-        seek(t)         { return cam.seekPath(t); },
-        get playing()   { return getCamTrack(cam).playing; },
-        get time()      { return getCamTrack(cam).time; },
-        get loop()      { return getCamTrack(cam).loop; },
-        get rate()      { return getCamTrack(cam).rate; },
-        get duration()  { return getCamTrack(cam).duration; },
-        onEnd:  null,
-        onStop: null,
-      };
-      const ui = _trackUI(wrapped, opt);
-      registerPlayer(pInst, { tick() { ui.tick(); return true; } });
-      return ui;
-    }
-
-    // PoseTrack overload
-    const track = trackOrCam ?? getCamTrack(pInst._renderer?.states?.curCamera);
-    const ui    = _trackUI(track, opt);
+    const uiTarget = _wrapTrackWithCamera(track, cam);
+    const ui = _trackUI(uiTarget, opt);
+    // Persistent player — UI tick always stays registered.
     registerPlayer(pInst, { tick() { ui.tick(); return true; } });
     return ui;
   };
