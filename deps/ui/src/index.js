@@ -9,5 +9,5 @@
 
 'use strict';
 
-export { createUniformUI } from './uniformUI.js';
-export { createTrackUI }   from './trackUI.js';
+export { createUI }      from './ui.js';
+export { createTrackUI } from './trackUI.js';

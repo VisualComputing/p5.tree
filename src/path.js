@@ -7,6 +7,8 @@
  * adapter, player registry, and lifecycle helpers live here.
  */
 
+// TODO refactor to simplify in terms of PoseTrack. Rethink ergonomics
+
 'use strict';
 
 import {

@@ -51,7 +51,7 @@
 
 import {
   createContainer, createSlider, createButton,
-  createSelect, createLabel, setVisible, mount
+  createSelect, createLabel, mount
 } from './dom.js';
 
 /**

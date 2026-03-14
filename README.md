@@ -19,11 +19,11 @@ Shader tools, animation tracks, camera keyframe interpolation, space transforms,
   * [Frustum queries](#frustum-queries)
   * [Coordinate space conversions](#coordinate-space-conversions)
   * [Heads Up Display](#heads-up-display)
-* [Uniform UI](#uniform-ui)
+* [UI](#ui)
   * [Creating a UI](#creating-a-ui)
   * [Accessing values](#accessing-values)
   * [Applying to shaders](#applying-to-shaders)
-  * [Default panel](#default-panel)
+  * [Default UI](#default-ui)
 * [Post-processing](#post-processing)
   * [pipe](#pipe)
   * [releasePipe](#releasepipe)
@@ -207,14 +207,7 @@ Matrix operations, matrix/frustum queries, and coordinate conversions.
 
 ## Matrix operations
 
-Operate on `p5.Matrix` objects. Not subject to the out-first contract — these are not hot-path queries.
-
-1. `createMatrix(...args)` — wrapper around `new p5.Matrix(...args)`.
-2. `tMatrix(matrix)` — returns the transpose of `matrix`.
-3. `iMatrix(matrix)` — returns the inverse of `matrix`.
-4. `axbMatrix(a, b)` — returns `a · b`.
-
-All return `p5.Matrix` instances.
+`createMatrix(...args)` — convenience wrapper around `new p5.Matrix(...args)`.
 
 ## Matrix queries
 
@@ -371,14 +364,16 @@ In HUD mode, coordinates follow standard 2D conventions: `(x, y) ∈ [0, width] 
 
 ---
 
-# Uniform UI
+# UI
 
-A lightweight system for managing shader uniforms and optional UI controls.
+A schema-driven parameter panel — sliders, checkboxes, color pickers, dropdowns,
+and buttons — with optional shader push via `target`. Zero p5 dependencies; mounts
+into any container.
 
 ## Creating a UI
 
 ```js
-const ui = createUniformUI({
+const ui = createUI({
   blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 },
   useLighting:   { value: true },
   tintColor:     { value: '#ff8844' }
@@ -437,7 +432,7 @@ For `p5.strands`, bind explicitly inside `.modify()`:
 const blurIntensity = uniformFloat(() => ui.blurIntensity.value())
 ```
 
-## Default panel
+## Default UI
 
 ```js
 ui.visible = true
@@ -449,14 +444,14 @@ ui.config({ x: 20, y: 20, width: 160, offset: 8 })
 Mount into a specific container:
 
 ```js
-const ui = createUniformUI(schema, {
+const ui = createUI(schema, {
   parent: document.getElementById('sketch'),
   x: 10,
   y: 10
 })
 ```
 
-When `parent` is provided, `createUniformUI` ensures the container has a proper positioning context so `x/y` anchoring works predictably.
+When `parent` is provided, `createUI` ensures the container has a proper positioning context so `x/y` anchoring works predictably.
 
 Labels: omit → uniform key, `label: false` → no label, `label: 'Custom'` → custom text.
 
@@ -574,9 +569,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.18/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.18/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.18/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.18/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.18/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.18/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.esm.js)
 
 ---
 

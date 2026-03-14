@@ -112,17 +112,8 @@ export function installMatrix(p5, fn) {
 
   // ── p5.Matrix utilities ───────────────────────────────────────────────────
   //
-  // Operate on p5.Matrix objects for callers working with p5's own matrix
-  // stack. Not matrix queries — do not follow the out-first contract.
-
-  fn.tMatrix = function (m) {
-    const s = m.mat4;
-    if (s) return new p5.Matrix([s[0],s[4],s[8],s[12],s[1],s[5],s[9],s[13],s[2],s[6],s[10],s[14],s[3],s[7],s[11],s[15]]);
-    const t = m.mat3;
-    if (t) return new p5.Matrix([t[0],t[3],t[6],t[1],t[4],t[7],t[2],t[5],t[8]]);
-  };
-  fn.iMatrix      = function (m)    { const o = m.clone(); o.invert(m); return o; };
-  fn.axbMatrix    = function (a, b) { return a.clone().mult(b); };
+  // Mirrors p5.createVector — callable without new.
+    
   fn.createMatrix = (...args) => new p5.Matrix(...args);
 
   // ── Simple matrix queries ────────────────────────────────────────────────

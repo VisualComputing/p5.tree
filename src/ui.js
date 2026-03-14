@@ -1,5 +1,5 @@
 /**
- * @file p5 bridge for the ui/ package (createUniformUI, createTrackUI).
+ * @file p5 bridge for the ui/ package (createUI, createTrackUI).
  * @module p5.tree/ui
  * @license GPL-3.0-only
  *
@@ -8,18 +8,26 @@
  *   2. Mounts the UI container into the canvas parent by default.
  *   3. Registers a persistent player so tick() is called every frame.
  *
+ * For createUI specifically, the bridge also intercepts opt.target:
+ *   - p5 shader (has .setUniform) → wrapped as (name, value) => shader.setUniform(name, value)
+ *   - function or { set } object  → passed through unchanged
+ *
+ * This keeps setUniform knowledge out of @nakednous/ui entirely.
+ *
  * Parent resolution rule
  * ----------------------
  *   opt.parent is resolved here, before passing to the generic UI factories.
- *   Generic factories (createUniformUI / createTrackUI) receive a plain
+ *   Generic factories (createUI / createTrackUI) receive a plain
  *   HTMLElement and know nothing about p5.Element or canvas structure.
  */
 
+// TODO: unify createUI and createTrackUI ?? Really depends on path refactor
+// also renaming then this module (e.g., panel)
+
 'use strict';
 
-import { createUniformUI as _uniformUI, createTrackUI as _trackUI } from '@nakednous/ui';
+import { createUI as _createUI, createTrackUI as _trackUI } from '@nakednous/ui';
 import {
-  qFromMat4,
   NDC, WORLD,
   mapLocation as coreMapLocation,
   mat4Mul, mat4Invert,
@@ -97,52 +105,72 @@ function _centerAtDepth(pInst, d) {
 // ── installUI ─────────────────────────────────────────────────────────────────
 
 /**
- * Install fn.createUniformUI and fn.createTrackUI.
+ * Install fn.createUI and fn.createTrackUI.
  * @param {p5} p5  The p5 constructor.
  * @param {Object} fn  p5 prototype.
  */
 export function installUI(p5, fn) {
 
-  // ── createUniformUI ────────────────────────────────────────────────────────
+  // ── createUI ───────────────────────────────────────────────────────────────
   /**
-   * Create a uniform UI panel and auto-tick it every frame.
+   * Create a parameter panel and auto-tick it every frame.
    *
-   * @method createUniformUI
+   * Schema keys map to control names. Controls are sliders, checkboxes, color
+   * pickers, dropdowns, or buttons — inferred from the value type, or set
+   * explicitly via `cfg.type`.
+   *
+   * `target` accepts:
+   *   - a p5 shader (anything with `.setUniform`) — values are pushed via setUniform
+   *   - a plain function `(name, value) => ...` — called directly each tick
+   *   - an object with `.set(name, value)` — that method is called each tick
+   *   - omitted — read values manually via `ui[name].value()`
+   *
+   * @method createUI
    * @memberof p5
-   * @param {Object} schema    Control definitions (same keys as uniform names).
+   * @param {Object} schema    Control definitions keyed by name.
    * @param {Object} [opt]     Layout options (x, y, width, color, labels, ...).
-   * @param {Object} [opt.target]  Shader or anything with setUniform(name, value).
-   *   If provided, tick() auto-applies values each frame.
-   *   If omitted, read values manually via ui[name].value() (e.g. strands closures).
+   * @param {Object|Function} [opt.target]  Value sink — shader, function, or { set }.
    * @param {(HTMLElement|p5.Element)} [opt.parent]  Mount target.
    *   Defaults to the canvas parent element.
    * @returns {Object} UI handle with .el, .tick(), .dispose(), per-control accessors.
    *
-   * @example <caption>Manual read (p5.strands / closures)</caption>
+   * @example <caption>Scene params — manual read</caption>
    * let ui
    * function setup() {
    *   createCanvas(600, 400, WEBGL)
-   *   ui = createUniformUI({
-   *     frequency: { min: 0, max: 10, value: 2, step: 0.1 },
-   *     amplitude: { min: 0, max: 1, value: 0.05, step: 0.01 }
-   *   }, { x: 10, y: 10, labels: true, color: 'white', title: 'FX' })
+   *   ui = createUI({
+   *     speed:     { min: 0, max: 0.05, value: 0.012, step: 0.001 },
+   *     shininess: { min: 1, max: 200,  value: 80,    step: 1     },
+   *     showGrid:  { value: true }
+   *   }, { x: 10, y: 10, labels: true, color: 'white', title: 'Scene' })
    * }
    *
-   * @example <caption>Auto-apply (GLSL setUniform)</caption>
+   * @example <caption>Shader uniforms — auto-push via target</caption>
    * let ui
    * function setup() {
    *   createCanvas(600, 400, WEBGL)
    *   const blur = createFilterShader(blurFrag)
-   *   ui = createUniformUI({
+   *   ui = createUI({
    *     blurIntensity: { min: 0, max: 4, value: 2, step: 0.1 }
    *   }, { target: blur, x: 10, y: 10, labels: true })
    * }
+   *
+   * @example <caption>Custom sink — Web Audio</caption>
+   * ui = createUI({
+   *   frequency: { min: 20, max: 20000, value: 440, step: 1 }
+   * }, { target: (name, value) => oscillator[name].value = value })
    */
-  fn.createUniformUI = function (schema, opt) {
-    const pInst  = this;
-    opt          = Object.assign({}, opt);   // do not mutate caller's object
-    opt.parent   = _resolveParent(pInst, opt.parent);
-    const ui     = _uniformUI(schema, opt);
+  fn.createUI = function (schema, opt) {
+    const pInst = this;
+    opt         = Object.assign({}, opt);   // do not mutate caller's object
+    // Intercept p5 shader targets — wrap setUniform as a plain function
+    // so @nakednous/ui never needs to know what a uniform is.
+    if (opt.target && typeof opt.target.setUniform === 'function') {
+      const shader = opt.target;
+      opt.target   = (name, value) => shader.setUniform(name, value);
+    }
+    opt.parent = _resolveParent(pInst, opt.parent);
+    const ui   = _createUI(schema, opt);
     // Persistent player — tick() always returns true (UI never self-removes)
     registerPlayer(pInst, { tick() { ui.tick(); return true; } });
     return ui;
@@ -167,172 +195,51 @@ export function installUI(p5, fn) {
    * @param {(HTMLElement|p5.Element)} [opt.parent]  Mount target.
    *   Defaults to the canvas parent element.
    * @returns {Object} UI handle with .el, .tick(), .dispose().
-   *
-   * @example <caption>Camera path with transport controls</caption>
-   * let cam, ui
-   * function setup() {
-   *   createCanvas(600, 400, WEBGL)
-   *   cam = createCamera()
-   *   cam.addPath([0, 0, 500],    [0, 0, 0], [0, 1, 0])
-   *   cam.addPath([200, -100, 0], [0, 0, 0], [0, 1, 0])
-   *   cam.addPath([-150, 50, 300],[0, 0, 0], [0, 1, 0])
-   *   ui = createTrackUI(cam, { info: true, y: 10, x: 10 })
-   * }
-   *
-   * @example <caption>Standalone PoseTrack</caption>
-   * let track, ui
-   * function setup() {
-   *   createCanvas(600, 400, WEBGL)
-   *   track = createPoseTrack()
-   *   ui = createTrackUI(track, { info: true })
-   * }
    */
-  fn.createTrackUI = function (trackOrCamOrOpt, opt) {
+  fn.createTrackUI = function (trackOrCam, opt) {
     const pInst = this;
 
-    // If first arg is a plain options object (no track/camera), default to curCamera
-    if (trackOrCamOrOpt && typeof trackOrCamOrOpt === 'object'
-        && !(trackOrCamOrOpt instanceof p5.Camera)
-        && !trackOrCamOrOpt.play
-        && !trackOrCamOrOpt.seek) {
-      opt              = trackOrCamOrOpt;
-      trackOrCamOrOpt  = pInst._renderer && pInst._renderer.states
-        ? pInst._renderer.states.curCamera : null;
+    // Normalise overload: createTrackUI(opt) — no track arg
+    if (trackOrCam && !opt && typeof trackOrCam === 'object' &&
+        !(trackOrCam instanceof p5.Camera) &&
+        typeof trackOrCam.keyframes === 'undefined') {
+      opt = trackOrCam;
+      trackOrCam = undefined;
     }
-    opt        = Object.assign({}, opt || {});
+    opt = Object.assign({}, opt);
     opt.parent = _resolveParent(pInst, opt.parent);
 
-    const isCam = trackOrCamOrOpt instanceof p5.Camera;
-    // Depth slider is only meaningful for PoseTrack targets (placing an object
-    // at a scene depth). Camera keyframes snapshot the whole camera pose, so
-    // depth does not apply.
-    if (isCam) opt.depth = false;
-    let target;
+    // Resolve depth → world position for the + button
+    const depthVal = opt.depth ?? 0.5;
+    opt.getAddPos  = () => _centerAtDepth(pInst, depthVal);
 
-    if (isCam) {
-      // ── Camera target ────────────────────────────────────────────────────
-      // Operate directly on the underlying PoseTrack through a thin wrapper
-      // so that the bridge (not p5.Camera) controls the player lifecycle.
-      const cam   = trackOrCamOrOpt;
-      const b     = getCamTrack(cam);
-      const track = b.track;
-
-      target = {
-        play(o) {
-          if (track.keyframes.length === 0) return;
-          // One keyframe: snap and return, do not animate
-          if (track.keyframes.length === 1) {
-            _applyCamAtCursor(cam);
-            return;
-          }
-          const opts = {};
-          if (o && typeof o === 'number') {
-            opts.rate = o;
-          } else if (o) {
-            if ('rate'     in o) opts.rate     = o.rate;
-            if ('loop'     in o) opts.loop     = o.loop;
-            if ('pingPong' in o) opts.pingPong = o.pingPong;
-            if ('duration' in o) opts.duration = o.duration;
-          }
-          track.play(opts);
-        },
-        stop() {
-          track.stop();
-          _applyCamAtCursor(cam);
-        },
-        seek(t) {
-          track.seek(t);
-          _applyCamAtCursor(cam);
-        },
-        time()  { return track.time(); },
-        info()  { return track.info(); },
-        /**
-         * Snapshot the current camera pose as a new keyframe.
-         * Depth is not applicable to camera keyframes — the snapshot IS the camera.
-         */
-        add() { cam.addPath(); },
-        /** Clear all keyframes and stop. */
-        reset() { cam.resetPath(); },
-        get playing()  { return track.playing; },
-        get onPlay()   { return track.onPlay; },
-        set onPlay(f)  { track.onPlay = f; },
-        get onEnd()    { return track.onEnd; },
-        set onEnd(f)   { track.onEnd = f; },
-        get onStop()   { return track.onStop; },
-        set onStop(f)  { track.onStop = f; }
+    // Camera overload — wrap path add/play/seek/stop/reset
+    if (trackOrCam instanceof p5.Camera) {
+      const cam = trackOrCam;
+      const wrapped = {
+        get keyframes() { return getCamTrack(cam).keyframes; },
+        add(pose)       { return cam.addPath(pose?.pos ?? opt.getAddPos?.() ?? [0,0,0], pose?.center ?? [0,0,0], pose?.up ?? [0,1,0]); },
+        play(o)         { return tickCamera(cam, o); },
+        stop()          { return cam.stopPath(); },
+        reset()         { return cam.resetPath(); },
+        seek(t)         { return cam.seekPath(t); },
+        get playing()   { return getCamTrack(cam).playing; },
+        get time()      { return getCamTrack(cam).time; },
+        get loop()      { return getCamTrack(cam).loop; },
+        get rate()      { return getCamTrack(cam).rate; },
+        get duration()  { return getCamTrack(cam).duration; },
+        onEnd:  null,
+        onStop: null,
       };
-
-    } else {
-      // ── PoseTrack target ─────────────────────────────────────────────────
-      // Augment the bare PoseTrack with an add() that captures a pose from the
-      // current camera at the frustum centre unprojected to depth d.
-      const track = trackOrCamOrOpt;
-
-      /**
-       * Capture a pose from the current camera at NDC depth d.
-       * Position: frustum centre at depth d (NDC→WORLD).
-       * Orientation: quaternion extracted from the current camera matrix.
-       * @param {number} [d=0.5]
-       * @returns {{ pos, rot, scl }|null}
-       */
-      const _captureFromCamera = (d = 0.5) => {
-        const cam = pInst._renderer && pInst._renderer.states
-          ? pInst._renderer.states.curCamera : null;
-        if (!cam) return null;
-        const rot = [0, 0, 0, 1];
-        if (cam.cameraMatrix && cam.cameraMatrix.mat4) {
-          qFromMat4(rot, cam.cameraMatrix.mat4);
-        }
-        const wp  = _centerAtDepth(pInst, d);
-        const pos = wp ? wp : [cam.eyeX, cam.eyeY, cam.eyeZ];
-        return { pos, rot, scl: [1, 1, 1] };
-      };
-
-      target = {
-        play(o)  { track.play(o); },
-        stop()   { track.stop(); },
-        seek(t)  { track.seek(t); },
-        time()   { return track.time(); },
-        info()   { return track.info(); },
-        /**
-         * Capture current camera pose at depth d and push it as a new keyframe.
-         * @param {number} [d=0.5]
-         */
-        add(d = 0.5) {
-          const pose = _captureFromCamera(d);
-          if (pose) track.keyframes.push(pose);
-        },
-        /** Clear all keyframes and stop. */
-        reset() { track.reset(); },
-        get playing()  { return track.playing; },
-        get onPlay()   { return track.onPlay; },
-        set onPlay(f)  { track.onPlay = f; },
-        get onEnd()    { return track.onEnd; },
-        set onEnd(f)   { track.onEnd = f; },
-        get onStop()   { return track.onStop; },
-        set onStop(f)  { track.onStop = f; }
-      };
-    }
-
-    // Wire user-supplied hooks from opt onto target *before* _trackUI chains
-    // them. trackUI.js captures target.on* as _prevOn* and calls them after
-    // its own UI-sync wrapper — so they must be set here, not after.
-    if (typeof opt.onPlay === 'function') { target.onPlay = opt.onPlay; delete opt.onPlay; }
-    if (typeof opt.onEnd  === 'function') { target.onEnd  = opt.onEnd;  delete opt.onEnd;  }
-    if (typeof opt.onStop === 'function') { target.onStop = opt.onStop; delete opt.onStop; }
-
-    const ui = _trackUI(target, opt);
-
-    // Single persistent player: ticks camera (if applicable) + UI sync
-    if (isCam) {
-      const cam = trackOrCamOrOpt;
-      registerPlayer(pInst, {
-        tick() { tickCamera(cam); ui.tick(); return true; }
-      });
-    } else {
+      const ui = _trackUI(wrapped, opt);
       registerPlayer(pInst, { tick() { ui.tick(); return true; } });
+      return ui;
     }
 
+    // PoseTrack overload
+    const track = trackOrCam ?? getCamTrack(pInst._renderer?.states?.curCamera);
+    const ui    = _trackUI(track, opt);
+    registerPlayer(pInst, { tick() { ui.tick(); return true; } });
     return ui;
   };
 }
