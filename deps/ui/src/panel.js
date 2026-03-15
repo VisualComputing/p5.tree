@@ -17,7 +17,7 @@
 
 'use strict';
 
-import { createUI      as _createUI      } from './ui.js';
+import { createUI      as _createUI      } from './bindUI.js';
 import { createTrackUI as _createTrackUI } from './trackUI.js';
 
 /**

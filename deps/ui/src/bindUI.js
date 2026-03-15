@@ -1,63 +1,76 @@
 /**
- * @file DOM-based parameter panel builder.
- * @module ui
+ * @file Schema-driven parameter panel — binds named controls to a target.
+ * @module ui/bindUI
  * @license GPL-3.0-only
  *
  * Zero p5 dependencies.  Pure vanilla DOM.
- * Optional target contract — either form is accepted:
+ *
+ * ---------------------------------------------------------------------------
+ * Core concept — binding
+ * ---------------------------------------------------------------------------
+ * A schema maps parameter names to control definitions.  Each entry produces
+ * a DOM control whose value is *bound* to that name in two directions:
+ *
+ *   user interaction  →  control value changes  →  dirty flag set
+ *   tick()            →  dirty controls pushed  →  target(name, value)
+ *
+ * The target is any receiver that accepts (name, value) pairs:
  *   target(name, value)          plain function
  *   target.set(name, value)      object with set method
  *
- * Can be mounted into any container (Vue, React, plain HTML, canvas parent).
- * All styling lives in user space — this module applies only structural CSS
- * (position, display, flex-direction, gap) via inline styles and `p5t-*`
- * class names that users can override.
+ * When target is omitted, bindings are read-only: values are accessible via
+ * ui[name].value() but never pushed anywhere automatically.
+ *
+ * The term "binding" is intentional — this is the same concept used in shader
+ * systems (uniform bindings), game-engine inspectors (property bindings), and
+ * data-binding frameworks.  The schema key is the binding name; the control is
+ * the binding's UI representation; the target is the binding's sink.
  *
  * ---------------------------------------------------------------------------
- * Design intent — rendering / frame-rate context
+ * Tick model
  * ---------------------------------------------------------------------------
- * This library is designed for rendering pipelines where a host clock calls
- * tick() once per frame — the same clock that drives PoseTrack playback.
- * Values are pushed to the target at most once per frame and only when a
- * control has changed since the last push (_dirty flag). The first tick always
- * pushes all values to initialise target state.
+ * Designed for rendering pipelines where a host clock calls tick() once per
+ * frame — the same clock that drives PoseTrack playback.
  *
- * This means: if the user moves a slider multiple times within one frame,
- * the target receives the value at tick() time — not every intermediate value.
- * This is the correct behaviour for rendering sinks (shaders, scene params)
- * and most interactive use cases. It is not suitable for sinks that require
- * every delta (e.g. streaming every input event over a network).
+ * Values are pushed to the target at most once per control per frame and only
+ * when the control has changed since the last push (_dirty flag).  The first
+ * tick always pushes all values to initialise target state.
+ *
+ * Multiple user interactions within a single frame (rapid slider drag,
+ * programmatic set() calls) collapse to one push at tick() time.  This is the
+ * correct behaviour for rendering sinks (shaders, scene params).  It is not
+ * suitable for sinks that require every intermediate delta.
  *
  * ---------------------------------------------------------------------------
- * Supported control types (explicit or inferred)
+ * Supported control types (explicit or inferred from schema value)
  * ---------------------------------------------------------------------------
  * 'float'  : slider          'int'    : slider (integer step)
- * 'bool'   : checkbox        'color'  : color picker (-> normalised RGBA vec4)
+ * 'bool'   : checkbox        'color'  : color picker (→ normalised RGBA vec4)
  * 'vec2'   : 2 sliders       'vec3'   : 3 sliders      'vec4' : 4 sliders
  * 'select' : dropdown        'button' : action button (no value push)
  *
  * Type inference (when cfg.type is omitted):
- *   cfg.options        -> 'select'
- *   cfg.onClick fn     -> 'button'
- *   boolean value      -> 'bool'
- *   array [2..4]       -> 'vec2'/'vec3'/'vec4'
- *   string value       -> 'color'
- *   number / default   -> 'float'
+ *   cfg.options        → 'select'
+ *   cfg.onClick fn     → 'button'
+ *   boolean value      → 'bool'
+ *   array [2..4]       → 'vec2'/'vec3'/'vec4'
+ *   string value       → 'color'
+ *   number / default   → 'float'
  *
  * ---------------------------------------------------------------------------
  * Returned API
  * ---------------------------------------------------------------------------
  *   ui.el                       HTMLElement (container)
- *   ui.visible        get/set   boolean — whole UI visibility
- *   ui[name].visible  get/set   boolean — per-control visibility
- *   ui[name].value()            getter
- *   ui[name].set(v)             setter  (marks dirty — pushed on next tick)
+ *   ui.visible        get/set   boolean — whole panel visibility
+ *   ui[name].visible  get/set   boolean — per-binding visibility
+ *   ui[name].value()            current bound value
+ *   ui[name].set(v)             set programmatically (marks dirty → pushed on next tick)
  *   ui[name].reset()            restore initial value (marks dirty)
- *   ui.each(fn)                 iterate controls in schema order
- *   ui.elts()                   flat array of DOM elements
- *   ui.reset()                  reset all controls
+ *   ui.each(fn)                 iterate bindings in schema order
+ *   ui.elts()                   flat array of all bound DOM elements
+ *   ui.reset()                  reset all bindings
  *   ui.parent(el)               re-mount container into a new parent HTMLElement
- *   ui.tick()                   push dirty values to target — call once per frame
+ *   ui.tick()                   push dirty bindings to target — call once per frame
  *   ui.dispose()                remove DOM, detach listeners
  */
 
@@ -91,12 +104,12 @@ function inferType(cfg) {
 // ── Factory ──────────────────────────────────────────────────────────────────
 
 /**
- * Build a parameter panel.
+ * Build a parameter panel with named bindings.
  *
- * @param {Object<string,Object>} schema  Control definitions keyed by name.
+ * @param {Object<string,Object>} schema  Binding definitions keyed by name.
  * @param {Object} [opt]   Layout options.
  * @param {Function|Object} [opt.target]
- *   If a function `(name, value) => ...`, called for every control on tick.
+ *   If a function `(name, value) => ...`, called for every binding on tick.
  *   If an object with `.set(name, value)`, that method is called instead.
  *   If omitted, read values manually via `ui[name].value()`.
  * @param {number}  [opt.x=0]       Container left (px).
@@ -105,10 +118,10 @@ function inferType(cfg) {
  * @param {number}  [opt.offset=6]  Vertical gap between rows (px).
  * @param {string}  [opt.color]     Container text color.
  * @param {boolean} [opt.hidden]    Start hidden.
- * @param {boolean} [opt.labels]    Show per-control labels.
+ * @param {boolean} [opt.labels]    Show per-binding labels.
  * @param {string}  [opt.title]     Bold title row.
  * @param {HTMLElement} [opt.parent] Mount target (defaults to document.body).
- * @returns {Object} UI handle — see "Returned API" above.
+ * @returns {Object} Panel handle — see "Returned API" above.
  */
 export function createUI(schema, opt) {
   schema = schema || {};
@@ -138,11 +151,9 @@ export function createUI(schema, opt) {
     container.appendChild(t);
   }
 
-  // ── Per-control builder ────────────────────────────────────────────────
+  // ── Per-binding builder ───────────────────────────────────────────────
 
-  // TODO never used. Should be kept?
-  function _setWidth(el) { el.style.width = `${_w}px`; }
-  function _setGap(el)   { el.style.marginBottom = `${_off}px`; }
+  function _setGap(el) { el.style.marginBottom = `${_off}px`; }
 
   function addLabel(name, cfg) {
     if (!_showLabels) return;
@@ -154,9 +165,9 @@ export function createUI(schema, opt) {
 
   function wrap(name, type, el, value, set, reset) {
     const c = { type, el, value, _dirty: true, _vis: true };
-    // Wrap set/reset to mark dirty — programmatic changes need a push too.
-    c.set   = v  => { set(v);   c._dirty = true; };
-    c.reset = () => { reset();  c._dirty = true; };
+    // set/reset mark dirty so the bound value is pushed on the next tick.
+    c.set   = v  => { set(v);  c._dirty = true; };
+    c.reset = () => { reset(); c._dirty = true; };
     Object.defineProperty(c, 'visible', {
       get() { return c._vis; },
       set(v) {
@@ -280,7 +291,7 @@ export function createUI(schema, opt) {
     return c;
   }
 
-  // ── Build all controls ─────────────────────────────────────────────────
+  // ── Build all bindings ─────────────────────────────────────────────────
 
   _order.forEach(name => {
     _defaults[name] = schema[name] ? schema[name].value : null;
@@ -338,14 +349,11 @@ export function createUI(schema, opt) {
   ui.parent = el => mount(container, el);
 
   /**
-   * Push dirty values to target. Call once per frame — same clock as PoseTrack.tick().
+   * Push dirty bindings to target. Call once per frame.
    *
-   * Invariant: the target is called at most once per control per frame,
-   * and only if the value changed since the last push.
-   * The first tick always pushes all values to initialise target state.
-   *
-   * Note: multiple user interactions within a single frame collapse to one push
-   * (the value at tick() time). This is correct for rendering sinks.
+   * Invariant: the target is called at most once per binding per frame,
+   * and only if the bound value changed since the last push.
+   * The first tick always pushes all bindings to initialise target state.
    */
   ui.tick = () => {
     if (!_target) return;
