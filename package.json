@@ -49,8 +49,8 @@
     "p5": "^2.2.2"
   },
   "dependencies": {
-    "@nakednous/tree": "^0.0.2",
-    "@nakednous/ui": "^0.0.2"
+    "@nakednous/tree": "^0.0.3",
+    "@nakednous/ui": "^0.0.3"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.3",
