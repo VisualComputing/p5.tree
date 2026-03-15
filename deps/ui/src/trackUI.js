@@ -31,6 +31,7 @@
  *
  * Layout (top → bottom)
  * ---------------------
+ *   Title row  — optional, becomes collapse toggle when collapsible=true
  *   Row 1  — controls:  [+]  [▶/⏸]  [↺]   (always visible)
  *   Row 1b — depth:     depth slider        (when target supports add)
  *   Row 2  — seek:      seek slider         (hidden when keyframes ≤ 1)
@@ -42,6 +43,7 @@
  * ------------
  *   ui.el              HTMLElement container
  *   ui.visible         get/set boolean
+ *   ui.collapsed       get/set boolean (requires collapsible + title)
  *   ui.parent(el)      Re-mount container into a new parent HTMLElement.
  *   ui.tick()          Sync seek slider, play button, and enabled state from target.
  *   ui.dispose()       Remove DOM, restore original hooks.
@@ -65,7 +67,7 @@ import {
  * @param {number}  [opt.rate=1]          Initial rate.
  * @param {boolean} [opt.loop=false]      Initial loop mode.
  * @param {boolean} [opt.pingPong=false]  Initial pingPong mode (overrides loop).
- * @param {number}  [opt.depth=0.5]       Initial add-pose depth [0..1]: 0 = near plane, 1 = far plane.
+ * @param {number}  [opt.depth=0.5]       Initial add-pose depth [0..1]: 0 = near, 1 = far.
  * @param {number}  [opt.x=0]            Container left (px).
  * @param {number}  [opt.y=0]            Container top (px).
  * @param {number}  [opt.width=220]      Slider width (px).
@@ -73,6 +75,9 @@ import {
  * @param {number}  [opt.depthWidth]     Depth slider width (px). Defaults to opt.width.
  * @param {string}  [opt.color]          Text color.
  * @param {boolean} [opt.hidden=false]   Start hidden.
+ * @param {string}  [opt.title]          Optional title row.
+ * @param {boolean} [opt.collapsible]    Make title row a collapse toggle (requires title).
+ * @param {boolean} [opt.collapsed]      Start collapsed (requires collapsible + title).
  * @param {HTMLElement} [opt.parent]     Mount target (defaults to document.body).
  * @returns {Object} UI handle.
  */
@@ -114,6 +119,41 @@ export function createTrackUI(target, opt) {
     return (typeof target.info === 'function') ? target.info().keyframes : -1;
   }
 
+  // ── Collapsible setup ─────────────────────────────────────────────────────
+
+  const canCollapse = !!(opt.title && (opt.collapsible || 'collapsed' in opt));
+  let _collapsed    = canCollapse && !!opt.collapsed;
+  let chevron       = null;
+
+  // body wraps all rows below the title — the collapsible region.
+  const body = document.createElement('div');
+  body.className = 'p5t-body';
+  body.style.cssText = 'display:flex;flex-direction:column;gap:0px;';
+
+  // ── Title row (optional) ──────────────────────────────────────────────────
+
+  if (opt.title) {
+    const titleRow = document.createElement('div');
+    titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;';
+
+    const titleLabel = createLabel(opt.title);
+    titleLabel.style.fontWeight = 'bold';
+    titleRow.appendChild(titleLabel);
+
+    if (canCollapse) {
+      chevron = createLabel(_collapsed ? '\u25B6' : '\u25BC');
+      chevron.style.cssText = 'cursor:pointer;user-select:none;margin-left:6px;';
+      titleRow.style.cursor = 'pointer';
+      titleRow.appendChild(chevron);
+      titleRow.addEventListener('click', () => {
+        _collapsed = !_collapsed;
+        _applyCollapse();
+      });
+    }
+
+    container.appendChild(titleRow);
+  }
+
   // ── Row 1 — controls: [+] [▶/⏸] [↺] ────────────────────────────────────
 
   const ctrlRow = document.createElement('div');
@@ -125,8 +165,7 @@ export function createTrackUI(target, opt) {
   if (hasAdd) {
     const btnAdd = createButton('\u002B', () => {
       target.add(_depth);
-      // Force enabled-state refresh on the next tick
-      _lastKf = -1;
+      _lastKf = -1;   // force enabled-state refresh
     });
     btnAdd.title = 'Add keyframe';
     ctrlRow.appendChild(btnAdd);
@@ -145,7 +184,6 @@ export function createTrackUI(target, opt) {
   ctrlRow.appendChild(btnPlay);
 
   // ↺ reset button (clear keyframes) — only if target supports it
-  // Declared in outer scope so _updateEnabledState can disable it.
   let btnReset = null;
   const hasReset = typeof target.reset === 'function';
   if (hasReset) {
@@ -158,11 +196,9 @@ export function createTrackUI(target, opt) {
     ctrlRow.appendChild(btnReset);
   }
 
-  container.appendChild(ctrlRow);
+  body.appendChild(ctrlRow);
 
   // ── Row 1b — depth slider (when target supports add) ─────────────────────
-  // Controls where along the frustum centre ray the new pose is placed.
-  // 0 = near plane centre,  1 = far plane centre.
 
   if (hasAdd && opt.depth !== false) {
     const depthRow = document.createElement('div');
@@ -180,14 +216,14 @@ export function createTrackUI(target, opt) {
 
     depthRow.appendChild(depthLabel);
     depthRow.appendChild(depthSlider);
-    container.appendChild(depthRow);
+    body.appendChild(depthRow);
   }
 
-  // ── Row 2 — seek slider (conditional) ───────────────────────────────────
+  // ── Row 2 — seek slider (conditional) ────────────────────────────────────
 
-  let seekSlider, seekLabel, seekRow;
+  let seekSlider, seekLabel;
   if (showSeek) {
-    seekRow = document.createElement('div');
+    const seekRow = document.createElement('div');
     seekRow.className = 'p5t-seek';
     seekRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:11px;';
 
@@ -199,18 +235,17 @@ export function createTrackUI(target, opt) {
       seekLabel.textContent = `seek: ${parseFloat(v).toFixed(3)}`;
       target.seek(v);
     });
-    seekSlider.style.width  = `${sliderW}px`;
+    seekSlider.style.width = `${sliderW}px`;
     seekSlider.addEventListener('change',    () => { _seeking = false; });
     seekSlider.addEventListener('pointerup', () => { _seeking = false; });
     seekSlider.addEventListener('touchend',  () => { _seeking = false; });
 
     seekRow.appendChild(seekLabel);
     seekRow.appendChild(seekSlider);
-    container.appendChild(seekRow);
+    body.appendChild(seekRow);
   }
 
-  // ── Row 3 — rate slider ──────────────────────────────────────────────────
-  // Rate changes the speed but never starts or stops playback.
+  // ── Row 3 — rate slider ───────────────────────────────────────────────────
 
   let rateSlider, rateLabel;
   if (showProps) {
@@ -224,19 +259,16 @@ export function createTrackUI(target, opt) {
     rateSlider = createSlider(-2, 2, _rate, 0.05, v => {
       _rate = v;
       rateLabel.textContent = `rate: ${v.toFixed(2)}`;
-      // Only update rate mid-play; never start playback from here
-      if (target.playing) {
-        target.play({ rate: _rate });
-      }
+      if (target.playing) target.play({ rate: _rate });
     });
     rateSlider.style.width = `${rateSliderW}px`;
 
     rateRow.appendChild(rateLabel);
     rateRow.appendChild(rateSlider);
-    container.appendChild(rateRow);
+    body.appendChild(rateRow);
   }
 
-  // ── Row 4 — mode select (always last transport row) ──────────────────────
+  // ── Row 4 — mode select ───────────────────────────────────────────────────
 
   let modeSelect;
   if (showProps) {
@@ -254,7 +286,6 @@ export function createTrackUI(target, opt) {
       _mode,
       v => {
         _mode = v;
-        // Update loop/pingPong if already playing
         if (target.playing) {
           target.play({
             loop:     _mode === 'loop' || _mode === 'pingPong',
@@ -266,7 +297,7 @@ export function createTrackUI(target, opt) {
 
     modeRow.appendChild(modeLabel);
     modeRow.appendChild(modeSelect);
-    container.appendChild(modeRow);
+    body.appendChild(modeRow);
   }
 
   // ── Row 5 — info label (optional) ────────────────────────────────────────
@@ -275,13 +306,12 @@ export function createTrackUI(target, opt) {
   if (showInfo) {
     infoLabel = createLabel('');
     infoLabel.style.cssText = 'font-size:11px;opacity:0.8;margin-bottom:4px;';
-    container.appendChild(infoLabel);
+    body.appendChild(infoLabel);
   }
 
+  container.appendChild(body);
+
   // ── Hook chaining ─────────────────────────────────────────────────────────
-  // Chain onPlay/onEnd/onStop so the play button stays in sync with external
-  // state changes (e.g. playback ending naturally in once mode, or an
-  // explicit stop() called from outside the UI).
 
   const _prevOnPlay = target.onPlay;
   const _prevOnEnd  = target.onEnd;
@@ -301,7 +331,6 @@ export function createTrackUI(target, opt) {
     }
   };
 
-  // Keep play button in sync when playback is explicitly stopped or reset.
   target.onStop = function () {
     _syncPlayBtn();
     if (typeof _prevOnStop === 'function') {
@@ -316,19 +345,12 @@ export function createTrackUI(target, opt) {
     btnPlay.textContent = target.playing ? '\u23F8' : '\u25B6';
   }
 
-  /**
-   * Update enabled/visible state based on keyframe count.
-   * Only writes to DOM when count has actually changed.
-   */
   function _updateEnabledState() {
     const kf = _kfCount();
     if (kf === _lastKf) return;
     _lastKf = kf;
-    // Play button: disabled with 0 keyframes
     btnPlay.disabled = kf === 0;
-    // Reset button: nothing to reset when empty
     if (btnReset) btnReset.disabled = kf === 0;
-    // Seek slider: only meaningful with 2+ keyframes, but stays visible
     if (seekSlider) seekSlider.disabled = kf < 2;
   }
 
@@ -338,6 +360,11 @@ export function createTrackUI(target, opt) {
     const i   = target.info();
     const pct = (i.time * 100).toFixed(1);
     infoLabel.textContent = `${pct}%  seg ${i.seg}/${i.segments}  kf ${i.keyframes}`;
+  }
+
+  function _applyCollapse() {
+    body.style.display = _collapsed ? 'none' : 'flex';
+    if (chevron) chevron.textContent = _collapsed ? '\u25B6' : '\u25BC';
   }
 
   // ── Visibility ────────────────────────────────────────────────────────────
@@ -357,13 +384,17 @@ export function createTrackUI(target, opt) {
     set(v) { _setVis(v); }
   });
 
-  /** Re-mount container into a new parent HTMLElement. */
+  Object.defineProperty(ui, 'collapsed', {
+    get() { return _collapsed; },
+    set(v) {
+      if (!canCollapse) return;
+      _collapsed = !!v;
+      _applyCollapse();
+    }
+  });
+
   ui.parent = parentEl => mount(container, parentEl);
 
-  /**
-   * Call every frame.
-   * Syncs seek slider position, play button text, and enabled/visible state.
-   */
   ui.tick = () => {
     if (!_seeking && seekSlider) {
       const t = typeof target.time === 'function' ? target.time() : 0;
@@ -375,7 +406,6 @@ export function createTrackUI(target, opt) {
     if (showInfo) _updateInfo();
   };
 
-  /** Remove DOM and restore original hook chain. */
   ui.dispose = () => {
     target.onPlay = _prevOnPlay;
     target.onEnd  = _prevOnEnd;
@@ -387,6 +417,7 @@ export function createTrackUI(target, opt) {
 
   mount(container, opt.parent);
   _setVis(!opt.hidden);
+  _applyCollapse();
   _syncPlayBtn();
   _updateEnabledState();
 

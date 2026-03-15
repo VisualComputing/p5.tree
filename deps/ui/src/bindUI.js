@@ -62,6 +62,7 @@
  * ---------------------------------------------------------------------------
  *   ui.el                       HTMLElement (container)
  *   ui.visible        get/set   boolean — whole panel visibility
+ *   ui.collapsed      get/set   boolean — body visibility (requires collapsible+title)
  *   ui[name].visible  get/set   boolean — per-binding visibility
  *   ui[name].value()            current bound value
  *   ui[name].set(v)             set programmatically (marks dirty → pushed on next tick)
@@ -112,15 +113,17 @@ function inferType(cfg) {
  *   If a function `(name, value) => ...`, called for every binding on tick.
  *   If an object with `.set(name, value)`, that method is called instead.
  *   If omitted, read values manually via `ui[name].value()`.
- * @param {number}  [opt.x=0]       Container left (px).
- * @param {number}  [opt.y=0]       Container top (px).
- * @param {number}  [opt.width=120] Default slider/select width (px).
- * @param {number}  [opt.offset=6]  Vertical gap between rows (px).
- * @param {string}  [opt.color]     Container text color.
- * @param {boolean} [opt.hidden]    Start hidden.
- * @param {boolean} [opt.labels]    Show per-binding labels.
- * @param {string}  [opt.title]     Bold title row.
- * @param {HTMLElement} [opt.parent] Mount target (defaults to document.body).
+ * @param {number}  [opt.x=0]            Container left (px).
+ * @param {number}  [opt.y=0]            Container top (px).
+ * @param {number}  [opt.width=120]      Default slider/select width (px).
+ * @param {number}  [opt.offset=6]       Vertical gap between rows (px).
+ * @param {string}  [opt.color]          Container text color.
+ * @param {boolean} [opt.hidden=false]   Start hidden.
+ * @param {boolean} [opt.labels=false]   Show per-binding labels.
+ * @param {string}  [opt.title]          Bold title row.
+ * @param {boolean} [opt.collapsible]    Make title row a collapse toggle (requires title).
+ * @param {boolean} [opt.collapsed]      Start collapsed (requires collapsible + title).
+ * @param {HTMLElement} [opt.parent]     Mount target (defaults to document.body).
  * @returns {Object} Panel handle — see "Returned API" above.
  */
 export function createUI(schema, opt) {
@@ -143,15 +146,44 @@ export function createUI(schema, opt) {
 
   let _vis = true;
 
-  // ── Title ──────────────────────────────────────────────────────────────
+  // ── Collapsible setup ─────────────────────────────────────────────────────
+  // body is the content wrapper — everything below the title goes here.
+  // When not collapsible it's transparent: same layout, no extra click target.
+
+  const canCollapse = !!(opt.title && (opt.collapsible || 'collapsed' in opt));
+  let _collapsed    = canCollapse && !!opt.collapsed;
+
+  const body = document.createElement('div');
+  body.className = 'p5t-body';
+  body.style.cssText = 'display:flex;flex-direction:column;gap:0px;';
+
+  // ── Title ─────────────────────────────────────────────────────────────────
+
+  let chevron = null;
   if (opt.title) {
-    const t = createLabel(opt.title);
-    t.style.fontWeight   = 'bold';
-    t.style.marginBottom = `${_off}px`;
-    container.appendChild(t);
+    const titleRow = document.createElement('div');
+    titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+    titleRow.style.marginBottom = `${_off}px`;
+
+    const titleLabel = createLabel(opt.title);
+    titleLabel.style.fontWeight = 'bold';
+    titleRow.appendChild(titleLabel);
+
+    if (canCollapse) {
+      chevron = createLabel(_collapsed ? '\u25B6' : '\u25BC');
+      chevron.style.cssText = 'cursor:pointer;user-select:none;margin-left:6px;';
+      titleRow.style.cursor = 'pointer';
+      titleRow.appendChild(chevron);
+      titleRow.addEventListener('click', () => {
+        _collapsed = !_collapsed;
+        _applyCollapse();
+      });
+    }
+
+    container.appendChild(titleRow);
   }
 
-  // ── Per-binding builder ───────────────────────────────────────────────
+  // ── Per-binding builder ───────────────────────────────────────────────────
 
   function _setGap(el) { el.style.marginBottom = `${_off}px`; }
 
@@ -159,7 +191,7 @@ export function createUI(schema, opt) {
     if (!_showLabels) return;
     const l = createLabel(cfg.label || name);
     l.style.marginBottom = `${_off}px`;
-    container.appendChild(l);
+    body.appendChild(l);
     _labels[name] = l;
   }
 
@@ -198,7 +230,7 @@ export function createUI(schema, opt) {
     if (type === 'bool') {
       const el  = createCheckbox('', cfg.value ?? false);
       _setGap(el);
-      container.appendChild(el);
+      body.appendChild(el);
       const inp = el.firstChild;
       const c = wrap(name, 'bool', el,
         () => inp.checked,
@@ -215,7 +247,7 @@ export function createUI(schema, opt) {
         typeof cfg.onClick === 'function' ? cfg.onClick : null);
       el.style.width = `${w}px`;
       _setGap(el);
-      container.appendChild(el);
+      body.appendChild(el);
       return wrap(name, 'button', el, () => null, () => {}, () => {});
     }
 
@@ -224,7 +256,7 @@ export function createUI(schema, opt) {
       const el = createSelect(cfg.options, cfg.value);
       el.style.width = `${w}px`;
       _setGap(el);
-      container.appendChild(el);
+      body.appendChild(el);
       const c = wrap(name, 'select', el,
         () => el.value,
         v  => { el.value = v; },
@@ -239,7 +271,7 @@ export function createUI(schema, opt) {
       const el = createColorPicker(cfg.value);
       el.style.width = `${w}px`;
       _setGap(el);
-      container.appendChild(el);
+      body.appendChild(el);
       const c = wrap(name, 'color', el,
         () => hexToVec4(el.value),
         v  => { el.value = isStr(v) ? v : isArr(v) ? vec4ToHex(v) : v; },
@@ -261,7 +293,7 @@ export function createUI(schema, opt) {
         const s = createSlider(min, max, toFloat(vals[i] ?? 0), step);
         s.style.width = `${w}px`;
         _setGap(s);
-        container.appendChild(s);
+        body.appendChild(s);
         els.push(s);
       }
       const c = wrap(name, type, els,
@@ -281,7 +313,7 @@ export function createUI(schema, opt) {
     const el   = createSlider(min, max, val, step);
     el.style.width = `${w}px`;
     _setGap(el);
-    container.appendChild(el);
+    body.appendChild(el);
     const c = wrap(name, cfg.type === 'int' ? 'int' : 'float', el,
       () => toFloat(el.value),
       v  => { el.value = toFloat(v); },
@@ -297,6 +329,15 @@ export function createUI(schema, opt) {
     _defaults[name] = schema[name] ? schema[name].value : null;
     ui[name] = buildControl(name, schema[name]);
   });
+
+  container.appendChild(body);
+
+  // ── Collapse helper ────────────────────────────────────────────────────
+
+  function _applyCollapse() {
+    body.style.display = _collapsed ? 'none' : 'flex';
+    if (chevron) chevron.textContent = _collapsed ? '\u25B6' : '\u25BC';
+  }
 
   // ── Container visibility ───────────────────────────────────────────────
 
@@ -317,6 +358,15 @@ export function createUI(schema, opt) {
   Object.defineProperty(ui, 'visible', {
     get() { return _vis; },
     set(v) { setContainerVis(v); }
+  });
+
+  Object.defineProperty(ui, 'collapsed', {
+    get() { return _collapsed; },
+    set(v) {
+      if (!canCollapse) return;
+      _collapsed = !!v;
+      _applyCollapse();
+    }
   });
 
   // ── Public API ─────────────────────────────────────────────────────────
@@ -376,10 +426,11 @@ export function createUI(schema, opt) {
     container.parentNode && container.parentNode.removeChild(container);
   };
 
-  // ── Mount & initial visibility ─────────────────────────────────────────
+  // ── Mount & initial state ──────────────────────────────────────────────
 
   mount(container, opt.parent);
   setContainerVis(!opt.hidden);
+  _applyCollapse();
 
   return ui;
 }
