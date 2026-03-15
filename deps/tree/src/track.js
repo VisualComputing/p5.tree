@@ -7,7 +7,7 @@
  *
  * ── Exports ──────────────────────────────────────────────────────────────────
  *  Quaternion helpers
- *    qSet qCopy qDot qNormalize qNegate qMul qSlerp
+ *    qSet qCopy qDot qNormalize qNegate qMul qSlerp qNlerp
  *    qFromAxisAngle qFromLookDir qFromRotMat3x3 qFromMat4 qToMat4
  *    quatToAxisAngle
  *  Spline / vector helpers
@@ -115,9 +115,23 @@ export const qSlerp = (out, a, b, t) => {
 };
 
 /**
+ * Normalised linear interpolation (nlerp).
+ * Cheaper than slerp; slightly non-constant angular velocity.
+ * Handles antipodal quats by flipping b when dot < 0.
+ * @returns {number[]} out
+ */
+export const qNlerp = (out, a, b, t) => {
+  let bx=b[0],by=b[1],bz=b[2],bw=b[3];
+  if (a[0]*bx+a[1]*by+a[2]*bz+a[3]*bw < 0) { bx=-bx; by=-by; bz=-bz; bw=-bw; }
+  out[0]=a[0]+t*(bx-a[0]); out[1]=a[1]+t*(by-a[1]);
+  out[2]=a[2]+t*(bz-a[2]); out[3]=a[3]+t*(bw-a[3]);
+  return qNormalize(out);
+};
+
+/**
  * Build a quaternion from axis-angle.
  * @param {number[]} out
- * @param {number} ax @param {number} ay @param {number} az Axis (need not be unit).
+ * @param {number} ax @param {number} ay @param {number} az  Axis (need not be unit).
  * @param {number} angle  Radians.
  * @returns {number[]} out
  */
@@ -403,7 +417,6 @@ function _parseCameraSpec(spec) {
     if (!m || m.length < 16) return null;
     // Extract eye position: eye = -R^T * t
     // Column-major view mat: col0=right, col1=up_ortho, col2=-fwd, col3=translation
-    // R^T rows: [m[0],m[4],m[8]], [m[1],m[5],m[9]], [m[2],m[6],m[10]]
     const ex = -(m[0]*m[12] + m[4]*m[13] + m[8]*m[14]);
     const ey = -(m[1]*m[12] + m[5]*m[13] + m[9]*m[14]);
     const ez = -(m[2]*m[12] + m[6]*m[13] + m[10]*m[14]);
@@ -700,7 +713,7 @@ class Track {
  *
  * eval() writes { pos, rot, scl }:
  *   pos — Catmull-Rom (posInterp='catmullrom') or lerp
- *   rot — slerp
+ *   rot — slerp (rotInterp='slerp') or nlerp
  *   scl — lerp
  *
  * @example
@@ -721,7 +734,14 @@ export class PoseTrack extends Track {
      * @type {'catmullrom'|'linear'}
      */
     this.posInterp = 'catmullrom';
-    // Scratch arrays for toMatrix() — avoids hot-path allocations
+    /**
+     * Rotation interpolation mode.
+     * - 'slerp'  — constant angular velocity (default)
+     * - 'nlerp'  — normalised lerp; cheaper, slightly non-constant speed
+     * @type {'slerp'|'nlerp'}
+     */
+    this.rotInterp = 'slerp';
+    // Scratch for toMatrix() — avoids hot-path allocations
     this._pos = [0,0,0];
     this._rot = [0,0,0,1];
     this._scl = [1,1,1];
@@ -788,15 +808,19 @@ export class PoseTrack extends Track {
 
     // pos — Catmull-Rom or lerp
     if (this.posInterp === 'catmullrom') {
-      const p0 = seg > 0        ? this.keyframes[seg - 1].pos : k0.pos;
-      const p3 = seg + 2 < n   ? this.keyframes[seg + 2].pos : k1.pos;
+      const p0 = seg > 0      ? this.keyframes[seg - 1].pos : k0.pos;
+      const p3 = seg + 2 < n ? this.keyframes[seg + 2].pos : k1.pos;
       catmullRomVec3(out.pos, p0, k0.pos, k1.pos, p3, t);
     } else {
       lerpVec3(out.pos, k0.pos, k1.pos, t);
     }
 
-    // rot — slerp
-    qSlerp(out.rot, k0.rot, k1.rot, t);
+    // rot — slerp or nlerp
+    if (this.rotInterp === 'nlerp') {
+      qNlerp(out.rot, k0.rot, k1.rot, t);
+    } else {
+      qSlerp(out.rot, k0.rot, k1.rot, t);
+    }
 
     // scl — lerp
     lerpVec3(out.scl, k0.scl, k1.scl, t);
@@ -825,7 +849,7 @@ export class PoseTrack extends Track {
  * Keyframe shape: { eye:[x,y,z], center:[x,y,z], up:[x,y,z] }
  *
  * Each field is independently interpolated — eye and center along their
- * own paths, up slerped on the unit sphere. This correctly handles cameras
+ * own paths, up nlerped on the unit sphere. This correctly handles cameras
  * that always look at a fixed target (center stays at origin throughout)
  * as well as free-fly paths where center moves independently.
  *
@@ -843,7 +867,7 @@ export class PoseTrack extends Track {
  *
  * eval() writes { eye, center, up }:
  *   eye    — Catmull-Rom (eyeInterp='catmullrom') or lerp
- *   center — always lerp (independent lookat target interpolation)
+ *   center — Catmull-Rom (centerInterp='catmullrom') or lerp
  *   up     — nlerp (normalize-after-lerp on unit sphere)
  *
  * @example
@@ -867,7 +891,14 @@ export class CameraTrack extends Track {
      * @type {'catmullrom'|'linear'}
      */
     this.eyeInterp = 'catmullrom';
-    // Scratch arrays for toCamera() — avoids hot-path allocations
+    /**
+     * Center (lookat target) interpolation mode.
+     * 'linear' suits fixed or predictably moving targets.
+     * 'catmullrom' gives smoother paths when center is also flying freely.
+     * @type {'catmullrom'|'linear'}
+     */
+    this.centerInterp = 'linear';
+    // Scratch for toCamera() — avoids hot-path allocations
     this._eye    = [0,0,0];
     this._center = [0,0,0];
     this._up     = [0,1,0];
@@ -922,9 +953,9 @@ export class CameraTrack extends Track {
 
     if (n === 1) {
       const k = this.keyframes[0];
-      out.eye[0]=k.eye[0];    out.eye[1]=k.eye[1];    out.eye[2]=k.eye[2];
+      out.eye[0]=k.eye[0];       out.eye[1]=k.eye[1];       out.eye[2]=k.eye[2];
       out.center[0]=k.center[0]; out.center[1]=k.center[1]; out.center[2]=k.center[2];
-      out.up[0]=k.up[0];     out.up[1]=k.up[1];     out.up[2]=k.up[2];
+      out.up[0]=k.up[0];         out.up[1]=k.up[1];         out.up[2]=k.up[2];
       return out;
     }
 
@@ -937,15 +968,21 @@ export class CameraTrack extends Track {
 
     // eye — Catmull-Rom or lerp
     if (this.eyeInterp === 'catmullrom') {
-      const p0 = seg > 0       ? this.keyframes[seg - 1].eye : k0.eye;
-      const p3 = seg + 2 < n  ? this.keyframes[seg + 2].eye : k1.eye;
+      const p0 = seg > 0      ? this.keyframes[seg - 1].eye : k0.eye;
+      const p3 = seg + 2 < n ? this.keyframes[seg + 2].eye : k1.eye;
       catmullRomVec3(out.eye, p0, k0.eye, k1.eye, p3, t);
     } else {
       lerpVec3(out.eye, k0.eye, k1.eye, t);
     }
 
-    // center — always lerp (independent lookat target)
-    lerpVec3(out.center, k0.center, k1.center, t);
+    // center — Catmull-Rom or lerp (independent lookat target)
+    if (this.centerInterp === 'catmullrom') {
+      const c0 = seg > 0      ? this.keyframes[seg - 1].center : k0.center;
+      const c3 = seg + 2 < n ? this.keyframes[seg + 2].center : k1.center;
+      catmullRomVec3(out.center, c0, k0.center, k1.center, c3, t);
+    } else {
+      lerpVec3(out.center, k0.center, k1.center, t);
+    }
 
     // up — nlerp (normalize after lerp; correct for typical near-upright cameras)
     const ux = k0.up[0] + t*(k1.up[0]-k0.up[0]);
