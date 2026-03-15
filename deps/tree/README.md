@@ -39,7 +39,7 @@ The dependency direction is strict: `@nakednous/tree` never imports from the bri
 
 ### PoseTrack — TRS keyframe animation
 
-A renderer-agnostic state machine for `{ pos, rot, scl }` keyframe sequences. Rotation is stored as `[x,y,z,w]` quaternions (w-last, glTF layout); interpolation uses [slerp](https://en.wikipedia.org/wiki/Slerp) for rotation and [Catmull-Rom](https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Catmull%E2%80%93Rom_spline) for position and scale.
+A renderer-agnostic state machine for `{ pos, rot, scl }` keyframe sequences. Rotation is stored as `[x,y,z,w]` quaternions (w-last, glTF layout).
 
 ```js
 import { PoseTrack } from '@nakednous/tree'
@@ -55,12 +55,95 @@ track.tick()
 track.eval(out)   // writes interpolated TRS into out
 ```
 
+Interpolation modes:
+
+```js
+track.posInterp = 'catmullrom'  // default — centripetal Catmull-Rom
+track.posInterp = 'linear'
+
+track.rotInterp = 'slerp'       // default — constant angular velocity
+track.rotInterp = 'nlerp'       // normalised lerp; cheaper, slightly non-constant
+```
+
 Playback features: signed `rate` (negative reverses), `loop`, `pingPong`, `seek(t)` scrubbing, and lifecycle hooks (`onPlay`, `onEnd`, `onStop`). `_onActivate` / `_onDeactivate` are lib-space hooks for the host layer's draw-loop registry — not for user code.
 
 Keyframe `rot` input is flexible — the parser normalises all forms:
 - raw `[x,y,z,w]` quaternion
 - `{ axis: [x,y,z], angle }` axis-angle
 - `{ dir: [x,y,z], up? }` look-direction
+- `{ view: mat4 }` from view matrix rotation block
+- `{ eye, center, up? }` lookat shorthand
+
+---
+
+### CameraTrack — lookat keyframe animation
+
+A renderer-agnostic state machine for `{ eye, center, up }` lookat keyframes. Each field is independently interpolated — eye and center along their own paths, up nlerped on the unit sphere.
+
+```js
+import { CameraTrack } from '@nakednous/tree'
+
+const track = new CameraTrack()
+track.add({ eye:[0,0,500], center:[0,0,0] })
+track.add({ eye:[300,-150,0], center:[0,0,0] })
+track.play({ loop: true, duration: 90 })
+
+// per-frame — zero allocation
+const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
+track.tick()
+track.eval(out)
+// apply: cam.camera(out.eye[0],out.eye[1],out.eye[2],
+//                   out.center[0],out.center[1],out.center[2],
+//                   out.up[0],out.up[1],out.up[2])
+```
+
+Interpolation modes:
+
+```js
+track.eyeInterp    = 'catmullrom'  // default
+track.eyeInterp    = 'linear'
+
+track.centerInterp = 'linear'      // default — suits fixed lookat targets
+track.centerInterp = 'catmullrom'  // smoother when center is also flying
+```
+
+`add()` accepts:
+- `{ eye, center, up? }` explicit lookat; `up` defaults to `[0,1,0]`
+- `{ view: mat4 }` column-major view matrix; eye and forward extracted
+
+---
+
+### Shared Track transport
+
+Both `PoseTrack` and `CameraTrack` extend `Track`, which holds all transport machinery:
+
+```js
+track.play({ duration, loop, pingPong, rate, onPlay, onEnd, onStop })
+track.stop([rewind])   // rewind=true seeks to origin on stop
+track.reset()          // clear all keyframes and stop
+track.seek(t)          // normalised position [0, 1]
+track.time()           // → number ∈ [0, 1]
+track.info()           // → { keyframes, segments, seg, f, playing, loop, ... }
+track.tick()           // advance cursor by rate — returns playing state
+track.add(spec)        // append keyframe(s)
+track.set(i, spec)     // replace keyframe at index
+track.remove(i)        // remove keyframe at index
+
+track.playing          // boolean
+track.rate             // get/set — never starts/stops playback
+track.duration         // frames per segment
+track.keyframes        // raw array
+```
+
+Hook firing order:
+```
+play()  → onPlay → _onActivate
+tick()  → onEnd  → _onDeactivate   (once mode, at boundary)
+stop()  → onStop → _onDeactivate
+reset() → onStop → _onDeactivate
+```
+
+One-keyframe behaviour: `play()` with exactly one keyframe snaps `eval()` to that keyframe without setting `playing = true` and without firing hooks.
 
 ---
 
@@ -109,27 +192,38 @@ boxVisibility(planes, x0,y0,z0, x1,y1,z1)
 pointVisibility(planes, px, py, pz)
 ```
 
-Three-state result: `VISIBLE` (fully inside), `SEMIVISIBLE` (intersecting), `INVISIBLE` (fully outside) — lets the host decide between full draw, wireframe, and skip.
+Three-state result: `VISIBLE` (fully inside), `SEMIVISIBLE` (intersecting), `INVISIBLE` (fully outside).
 
 ---
 
 ### Quaternion and matrix math
 
-Exported individually for use in hot paths:
+Exported individually for use in hot paths.
 
 **Quaternions** — `[x,y,z,w]` w-last:
-`qSet`, `qCopy`, `qDot`, `qNormalize`, `qNegate`, `qMul`, `qSlerp`,
-`qFromAxisAngle`, `qFromLookDir`, `qFromRotMat3x3`, `qFromMat4`, `qToMat4`, `quatToAxisAngle`
+
+```
+qSet  qCopy  qDot  qNormalize  qNegate  qMul
+qSlerp  qNlerp
+qFromAxisAngle  qFromLookDir  qFromRotMat3x3  qFromMat4  qToMat4
+quatToAxisAngle
+```
 
 **Spline / vector:** `catmullRomVec3`, `lerpVec3`
 
-**Mat4:** `mat4Mul`, `mat4Invert`, `mat4Transpose`, `mat4MulPoint`, `mat3NormalFromMat4`, `mat4Location`, `mat3Direction`
+**Mat4:**
+```
+mat4Mul  mat4Invert  mat4Transpose  mat4MulPoint
+mat3NormalFromMat4  mat4Location  mat3Direction
+```
 
 **TRS ↔ mat4:** `transformToMat4`, `mat4ToTransform`
 
 **Projection queries** (read from a projection mat4 — no renderer needed):
-`projIsOrtho`, `projNear`, `projFar`, `projFov`, `projHfov`,
-`projLeft`, `projRight`, `projTop`, `projBottom`
+```
+projIsOrtho  projNear  projFar  projFov  projHfov
+projLeft  projRight  projTop  projBottom
+```
 
 **Pixel ratio:** `pixelRatio(proj, vpH, eyeZ, ndcZMin)` — world-units-per-pixel at a given depth, handles both perspective and orthographic.
 
@@ -179,7 +273,7 @@ mapLocation(out, px, py, pz, WORLD, SCREEN, { proj, view, pv, ipv }, vp, WEBGL)
 
 ## Relationship to `p5.tree`
 
-[p5.tree](https://github.com/VisualComputing/p5.tree) is the bridge layer. It reads live renderer state (camera matrices, viewport dimensions, NDC convention) and passes it to `@nakednous/tree` functions. It also wraps `PoseTrack` for p5.Camera paths, registers players in the draw loop, and exposes everything in p5's global and instance modes.
+[p5.tree](https://github.com/VisualComputing/p5.tree) is the bridge layer. It reads live renderer state (camera matrices, viewport dimensions, NDC convention) and passes it to `@nakednous/tree` functions. It wires `PoseTrack` and `CameraTrack` to the p5 draw loop, exposes `createTrack` / `getCamera`, and provides `createPanel` for transport and parameter UIs.
 
 `@nakednous/tree` provides the algorithms. The bridge provides the wiring.
 
