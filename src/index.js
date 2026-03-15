@@ -13,7 +13,7 @@ import { installMatrix, detectNDC } from './matrix.js';
 import { installDrawing } from './drawing.js';
 import { installTrack, tickPlayers, clearPlayers } from './track.js';
 import { installPipe } from './pipe.js';
-import { installUI } from './ui.js';
+import { installPanel } from './panel.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
 
@@ -32,8 +32,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §5 — Pipe (post-processing chain)
   installPipe(p5, fn);
 
-  // §6 — UI (DOM-based shader uniform controls + track transport)
-  installUI(p5, fn);
+  // §6 — Panel (parameter panels + track transport controls)
+  installPanel(p5, fn);
 
   // ── Lifecycle hooks ────────────────────────────────────────────────
 

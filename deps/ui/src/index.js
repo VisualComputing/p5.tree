@@ -9,5 +9,4 @@
 
 'use strict';
 
-export { createUI }      from './ui.js';
-export { createTrackUI } from './trackUI.js';
+export { createPanel } from './panel.js';
