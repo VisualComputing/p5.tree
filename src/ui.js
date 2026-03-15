@@ -29,7 +29,8 @@ import {
   mapLocation as coreMapLocation,
   mat4Mul, mat4Invert,
 } from '@nakednous/tree';
-import { registerPlayer } from './path.js';
+import { registerPlayer, unregisterPlayer } from './path.js';
+import { CameraTrack } from '@nakednous/tree';
 
 // ── Module-level scratch (allocated once at import time) ──────────────────────
 
@@ -98,34 +99,32 @@ function _centerAtDepth(pInst, d) {
 // ── createTrackUI helpers ─────────────────────────────────────────────────────
 
 /**
- * Wrap a PoseTrack with an optional camera for the + button.
- * The result is a duck-typed object that satisfies the createTrackUI contract.
+ * Wrap a track with camera apply logic for the UI.
  *
- * Camera resolution priority for + button capture:
- *   explicit p5.Camera  → use that camera
- *   null                → no add() exposed (+ button hidden)
- *   undefined           → use curCamera at call time (dynamic)
+ * For CameraTrack: apply is already wired internally in createCameraTrack.
+ * The UI wrapper only needs to handle snap (1-kf), seek-while-stopped,
+ * and + button capture.  Depth slider is hidden (not relevant for cameras).
  *
- * @param {PoseTrack} track
- * @param {p5.Camera|null|undefined} cam
- * @returns {Object}
+ * For PoseTrack with opt.camera: same snap/seek/+ logic using { pos, rot, scl }.
+ *
+ * @param {CameraTrack|PoseTrack} track
+ * @param {p5.Camera|null} cam
+ * @param {boolean} isCameraTrack
+ * @returns {Object}  duck-typed target for createTrackUI
  */
-function _wrapTrackWithCamera(track, cam) {
-  // Scratch for immediate pose application — allocated once, reused.
-  const _snapOut = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [0, 0, 0] };
+function _wrapTrack(track, cam, isCameraTrack) {
+  // Scratch for snap/seek apply — shape matches track type
+  const _snapOut = isCameraTrack
+    ? { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
+    : { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] };
 
   function _applySnap() {
     if (cam && track.keyframes.length > 0) cam.applyPose(track.eval(_snapOut));
   }
 
-  // Chain track.onEnd to apply the final pose immediately in predraw.
-  //
-  // The timing problem: tick() runs in predraw, sets playing=false, fires onEnd —
-  // all before draw. The draw guard `if (track.playing)` is then false, so the
-  // final pose is never applied from draw. By applying it here in the onEnd chain
-  // (which fires in predraw), the camera is correctly positioned before draw runs.
-  //
-  // Preserve any user callback already set on track.onEnd before createTrackUI.
+  // Chain onEnd so the final keyframe is applied when playback ends naturally.
+  // tick() fires onEnd in predraw (before draw checks playing), so this lands
+  // the camera exactly on the final keyframe regardless of the draw guard.
   const _prevOnEnd = track.onEnd;
   track.onEnd = function (t) {
     if (typeof _prevOnEnd === 'function') { try { _prevOnEnd(t); } catch (_) {} }
@@ -140,13 +139,14 @@ function _wrapTrackWithCamera(track, cam) {
       if (!track.playing && track.keyframes.length === 1) _applySnap();
     },
     stop:  ()  => track.stop(),
-    // Seek while stopped: apply pose immediately so the camera tracks the slider.
+    // Seek: apply immediately so camera follows the seek slider.
     seek:  (t) => { track.seek(t); _applySnap(); },
     time:  ()  => track.time(),
   };
   if (typeof track.reset === 'function') w.reset = () => track.reset();
   if (typeof track.info  === 'function') w.info  = () => track.info();
-  // Wire + button: cam=null means explicitly no button; undefined means use curCamera
+
+  // + button: capture live camera pose
   if (cam !== null && typeof track.add === 'function') {
     w.add = () => track.add(cam.capturePose());
   }
@@ -259,20 +259,38 @@ export function installUI(p5, fn) {
     opt = Object.assign({}, opt);
     opt.parent = _resolveParent(pInst, opt.parent);
 
-    // Resolve camera for + button capture.
-    // opt.camera === null → explicitly no button.
-    // opt.camera omitted → fall back to curCamera (resolved now, not per-frame).
-    const explicitCam = opt.camera;
-    delete opt.camera;
-    const cam = explicitCam === null
-      ? null
-      : (explicitCam instanceof p5.Camera
-          ? explicitCam
-          : (pInst._renderer?.states?.curCamera ?? null));
+    // Hooks passed in opts are forwarded directly onto the track.
+    // This is more natural than setting them on the track separately,
+    // and avoids the hooks landing on the wrapper object where they never fire.
+    if (typeof opt.onPlay === 'function') { track.onPlay = opt.onPlay; delete opt.onPlay; }
+    if (typeof opt.onEnd  === 'function') { track.onEnd  = opt.onEnd;  delete opt.onEnd;  }
+    if (typeof opt.onStop === 'function') { track.onStop = opt.onStop; delete opt.onStop; }
 
-    const uiTarget = _wrapTrackWithCamera(track, cam);
+    // Detect CameraTrack — depth slider not relevant for cameras.
+    const isCameraTrack = track instanceof CameraTrack;
+
+    // Camera for + button capture:
+    //   CameraTrack  → track.camera (set by createCameraTrack), no option needed.
+    //   PoseTrack    → opt.camera if provided, else curCamera, else null (no + button).
+    //   opt.camera === null → explicitly suppress the + button for either track type.
+    let cam;
+    if ('camera' in opt) {
+      // Explicit override — null means suppress + button
+      cam = opt.camera === null ? null
+          : opt.camera instanceof p5.Camera ? opt.camera
+          : (pInst._renderer?.states?.curCamera ?? null);
+    } else if (isCameraTrack) {
+      cam = track.camera ?? (pInst._renderer?.states?.curCamera ?? null);
+    } else {
+      cam = pInst._renderer?.states?.curCamera ?? null;
+    }
+    delete opt.camera;
+
+    // Hide depth slider for camera tracks — not meaningful there.
+    if (isCameraTrack && !('depth' in opt)) opt.depth = false;
+
+    const uiTarget = _wrapTrack(track, cam, isCameraTrack);
     const ui = _trackUI(uiTarget, opt);
-    // Persistent player — UI tick always stays registered.
     registerPlayer(pInst, { tick() { ui.tick(); return true; } });
     return ui;
   };

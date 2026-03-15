@@ -1,85 +1,60 @@
 /**
- * @file PoseTrack bridge: player registry, camera pose capture/apply,
- *       Renderer3D TRS helpers.
+ * @file PoseTrack / CameraTrack bridge: player registry, camera pose helpers.
  * @module p5.tree/path
  * @license GPL-3.0-only
  *
  * ── What lives here ──────────────────────────────────────────────────────────
- *  Player registry   registerPlayer / unregisterPlayer / tickPlayers / clearPlayers
- *  fn.createPoseTrack          PoseTrack wired to the p5 draw loop
- *  p5.Renderer3D.rotateQuat    rotate by [x,y,z,w] quaternion
- *  p5.Renderer3D.applyPose     apply TRS pose to the transform stack
- *  fn.rotateQuat / fn.applyPose  forwarders to the renderer
- *  p5.Camera.capturePose       read current camera state → TRS pose
- *  p5.Camera.applyPose         write TRS pose back to the camera
+ *  Player registry
+ *    registerPlayer / unregisterPlayer / tickPlayers / clearPlayers
  *
- * ── What was removed (was @module p5.tree/path pre 0.0.19) ──────────────────
- *  addPath / setPath / removePath / playPath / seekPath / stopPath / resetPath
- *  pathTime / pathInfo  (camera path shorthand methods + global forwarders)
- *  CameraAdapter, getCamTrack, tickCamera, _applyCamAtCursor, applyCamInterp
- *  p5.Camera.slerp usage
- *  camera.path backward-compat property
+ *  fn.createPoseTrack    PoseTrack wired to the p5 draw loop
+ *  fn.createCameraTrack  CameraTrack wired to the p5 draw loop + auto-apply
  *
- * ── Migration ────────────────────────────────────────────────────────────────
- *  Old:
- *    cam.addPath()
- *    cam.playPath({ loop: true })
- *    // in draw:  (applied automatically)
+ *  p5.Renderer3D.rotateQuat   rotate by [x,y,z,w] quaternion
+ *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
+ *  fn.rotateQuat / fn.applyPose   forwarders to the renderer
  *
- *  New:
- *    const track = createPoseTrack()
- *    const out   = { pos: [0,0,0], rot: [0,0,0,1], scl: [1,1,1] }
- *    // record:
- *    track.add(cam.capturePose())
- *    // play:
- *    track.play({ loop: true })
- *    // in draw:
- *    if (track.playing) { track.tick(); cam.applyPose(track.eval(out)) }
+ *  p5.Camera.capturePose  read live camera → { eye, center, up }
+ *  p5.Camera.applyPose    write { eye, center, up } → cam.camera()
  */
 
 'use strict';
 
-import { PoseTrack } from '@nakednous/tree';
-
+import { PoseTrack, CameraTrack, qToMat4 } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Player registry
-// Tracks are registered here so their tick() is called every predraw.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const PATH_PLAYERS = new WeakMap();
 
 function _getPlayers(pInst) {
-  let players = PATH_PLAYERS.get(pInst);
-  if (!players) { players = new Set(); PATH_PLAYERS.set(pInst, players); }
-  return players;
+  let p = PATH_PLAYERS.get(pInst);
+  if (!p) { p = new Set(); PATH_PLAYERS.set(pInst, p); }
+  return p;
 }
 
 /**
- * Register a player with the given p5 instance.
- * `player.tick()` is called each predraw; the player is removed when it
- * returns false / undefined.
+ * Register a player with a p5 instance.
+ * `player.tick()` is called each predraw; removed when it returns false.
  * @param {p5} pInst
  * @param {{ tick: () => boolean }} player
  */
 export function registerPlayer(pInst, player) {
-  if (!pInst || !player) return;
-  _getPlayers(pInst).add(player);
+  if (pInst && player) _getPlayers(pInst).add(player);
 }
 
 /**
- * Unregister a player from the given p5 instance.
+ * Unregister a player from a p5 instance.
  * @param {p5} pInst
  * @param {{ tick: () => boolean }} player
  */
 export function unregisterPlayer(pInst, player) {
-  if (!pInst || !player) return;
-  _getPlayers(pInst).delete(player);
+  if (pInst && player) _getPlayers(pInst).delete(player);
 }
 
 /**
- * Tick all registered players for a p5 instance.
- * Called automatically from the predraw lifecycle.
+ * Tick all registered players. Called from the predraw lifecycle.
  * @param {p5} pInst
  */
 export function tickPlayers(pInst) {
@@ -91,13 +66,23 @@ export function tickPlayers(pInst) {
 }
 
 /**
- * Remove all players for a p5 instance.
- * Called from the remove lifecycle.
+ * Remove all players. Called from the remove lifecycle.
  * @param {p5} pInst
  */
 export function clearPlayers(pInst) {
   const players = PATH_PLAYERS.get(pInst);
   if (players) players.clear();
+}
+
+// ── shared player factory ─────────────────────────────────────────────────────
+
+function _wireTrack(track, pInst) {
+  let player = null;
+  track._onActivate   = () => {
+    player = player || { tick() { track.tick(); return track.playing; } };
+    registerPlayer(pInst, player);
+  };
+  track._onDeactivate = () => unregisterPlayer(pInst, player);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -106,52 +91,111 @@ export function clearPlayers(pInst) {
 
 export function installPath(p5, fn) {
 
-  // Expose core type on p5.Tree namespace so users can instanceof-check.
-  p5.Tree.PoseTrack = PoseTrack;
+  p5.Tree.PoseTrack   = PoseTrack;
+  p5.Tree.CameraTrack = CameraTrack;
 
   // ── fn.createPoseTrack ─────────────────────────────────────────────────────
 
   /**
    * Create a PoseTrack wired to this p5 instance's draw loop.
-   * play() auto-registers the track; stop() / natural end auto-unregisters it.
-   * Multiple concurrent PoseTracks are fully supported.
+   * play() auto-registers; stop() / natural end auto-unregisters.
    *
    * @method createPoseTrack
    * @memberof p5
    * @returns {PoseTrack}
    *
    * @example
-   * let track, out
+   * let track
+   * const out = { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }
    * function setup() {
    *   createCanvas(600, 400, WEBGL)
    *   track = createPoseTrack()
-   *   out   = { pos: [0,0,0], rot: [0,0,0,1], scl: [1,1,1] }
-   *   track.add(camera.capturePose())
-   *   // …record more keyframes…
+   *   track.add({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] })
+   *   track.add({ pos:[200,0,0], rot:[0,0,0,1], scl:[1,1,1] })
    *   track.play({ loop: true })
    * }
    * function draw() {
    *   background(20)
    *   if (track.playing) {
-   *     track.tick()
-   *     camera.applyPose(track.eval(out))
+   *     push()
+   *     applyPose(track.eval(out))
+   *     box(60)
+   *     pop()
    *   }
    * }
    */
   fn.createPoseTrack = function () {
-    const pInst = this;
     const track = new PoseTrack();
-    let   player = null;
+    _wireTrack(track, this);
+    return track;
+  };
 
-    // Lib-space hook: playing went false → true
-    track._onActivate = () => {
-      player = player || { tick() { track.tick(); return track.playing; } };
-      registerPlayer(pInst, player);
+  // ── fn.createCameraTrack ───────────────────────────────────────────────────
+
+  /**
+   * Create a CameraTrack wired to this p5 instance's draw loop.
+   *
+   * Stores { eye, center, up } keyframes natively — no field repurposing.
+   * Playback applies each frame automatically via cam.applyPose().
+   *
+   * The draw guard `if (track.playing)` is NOT needed in user code —
+   * applyPose is wired internally in predraw, after tick() advances
+   * the cursor and before draw() runs.
+   *
+   * Typical usage:
+   * ```js
+   * let cam, track, out
+   * function setup() {
+   *   createCanvas(600, 400, WEBGL)
+   *   cam   = createCamera()
+   *   track = createCameraTrack(cam)
+   *   track.add({ eye:[0,0,500], center:[0,0,0] })
+   *   track.add({ eye:[300,-150,0], center:[0,0,0] })
+   *   track.play({ loop: true })
+   * }
+   * function draw() {
+   *   background(20)
+   *   setCamera(cam)
+   *   orbitControl()
+   *   axes(); grid()
+   * }
+   * ```
+   *
+   * When not playing, orbitControl works freely.
+   * When playing, the track pose overwrites whatever orbitControl did.
+   *
+   * @method createCameraTrack
+   * @memberof p5
+   * @param {p5.Camera} [cam]  Camera to drive. Defaults to curCamera.
+   * @returns {CameraTrack}
+   */
+  fn.createCameraTrack = function (cam) {
+    const pInst = this;
+    const track = new CameraTrack();
+    const out   = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
+
+    // Resolve camera once at creation time.
+    // curCamera is always set after createCanvas() so lazy resolution isn't needed.
+    // Fall back to curCamera only when cam is omitted (default camera use case).
+    const resolvedCam = cam || pInst._renderer?.states?.curCamera;
+
+    // Expose on track so createTrackUI can read it without an extra option.
+    track.camera = resolvedCam;
+
+    const applyPlayer = {
+      tick() {
+        if (!track.playing) return false;
+        track.tick();
+        if (resolvedCam) resolvedCam.applyPose(track.eval(out));
+        return track.playing;
+      }
     };
 
-    // Lib-space hook: playing went true → false (any cause)
+    track._onActivate   = () => registerPlayer(pInst, applyPlayer);
     track._onDeactivate = () => {
-      unregisterPlayer(pInst, player);
+      unregisterPlayer(pInst, applyPlayer);
+      // Apply final pose so camera lands exactly on the last keyframe.
+      if (resolvedCam && track.keyframes.length > 0) resolvedCam.applyPose(track.eval(out));
     };
 
     return track;
@@ -160,32 +204,25 @@ export function installPath(p5, fn) {
   // ── p5.Renderer3D — TRS helpers ────────────────────────────────────────────
 
   /**
-   * Rotate by a unit quaternion [x,y,z,w], applied as an axis-angle rotation.
-   * No-op when the quaternion's vector part is below `eps`.
-   *
+   * Rotate by a unit quaternion [x,y,z,w].
    * @method rotateQuat
    * @memberof p5.Renderer3D
-   * @param {number[]} q         Unit quaternion [x,y,z,w].
-   * @param {Object}  [opts]
-   * @param {number}  [opts.eps=1e-8]  Minimum sine threshold.
+   * @param {number[]} q
+   * @param {{ eps?:number }} [opts]
    * @returns {p5.Renderer3D} this
    */
   p5.Renderer3D.prototype.rotateQuat = function (q, opts) {
-    const p       = this._pInst;
-    const eps     = opts?.eps ?? 1e-8;
-    const x = q[0], y = q[1], z = q[2];
-    const sinHalf = Math.sqrt(x * x + y * y + z * z);
+    const p = this._pInst, eps = opts?.eps ?? 1e-8;
+    const x=q[0],y=q[1],z=q[2];
+    const sinHalf = Math.sqrt(x*x+y*y+z*z);
     if (sinHalf < eps) return this;
-    const angle = 2 * Math.atan2(sinHalf, q[3]);
-    p.rotate(angle, [x / sinHalf, y / sinHalf, z / sinHalf]);
+    const angle = 2*Math.atan2(sinHalf, q[3]);
+    p.rotate(angle, [x/sinHalf, y/sinHalf, z/sinHalf]);
     return this;
   };
 
   /**
-   * Apply a TRS pose to the current transform stack —
-   * translate → rotateQuat → scale, in that order.
-   * Missing components are skipped silently.
-   *
+   * Apply a TRS pose { pos, rot, scl } to the current transform stack.
    * @method applyPose
    * @memberof p5.Renderer3D
    * @param {{ pos?:number[], rot?:number[], scl?:number[] }} pose
@@ -200,115 +237,88 @@ export function installPath(p5, fn) {
     return this;
   };
 
-  // ── fn forwarders ──────────────────────────────────────────────────────────
-
-  /**
-   * Rotate by a unit quaternion [x,y,z,w].
-   * Delegates to p5.Renderer3D.rotateQuat.
-   * @method rotateQuat
-   * @memberof p5
-   * @param {number[]} q
-   * @param {Object}  [opts]
-   */
+  // fn forwarders
+  /** @method rotateQuat @memberof p5 */
   fn.rotateQuat = function (q, opts) { this._renderer.rotateQuat(q, opts); return this; };
-
-  /**
-   * Apply a TRS pose to the transform stack.
-   * Delegates to p5.Renderer3D.applyPose.
-   * @method applyPose
-   * @memberof p5
-   * @param {{ pos?:number[], rot?:number[], scl?:number[] }} pose
-   */
-  fn.applyPose = function (pose) { this._renderer.applyPose(pose); return this; };
+  /** @method applyPose @memberof p5 */
+  fn.applyPose  = function (pose)    { this._renderer.applyPose(pose);     return this; };
 
   // ── p5.Camera — capturePose / applyPose ────────────────────────────────────
 
   /**
-   * Read the current camera state into a TRS pose object.
+   * Read the live camera state into a { eye, center, up } object.
    *
-   * Field repurposing for camera poses:
-   * - `pos`  ← [eyeX, eyeY, eyeZ]
-   * - `scl`  ← [centerX, centerY, centerZ]  (lookat center, NOT scale)
-   * - `rot`  ← quaternion encoding the up-hint direction as a rotation from
-   *            world Y [0,1,0] to cam.upX/Y/Z.
+   * - `eye`    ← [eyeX, eyeY, eyeZ]
+   * - `center` ← [centerX, centerY, centerZ]
+   * - `up`     ← [upX, upY, upZ]  (the hint p5 stores, not the orthogonalized up)
    *
-   * Why up-hint and not up_ortho (from cameraMatrix col1):
-   *   p5 stores the raw up hint in cam.upX/Y/Z. cam.camera() is called with
-   *   that hint; p5 orthogonalizes internally. If applyPose passes up_ortho
-   *   instead of the hint, p5 stores the orthogonalized vector as the new
-   *   cam.upX/Y/Z, which shifts orbitControl's reference frame and causes
-   *   visually noticeable drift from the recorded position.
+   * Reads cam.upX/Y/Z directly — always the real hint, correct for both
+   * upright cameras (up=[0,1,0]) and pole-flipped cameras (up=[0,-1,0]).
    *
-   * For cameras with up=[0,1,0] (the common case) rot is always identity,
-   * guaranteeing a perfect roundtrip. For rolled cameras, slerp between
-   * two "Y-to-upHint" quaternions gives smooth up interpolation.
-   *
-   * Pass a pre-allocated `out` to avoid allocation per frame:
+   * Pass a pre-allocated out to avoid allocation per frame:
    * ```js
-   * const out = { pos: [0,0,0], rot: [0,0,0,1], scl: [0,0,0] }
+   * const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
    * track.add(cam.capturePose(out))
    * ```
    *
    * @method capturePose
    * @memberof p5.Camera
-   * @param {{ pos:number[], rot:number[], scl:number[] }} [out]
-   * @returns {{ pos:number[], rot:number[], scl:number[] }}
+   * @param {{ eye:number[], center:number[], up:number[] }} [out]
+   * @returns {{ eye:number[], center:number[], up:number[] }}
    */
   p5.Camera.prototype.capturePose = function (out) {
-    out = out || { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [0, 0, 0] };
-    // pos = eye
-    out.pos[0] = this.eyeX;    out.pos[1] = this.eyeY;    out.pos[2] = this.eyeZ;
-    // scl = center (repurposed — not scale)
-    out.scl[0] = this.centerX; out.scl[1] = this.centerY; out.scl[2] = this.centerZ;
-    // rot = quaternion from world Y to cam.upX/Y/Z (the hint, not the orthogonalized up).
-    // For upHint=[0,1,0]: rot = identity → perfect roundtrip, no drift.
-    const ux = this.upX || 0, uy = this.upY !== undefined ? this.upY : 1, uz = this.upZ || 0;
-    const ul  = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1;
-    const unx = ux / ul, uny = uy / ul, unz = uz / ul;
-    // quaternion from [0,1,0] to [unx,uny,unz]
-    const d = uny; // dot([0,1,0], [unx,uny,unz])
-    if (d > 0.9999) {
-      out.rot[0] = 0; out.rot[1] = 0; out.rot[2] = 0; out.rot[3] = 1; // identity
-    } else if (d < -0.9999) {
-      out.rot[0] = 0; out.rot[1] = 0; out.rot[2] = 1; out.rot[3] = 0; // 180° around Z
-    } else {
-      // axis = [0,1,0] × [unx,uny,unz] = [unz*0-unx*0... wait:
-      // [0,1,0]×[ux,uy,uz] = [1*uz-0*uy, 0*ux-0*uz, 0*uy-1*ux] = [uz, 0, -ux]
-      const ax = unz, ay = 0, az = -unx;
-      const al = Math.sqrt(ax * ax + az * az) || 1;
-      const angle = Math.acos(Math.max(-1, Math.min(1, d)));
-      const s = Math.sin(angle / 2), c = Math.cos(angle / 2);
-      out.rot[0] = ax / al * s; out.rot[1] = ay * s; out.rot[2] = az / al * s; out.rot[3] = c;
-    }
+    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
+    out.eye[0]    = this.eyeX;    out.eye[1]    = this.eyeY;    out.eye[2]    = this.eyeZ;
+    out.center[0] = this.centerX; out.center[1] = this.centerY; out.center[2] = this.centerZ;
+    out.up[0]     = this.upX !== undefined ? this.upX : 0;
+    out.up[1]     = this.upY !== undefined ? this.upY : 1;
+    out.up[2]     = this.upZ !== undefined ? this.upZ : 0;
     return out;
   };
 
   /**
-   * Apply a TRS pose to this camera.
+   * Apply a { eye, center, up } pose to this camera.
+   * Calls cam.camera(eye, center, up) directly — no matrix reconstruction,
+   * no up_ortho drift, exact roundtrip from capturePose().
    *
-   * Interprets the pose fields as set by capturePose:
-   * - `pos`  → eye position
-   * - `scl`  → lookat center (interpolated directly by PoseTrack)
-   * - `rot`  → quaternion encoding up direction; Y [0,1,0] rotated by rot gives upHint
+   * Also handles legacy { pos, rot, scl } TRS poses from PoseTrack for
+   * object-on-camera effects (translate/rotate only, scl is ignored).
    *
    * @method applyPose
    * @memberof p5.Camera
-   * @param {{ pos:number[], rot:number[], scl:number[] }} pose
+   * @param {{ eye:number[], center:number[], up:number[] } |
+   *          { pos:number[], rot:number[], scl?:number[] }} pose
    * @returns {p5.Camera} this
    */
   p5.Camera.prototype.applyPose = function (pose) {
-    if (!pose || !pose.pos || !pose.rot) return this;
-    const q = pose.rot;
-    // Rotate world Y [0,1,0] by q to recover the up hint.
-    // Standard formula for q * [0,1,0] * q^-1:
-    const upX = 2 * (q[0] * q[1] - q[3] * q[2]);
-    const upY = 1 - 2 * (q[0] * q[0] + q[2] * q[2]);
-    const upZ = 2 * (q[1] * q[2] + q[3] * q[0]);
-    // center from scl; fall back to current center for manually-constructed poses
-    const cx = pose.scl ? pose.scl[0] : this.centerX;
-    const cy = pose.scl ? pose.scl[1] : this.centerY;
-    const cz = pose.scl ? pose.scl[2] : this.centerZ;
-    this.camera(pose.pos[0], pose.pos[1], pose.pos[2], cx, cy, cz, upX, upY, upZ);
+    if (!pose) return this;
+
+    // { eye, center, up } — native CameraTrack output
+    if (pose.eye && pose.center) {
+      const up = pose.up || [0,1,0];
+      this.camera(
+        pose.eye[0],    pose.eye[1],    pose.eye[2],
+        pose.center[0], pose.center[1], pose.center[2],
+        up[0],          up[1],          up[2]
+      );
+      return this;
+    }
+
+    // { pos, rot } — legacy TRS form (translates + rotates the view)
+    // Useful for animating the camera like an object (shake, bob, etc.)
+    if (pose.pos && pose.rot) {
+      const rm = new Float32Array(16);
+      qToMat4(rm, pose.rot);
+      const upX=rm[4], upY=rm[5], upZ=rm[6];
+      const fwdX=-rm[8], fwdY=-rm[9], fwdZ=-rm[10];
+      const dx=this.centerX-this.eyeX, dy=this.centerY-this.eyeY, dz=this.centerZ-this.eyeZ;
+      const dist=Math.sqrt(dx*dx+dy*dy+dz*dz)||1;
+      this.camera(
+        pose.pos[0], pose.pos[1], pose.pos[2],
+        pose.pos[0]+fwdX*dist, pose.pos[1]+fwdY*dist, pose.pos[2]+fwdZ*dist,
+        upX, upY, upZ
+      );
+    }
     return this;
   };
 }
