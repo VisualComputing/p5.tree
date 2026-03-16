@@ -176,6 +176,9 @@ ui.tick()
 | `seek(t)`     | ✓        | Set normalised position `[0, 1]`.         |
 | `time()`      | ✓        | Returns normalised position `[0, 1]`.     |
 | `playing`     | ✓        | Boolean — true while playing.             |
+| `loop`        | ✓        | Boolean — read at panel creation time.    |
+| `pingPong`    | ✓        | Boolean — read at panel creation time.    |
+| `rate`        | ✓        | Number — read at panel creation time.     |
 | `onPlay`      | ✓        | Hook — chained, not clobbered.            |
 | `onEnd`       | ✓        | Hook — chained, not clobbered.            |
 | `onStop`      | ✓        | Hook — chained, not clobbered.            |
@@ -186,6 +189,20 @@ ui.tick()
 ### Transport model
 
 The Play/Pause button is the **sole** control that starts or stops playback. The rate slider adjusts speed without starting or stopping. The seek slider scrubs position without affecting `playing`. The mode select changes `loop`/`pingPong`/`once` without starting playback.
+
+### State initialisation
+
+The panel seeds its initial `rate` and `mode` from the live track state (`target.rate`, `target.loop`, `target.pingPong`), falling back to opt values. This means both orderings work correctly:
+
+```js
+// play before createPanel — panel opens showing the live mode
+track.play({ loop: true })
+createPanel(track, ...)     // mode select shows "loop" ✓
+
+// createPanel before play — panel syncs on the first play() call
+createPanel(track, ...)
+track.play({ loop: true })  // mode select updates to "loop" ✓
+```
 
 ### Layout (top → bottom)
 
@@ -201,26 +218,26 @@ The Play/Pause button is the **sole** control that starts or stops playback. The
 
 ### Transport options
 
-| Option        | Default         | Description                                  |
-|---------------|-----------------|----------------------------------------------|
-| `seek`        | `true`          | Show seek slider.                            |
-| `props`       | `true`          | Show rate slider + mode select.              |
-| `info`        | `false`         | Show time/keyframe readout.                  |
-| `rate`        | `1`             | Initial rate.                                |
-| `loop`        | `false`         | Initial loop mode.                           |
-| `pingPong`    | `false`         | Initial pingPong mode (overrides loop).      |
-| `depth`       | `0.5`           | Initial add-pose depth [0..1].               |
-| `title`       | —               | Optional title row.                          |
-| `collapsible` | `false`         | Title row becomes a collapse toggle.         |
-| `collapsed`   | `false`         | Start collapsed (implies collapsible).       |
-| `x`           | `0`             | Container left (px).                         |
-| `y`           | `0`             | Container top (px).                          |
-| `width`       | `120`           | Slider width (px).                           |
-| `rateWidth`   | `width`         | Rate slider width override (px).             |
-| `depthWidth`  | `width`         | Depth slider width override (px).            |
-| `color`       | —               | Container text color.                        |
-| `hidden`      | `false`         | Start hidden.                                |
-| `parent`      | `document.body` | Mount target (`HTMLElement`).                |
+| Option        | Default         | Description                                                      |
+|---------------|-----------------|------------------------------------------------------------------|
+| `seek`        | `true`          | Show seek slider.                                                |
+| `props`       | `true`          | Show rate slider + mode select.                                  |
+| `info`        | `false`         | Show time/keyframe readout.                                      |
+| `rate`        | `target.rate`   | Initial rate (seeded from live track state, falls back to `1`).  |
+| `loop`        | `target.loop`   | Initial loop mode (seeded from live track state).                |
+| `pingPong`    | `target.pingPong` | Initial pingPong mode (seeded from live track state).          |
+| `depth`       | `0.5`           | Initial add-pose depth [0..1].                                   |
+| `title`       | —               | Optional title row.                                              |
+| `collapsible` | `false`         | Title row becomes a collapse toggle.                             |
+| `collapsed`   | `false`         | Start collapsed (implies collapsible).                           |
+| `x`           | `0`             | Container left (px).                                             |
+| `y`           | `0`             | Container top (px).                                              |
+| `width`       | `120`           | Slider width (px).                                               |
+| `rateWidth`   | `width`         | Rate slider width override (px).                                 |
+| `depthWidth`  | `width`         | Depth slider width override (px).                                |
+| `color`       | —               | Container text color.                                            |
+| `hidden`      | `false`         | Start hidden.                                                    |
+| `parent`      | `document.body` | Mount target (`HTMLElement`).                                    |
 
 ### Panel API
 

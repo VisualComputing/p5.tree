@@ -38,8 +38,8 @@ Shader tools, animation tracks, camera keyframe interpolation, space transforms,
 A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path), depending on whether a camera is passed.
 
 ```js
-const track = createTrack()        // PoseTrack — animates any object
-const track = createTrack(cam)     // CameraTrack — drives a p5.Camera
+const track = createTrack()             // PoseTrack — animates any object
+const track = createTrack(cam)          // CameraTrack — drives a p5.Camera
 const track = createTrack(getCamera())  // CameraTrack on the default camera
 ```
 
@@ -66,13 +66,28 @@ function draw() {
 }
 ```
 
-`add()` accepts flexible `rot` specs — no normalisation needed:
+`add()` accepts flexible specs. Top-level forms:
 
 ```js
-track.add({ pos:[0,0,0], rot: [x,y,z,w] })               // raw quaternion
-track.add({ pos:[0,0,0], rot: { axis:[0,1,0], angle: PI/4 } })  // axis-angle
-track.add({ pos:[0,0,0], rot: { dir:[1,0,0] } })           // look direction
+track.add({ pos, rot, scl })       // explicit TRS — rot accepts any form below
+track.add({ mMatrix: mat4 })       // decompose model matrix into TRS
+track.add([ spec, spec, ... ])     // bulk
 ```
+
+`rot` sub-forms — all normalised internally, no pre-processing needed:
+
+```js
+track.add({ pos:[0,0,0], rot: [x,y,z,w] })                          // raw quaternion
+track.add({ pos:[0,0,0], rot: { axis:[0,1,0], angle: PI/4 } })      // axis-angle
+track.add({ pos:[0,0,0], rot: { dir:[1,0,0] } })                    // look direction
+track.add({ pos:[0,0,0], rot: { euler:[rx,ry,rz] } })               // intrinsic YXZ (default)
+track.add({ pos:[0,0,0], rot: { euler:[rx,ry,rz], order:'XYZ' } })  // explicit order
+track.add({ pos:[0,0,0], rot: { from:[0,0,1], to:[1,0,0] } })       // shortest arc
+track.add({ pos:[0,0,0], rot: { mat3: rotationMatrix } })           // 3×3 col-major
+track.add({ pos:[0,0,0], rot: { eMatrix: eyeMat } })                // from eye matrix
+```
+
+Supported Euler orders: `YXZ` (default, matches p5 Y-up), `XYZ`, `ZYX`, `ZXY`, `XZY`, `YZX`. All are intrinsic — extrinsic `ABC` equals intrinsic `CBA` with the same angles.
 
 Interpolation modes:
 
@@ -112,11 +127,18 @@ function draw() {
 }
 ```
 
-Capture the current camera state as a keyframe:
+`add()` accepts multiple forms:
 
 ```js
-track.add(cam.capturePose())   // records live eye/center/up
+track.add({ eye, center, up? })    // explicit lookat; up defaults to [0,1,0]
+track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed via -R^T·t
+track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
+track.add(cam.capturePose())       // capture live camera state (zero-alloc with pre-allocated out)
+track.add()                        // shortcut — captures track's bound camera
+track.add([ spec, spec, ... ])     // bulk
 ```
+
+`vMatrix` and `eMatrix` both default `up` to `[0,1,0]`. Pass `cam.capturePose()` when the real up hint needs preserving.
 
 Interpolation modes:
 
@@ -134,10 +156,14 @@ All tracks share the same transport API:
 
 ```js
 track.play({ duration, loop, pingPong, rate, onPlay, onEnd, onStop })
-track.stop()
-track.seek(t)    // t ∈ [0, 1]
-track.time()     // → number ∈ [0, 1]
-track.info()     // → { keyframes, segments, playing, loop, ... }
+track.stop([rewind])   // rewind=true seeks to origin
+track.reset()          // clear all keyframes and stop
+track.seek(t)          // t ∈ [0, 1]
+track.time()           // → number ∈ [0, 1]
+track.info()           // → { keyframes, segments, playing, loop, ... }
+track.add(spec)        // append keyframe(s)
+track.set(i, spec)     // replace keyframe at index
+track.remove(i)        // remove keyframe at index
 ```
 
 | Option     | Default | Description                                    |
@@ -150,28 +176,36 @@ track.info()     // → { keyframes, segments, playing, loop, ... }
 | `onEnd`    | —       | Fires at natural end (once mode only).         |
 | `onStop`   | —       | Fires on explicit `stop()` or `reset()`.       |
 
-`track.keyframes` — direct array access. `track.playing`, `track.loop`, `track.pingPong`, `track.rate`, `track.duration` — readable at any time.
+Hook firing order:
+```
+play()  → onPlay → _onActivate
+tick()  → onEnd  → _onDeactivate   (once mode, at boundary)
+stop()  → onStop → _onDeactivate
+reset() → onStop → _onDeactivate
+```
+
+`track.playing`, `track.loop`, `track.pingPong`, `track.rate`, `track.duration`, `track.keyframes` — readable at any time.
+
+One-keyframe behaviour: `play()` with exactly one keyframe snaps `eval()` without starting playback or firing hooks.
 
 ## Camera helpers
 
 ```js
-getCamera()              // returns curCamera (use with createTrack)
+getCamera()              // returns curCamera — use with createTrack()
 
 cam.capturePose()        // → { eye, center, up } from live camera state
-cam.capturePose(out)     // writes into pre-allocated out — zero allocation
+cam.capturePose(out)     // zero-allocation form with pre-allocated out
 
-cam.applyPose(pose)      // apply { eye, center, up } to cam.camera()
-                         // also accepts { pos, rot, scl } TRS form
+cam.applyPose(pose)      // apply { eye, center, up } → cam.camera()
+                         // also accepts { pos, rot, scl } TRS (shake / bob)
 
-rotateQuat(q)            // rotate by [x,y,z,w] quaternion
 applyPose(pose)          // apply { pos, rot, scl } to the transform stack
+rotateQuat(q)            // rotate by [x,y,z,w] quaternion
 ```
 
 ---
 
 # Space transformations
-
-Matrix operations, matrix/frustum queries, and coordinate conversions.
 
 ## Matrix operations
 
@@ -179,49 +213,43 @@ Matrix operations, matrix/frustum queries, and coordinate conversions.
 
 ## Matrix queries
 
-All matrix queries follow the same contract:
+All matrix queries share the same contract:
+- `out` is the **first** parameter — the caller owns the buffer
+- returns `out` (or `null` on a singular matrix)
+- no allocations — pass the same buffer every frame
 
-* `out` is the **first** parameter — the caller owns and provides the buffer.
-* The function writes the result into `out` and **returns `out`**.
-* Returns `null` if the matrix is singular (where applicable).
-* No allocations — pass the same buffer every frame.
+Accepted types for `out` and override params: `Float32Array` | `ArrayLike` | `p5.Matrix`
 
-**Accepted types for `out` and matrix override params:**
-`Float32Array` | `ArrayLike` | `p5.Matrix`
-
-**Simple queries** — read directly from renderer state:
+**Simple queries** — read from live renderer state:
 
 ```js
-const e  = new Float32Array(16)
-const pm = new Float32Array(16)
-
-eMatrix(e)    // eye matrix (inverse view)
-pMatrix(pm)   // projection matrix
-vMatrix(v)    // view matrix (world → eye)
-mMatrix(m)    // model matrix (local → world)
+eMatrix(out)   // eye matrix (inverse view) — eye→world
+pMatrix(out)   // projection matrix
+vMatrix(out)   // view matrix — world→eye
+mMatrix(out)   // model matrix — local→world
 ```
 
-**Composite queries** — `out` first, optional matrix overrides in an opts object:
+**Composite queries** — `out` first, optional overrides in an opts object:
 
 ```js
-pvMatrix(out, [{ pMatrix, vMatrix }])
+pvMatrix(out,  [{ pMatrix, vMatrix }])
 ipvMatrix(out, [{ pMatrix, vMatrix, pvMatrix }])
-mvMatrix(out, [{ mMatrix, vMatrix }])
+mvMatrix(out,  [{ mMatrix, vMatrix }])
 pmvMatrix(out, [{ pMatrix, mMatrix, vMatrix }])
-nMatrix(out, [{ mMatrix, vMatrix, mvMatrix }])   // 9-element out
+nMatrix(out,   [{ mMatrix, vMatrix, mvMatrix }])  // 9-element out
 lMatrix(out, from, to)   // location transform: inv(to) · from
 dMatrix(out, from, to)   // direction transform: to₃ · inv(from₃), 9-element out
 ```
 
-**Recommended draw-loop pattern — zero allocations:**
+**Zero-allocation draw-loop pattern:**
 
 ```js
-// setup
-const e   = new Float32Array(16)
-const pm  = new Float32Array(16)
-const pv  = new Float32Array(16)
+// setup — allocate once
+const e  = new Float32Array(16)
+const pm = new Float32Array(16)
+const pv = new Float32Array(16)
 
-// draw
+// draw — zero allocations
 eMatrix(e)
 pMatrix(pm)
 pvMatrix(pv)
@@ -231,70 +259,55 @@ mousePicking({ pvMatrix: pv, eMatrix: e })
 
 ## Frustum queries
 
-Scalar values read directly from the current projection matrix — no buffer needed.
+Scalars read directly from the projection matrix — no buffer needed:
 
-1. `lPlane()`, `rPlane()`, `bPlane()`, `tPlane()` — frustum side planes.
-2. `nPlane()`, `fPlane()` — near and far distances.
-3. `fov()` — vertical field-of-view (radians).
-4. `hfov()` — horizontal field-of-view (radians).
-5. `isOrtho()` — `true` for orthographic projection.
+```js
+lPlane()   rPlane()   bPlane()   tPlane()   // side planes
+nPlane()   fPlane()                          // near / far
+fov()      hfov()                            // field of view (radians)
+isOrtho()                                    // true for orthographic
+```
 
 ## Coordinate space conversions
 
 ```js
-mapLocation(out, point, [opts])   // explicit input point
-mapLocation(out, [opts])          // defaults to p5.Tree.ORIGIN
+mapLocation(out, point, [opts])   // map a point between spaces
+mapLocation(out, [opts])          // input defaults to p5.Tree.ORIGIN
 mapLocation(out)                  // defaults to ORIGIN, EYE → WORLD
 
-mapDirection(out, vector, [opts]) // explicit input direction
-mapDirection(out, [opts])         // defaults to p5.Tree._k
+mapDirection(out, vector, [opts]) // map a direction between spaces
+mapDirection(out, [opts])         // input defaults to p5.Tree._k
 mapDirection(out)                 // defaults to _k, EYE → WORLD
 ```
 
-`out` is a 3-element `Float32Array`, `ArrayLike`, or `p5.Vector`. The same object is returned.
+`out` is a 3-element `Float32Array`, `ArrayLike`, or `p5.Vector`.
 
-**Options:**
+| Option      | Default           | Description                             |
+|-------------|-------------------|-----------------------------------------|
+| `from`      | `p5.Tree.EYE`     | Source space (constant or matrix).      |
+| `to`        | `p5.Tree.WORLD`   | Target space (constant or matrix).      |
+| `eMatrix`   | current eye       | Pre-computed eye matrix.                |
+| `pMatrix`   | current proj      | Override projection matrix.             |
+| `vMatrix`   | current view      | Override view matrix.                   |
+| `pvMatrix`  | P·V               | Pre-computed PV — skips multiply.       |
+| `ipvMatrix` | inv(PV)           | Pre-computed IPV — skips inversion.     |
 
-| Key         | Default           | Description                                    |
-|-------------|-------------------|------------------------------------------------|
-| `from`      | `p5.Tree.EYE`     | Source space (constant or matrix).             |
-| `to`        | `p5.Tree.WORLD`   | Target space (constant or matrix).             |
-| `eMatrix`   | current eye       | Pre-computed eye matrix — skips inversion.     |
-| `pMatrix`   | current proj      | Override projection matrix.                    |
-| `vMatrix`   | current view      | Override view matrix.                          |
-| `pvMatrix`  | computed from P·V | Pre-computed PV — skips multiplication.        |
-| `ipvMatrix` | computed from PV  | Pre-computed IPV — skips inversion.            |
-
-`from` and `to` accept: `p5.Tree.WORLD`, `p5.Tree.EYE`, `p5.Tree.SCREEN`, `p5.Tree.NDC`, `p5.Tree.MODEL`, or a matrix for a custom local frame.
+`from` / `to` accept: `p5.Tree.WORLD`, `EYE`, `SCREEN`, `NDC`, `MODEL`, or a mat4 for a custom local frame.
 
 ```js
 const loc = new Float32Array(3)
 const dir = new Float32Array(3)
 
-// camera world position
-mapLocation(loc)
-
-// camera viewing direction
-mapDirection(dir)
-
-// screen-space projection of a world point
-mapLocation(loc, [100, 0, 0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN })
-
-// project the current model's origin to screen
-const m = new Float32Array(16)
-mMatrix(m)
-mapLocation(loc, p5.Tree.ORIGIN, { from: m, to: p5.Tree.SCREEN })
+mapLocation(loc)                                                    // camera world position
+mapDirection(dir)                                                   // camera view direction
+mapLocation(loc, [100,0,0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN })
 ```
 
-**Useful constants:** `p5.Tree.ORIGIN`, `p5.Tree.i`, `p5.Tree.j`, `p5.Tree.k`, `p5.Tree._i`, `p5.Tree._j`, `p5.Tree._k`.
-
-Notes:
-- Default `mapLocation()` (EYE → WORLD at origin) returns the camera world position.
-- Default `mapDirection()` returns the normalized camera viewing direction.
+Constants: `p5.Tree.ORIGIN`, `p5.Tree.i`, `p5.Tree.j`, `p5.Tree.k`, `p5.Tree._i`, `p5.Tree._j`, `p5.Tree._k`.
 
 ## Heads Up Display
 
-Draw directly in screen space, independent of the current camera and 3D transforms.
+Draw directly in screen space — independent of the current camera and 3D transforms.
 
 ```js
 beginHUD()
@@ -308,7 +321,7 @@ Coordinates: `(x, y) ∈ [0, width] × [0, height]`, origin top-left, y increasi
 
 # Panels
 
-A unified `createPanel` factory covers both parameter bindings and track transport controls. The first argument determines the panel type — a track (has `.play`) gets transport controls, a schema object gets parameter controls.
+A unified `createPanel` factory covers parameter bindings and track transport controls. The first argument determines the panel type.
 
 ```js
 createPanel(track,  opt)   // transport panel
@@ -317,66 +330,30 @@ createPanel(schema, opt)   // parameter panel
 
 ## Parameter panel
 
-Binds named parameters to DOM controls. When `target` is provided, values are pushed automatically every frame — no boilerplate in draw.
+Binds named parameters to DOM controls. When `target` is provided, values are pushed automatically every frame.
 
 ```js
-// Push to a p5 shader via setUniform
-const panel = createPanel({
-  blurRadius:   { min: 0, max: 10, value: 2,    step: 0.1 },
-  useLighting:  { value: true },
-  tintColor:    { value: '#ff8844' },
-  quality:      { type: 'select', options: [
-                    { label: 'low',  value: '1' },
-                    { label: 'high', value: '2' }
-                  ], value: '2' }
-}, { target: myShader, x: 10, y: 10, labels: true, title: 'Scene', color: 'white' })
+createPanel({
+  blurRadius: { min: 0, max: 10, value: 2, step: 0.1 },
+  showGrid:   { value: true },
+  tint:       { value: '#ff8844' },
+}, { target: myShader, x: 10, y: 10, labels: true, color: 'white' })
 ```
 
-Type inference from schema value:
+`target` can be a p5 shader (calls `setUniform` automatically), a plain function `(name, value) => ...`, or an object with `.set(name, value)`. Omit `target` to read values manually via `panel.name.value()`.
 
-| Value type         | Control       |
-|--------------------|---------------|
-| number             | slider        |
-| boolean            | checkbox      |
-| CSS color string   | color picker  |
-| array [2..4]       | vec2/3/4 sliders |
-| `options` array    | dropdown      |
-| `onClick` function | button        |
-
-Override with `{ type: 'int', ... }`.
-
-**Target options:**
-
-```js
-// p5 shader — setUniform called automatically
-{ target: myShader }
-
-// plain function
-{ target: (name, value) => myObj[name] = value }
-
-// object with .set
-{ target: myObject }   // myObject.set(name, value) is called each tick
-
-// omitted — read values manually
-panel.blurRadius.value()
-panel.blurRadius.set(3)
-panel.blurRadius.reset()
-panel.blurRadius.visible = false
-```
-
-**Layout options** shared by both panel types:
-
-| Option        | Default          | Description                          |
-|---------------|------------------|--------------------------------------|
-| `x`           | `0`              | Container left (px).                 |
-| `y`           | `0`              | Container top (px).                  |
-| `width`       | `120`            | Default slider/select width (px).    |
-| `color`       | —                | Text color.                          |
-| `title`       | —                | Bold title row.                      |
-| `collapsible` | `false`          | Title row becomes a collapse toggle. |
-| `collapsed`   | `false`          | Start collapsed (implies collapsible).|
-| `hidden`      | `false`          | Start hidden.                        |
-| `parent`      | canvas container | Mount target (`HTMLElement` or `p5.Element`). |
+| Option        | Default | Description                               |
+|---------------|---------|-------------------------------------------|
+| `target`      | —       | Value sink.                               |
+| `labels`      | `false` | Show per-binding labels.                  |
+| `title`       | —       | Bold title row.                           |
+| `collapsible` | `false` | Title row becomes a collapse toggle.      |
+| `collapsed`   | `false` | Start collapsed (implies collapsible).    |
+| `color`       | —       | Text color.                               |
+| `x`, `y`      | `0`     | Position (px).                            |
+| `width`       | `120`   | Slider width (px).                        |
+| `hidden`      | `false` | Start hidden.                             |
+| `parent`      | canvas container | Mount target.                  |
 
 Additional parameter panel options: `labels`, `offset`.
 
@@ -392,11 +369,13 @@ const panel = createPanel(track, { x: 10, y: 10, color: 'white', title: 'Camera'
 const track = createTrack()
 const panel = createPanel(track, { x: 10, y: 10, color: 'white' })
 
-// PoseTrack — suppress + button
+// Suppress + button
 createPanel(track, { camera: null, x: 10, y: 10 })
 ```
 
-Transport panel layout (top → bottom):
+The panel seeds its initial `rate` and `mode` from live track state — so calling `track.play({ loop:true })` either before or after `createPanel` both display correctly.
+
+Transport panel layout:
 
 ```
   [ + ]  [ ▶/⏸ ]  [ ↺ ]       — add keyframe / play-pause / reset
@@ -407,18 +386,16 @@ Transport panel layout (top → bottom):
   t: 0.412  seg 1/3  kf 4       — info readout
 ```
 
-Transport panel options:
-
-| Option      | Default | Description                                    |
-|-------------|---------|------------------------------------------------|
-| `seek`      | `true`  | Show seek slider.                              |
-| `props`     | `true`  | Show rate slider + mode select.                |
-| `info`      | `false` | Show time/keyframe readout.                    |
-| `rate`      | `1`     | Initial rate.                                  |
-| `loop`      | `false` | Initial loop mode.                             |
-| `pingPong`  | `false` | Initial pingPong mode.                         |
-| `depth`     | `0.5`   | Initial + button depth [0..1].                 |
-| `camera`    | curCamera | Camera for + button. `null` suppresses it.  |
+| Option      | Default     | Description                                    |
+|-------------|-------------|------------------------------------------------|
+| `seek`      | `true`      | Show seek slider.                              |
+| `props`     | `true`      | Show rate slider + mode select.                |
+| `info`      | `false`     | Show time/keyframe readout.                    |
+| `rate`      | track.rate  | Initial rate.                                  |
+| `loop`      | track.loop  | Initial loop mode.                             |
+| `pingPong`  | track.pingPong | Initial pingPong mode.                      |
+| `depth`     | `0.5`       | Initial + button depth [0..1].                 |
+| `camera`    | curCamera   | Camera for + button. `null` suppresses it.     |
 
 Lifecycle hooks can be passed directly in opt:
 
@@ -447,8 +424,8 @@ panel.dispose()     // remove from DOM
 Any panel with a `title` can be made collapsible. Clicking the title row toggles the content.
 
 ```js
-createPanel(schema, { title: 'Noise', collapsible: true, collapsed: true, ... })
-createPanel(track,  { title: 'Camera path', collapsible: true, ... })
+createPanel(schema, { title: 'Noise', collapsible: true, collapsed: true })
+createPanel(track,  { title: 'Camera path', collapsible: true })
 ```
 
 Programmatic control:
@@ -476,17 +453,17 @@ pipe(source, passes, options)
 | `passes`  | Array of filters, or a single filter instance.       |
 | `options` | See table below.                                     |
 
-| Option           | Default     | Description                                             |
-|------------------|-------------|---------------------------------------------------------|
-| `display`        | `true`      | Draw final output to the main canvas.                   |
-| `allocate`       | `true`      | Auto-allocate and cache internal ping/pong.             |
-| `key`            | `'default'` | Cache key for multiple independent pipelines.           |
-| `ping` / `pong`  | —           | User-provided framebuffers (advanced override).         |
-| `clear`          | `true`      | Clear each pass target before drawing.                  |
-| `clearDisplay`   | `true`      | Clear main canvas before final blit.                    |
+| Option           | Default         | Description                                         |
+|------------------|-----------------|-----------------------------------------------------|
+| `display`        | `true`          | Draw final output to the main canvas.               |
+| `allocate`       | `true`          | Auto-allocate and cache internal ping/pong.         |
+| `key`            | `'default'`     | Cache key for multiple independent pipelines.       |
+| `ping` / `pong`  | —               | User-provided framebuffers (advanced override).     |
+| `clear`          | `true`          | Clear each pass target before drawing.              |
+| `clearDisplay`   | `true`          | Clear main canvas before final blit.                |
 | `clearFn`        | `background(0)` | Custom clear strategy for passes.                  |
-| `clearDisplayFn` | `clearFn`   | Custom clear strategy for display stage.                |
-| `draw`           | full blit   | Custom draw strategy for placing texture on target.     |
+| `clearDisplayFn` | `clearFn`       | Custom clear strategy for display stage.            |
+| `draw`           | full blit       | Custom draw strategy for placing texture on target. |
 
 ## releasePipe
 
@@ -507,13 +484,13 @@ p5.Tree.VERSION   // '0.0.20'
 **Visibility testing** — frustum culling against the current camera:
 
 ```js
-visibility({ corner1, corner2 })    // box visibility
-visibility({ center, radius })      // sphere visibility
-visibility({ point })               // point visibility
+visibility({ corner1, corner2 })    // box
+visibility({ center, radius })      // sphere
+visibility({ point })               // point
 // → p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
 ```
 
-**Picking**:
+**Picking:**
 
 ```js
 mousePicking({ pvMatrix, eMatrix, [shape] })
@@ -526,14 +503,15 @@ mousePicking({ pvMatrix, eMatrix, [shape] })
 
 ```js
 axes([{ size, bits, mMatrix, eMatrix, pMatrix, vMatrix, pvMatrix }])
-grid([{ size, subdivisions, mMatrix }])
+grid([{ size, subdivisions }])
 bullsEye([{ size, shape }])
 cross([{ size }])
 viewFrustum({ pg, eMatrix, pMatrix, vMatrix, bits, viewer })
 ```
 
-`viewFrustum` bits: `p5.Tree.NEAR`, `p5.Tree.FAR`, `p5.Tree.BODY`, `p5.Tree.APEX`.
 `axes` bits: `p5.Tree.X`, `p5.Tree._X`, `p5.Tree.Y`, `p5.Tree._Y`, `p5.Tree.Z`, `p5.Tree._Z`, `p5.Tree.LABELS`.
+
+`viewFrustum` bits: `p5.Tree.NEAR`, `p5.Tree.FAR`, `p5.Tree.BODY`, `p5.Tree.APEX`.
 
 Matrix params accept `Float32Array(16)` | `p5.Matrix` throughout.
 

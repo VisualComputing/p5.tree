@@ -67,12 +67,28 @@ track.rotInterp = 'nlerp'       // normalised lerp; cheaper, slightly non-consta
 
 Playback features: signed `rate` (negative reverses), `loop`, `pingPong`, `seek(t)` scrubbing, and lifecycle hooks (`onPlay`, `onEnd`, `onStop`). `_onActivate` / `_onDeactivate` are lib-space hooks for the host layer's draw-loop registry — not for user code.
 
-Keyframe `rot` input is flexible — the parser normalises all forms:
-- raw `[x,y,z,w]` quaternion
-- `{ axis: [x,y,z], angle }` axis-angle
-- `{ dir: [x,y,z], up? }` look-direction
-- `{ view: mat4 }` from view matrix rotation block
-- `{ eye, center, up? }` lookat shorthand
+`add()` accepts flexible specs. Top-level forms:
+
+```js
+track.add({ pos, rot, scl })      // explicit TRS — rot accepts any form below
+track.add({ mMatrix: mat4 })      // decompose a column-major model matrix into TRS
+track.add([ spec, spec, ... ])    // bulk
+```
+
+`rot` sub-forms — all normalised internally:
+
+```js
+rot: [x,y,z,w]                                   // raw quaternion
+rot: { axis:[x,y,z], angle }                      // axis-angle
+rot: { dir:[x,y,z], up?:[x,y,z] }                // look direction (−Z forward)
+rot: { euler:[rx,ry,rz], order?:'YXZ' }           // intrinsic Euler angles (radians)
+                                                   // orders: YXZ (default), XYZ, ZYX,
+                                                   //         ZXY, XZY, YZX
+                                                   // extrinsic ABC = intrinsic CBA
+rot: { from:[x,y,z], to:[x,y,z] }                // shortest-arc between directions
+rot: { mat3: Float32Array|Array }                 // column-major 3×3 rotation matrix
+rot: { eMatrix: mat4 }                            // rotation block of an eye matrix
+```
 
 ---
 
@@ -104,12 +120,19 @@ track.eyeInterp    = 'catmullrom'  // default
 track.eyeInterp    = 'linear'
 
 track.centerInterp = 'linear'      // default — suits fixed lookat targets
-track.centerInterp = 'catmullrom'  // smoother when center is also flying
+track.centerInterp = 'catmullrom'  // smoother when center is also moving freely
 ```
 
 `add()` accepts:
-- `{ eye, center, up? }` explicit lookat; `up` defaults to `[0,1,0]`
-- `{ view: mat4 }` column-major view matrix; eye and forward extracted
+
+```js
+track.add({ eye, center, up? })    // explicit lookat; up defaults to [0,1,0]
+track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed
+track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
+track.add([ spec, spec, ... ])     // bulk
+```
+
+Note: both matrix forms default `up` to `[0,1,0]`. The matrix col1 (up_ortho) is intentionally not used — it differs from the hint for upright cameras and would shift orbitControl's orbit reference. Use `capturePose()` (p5.tree bridge) when the real up hint is needed.
 
 ---
 
@@ -130,6 +153,8 @@ track.set(i, spec)     // replace keyframe at index
 track.remove(i)        // remove keyframe at index
 
 track.playing          // boolean
+track.loop             // boolean
+track.pingPong         // boolean
 track.rate             // get/set — never starts/stops playback
 track.duration         // frames per segment
 track.keyframes        // raw array
@@ -160,10 +185,10 @@ import { mapLocation, mapDirection, WORLD, SCREEN, WEBGL } from '@nakednous/tree
 
 const out = new Float32Array(3)
 const m = {
-  proj: /* Float32Array(16) */,
-  view: /* Float32Array(16) */,
-  pv:   /* proj × view */,
-  ipv:  /* inv(pv) */,
+  pMatrix:   /* Float32Array(16) — projection */,
+  vMatrix:   /* Float32Array(16) — view (world→eye) */,
+  pvMatrix:  /* pMatrix × vMatrix — optional, computed if absent */,
+  ipvMatrix: /* inv(pvMatrix)    — optional, computed if absent */,
 }
 const vp = [0, height, width, -height]
 
@@ -259,14 +284,15 @@ All hot-path functions follow an **out-first, zero-allocation** contract:
 
 ```js
 // allocate once
-const out  = new Float32Array(3)
-const pv   = new Float32Array(16)
-const ipv  = new Float32Array(16)
+const out      = new Float32Array(3)
+const pvMatrix = new Float32Array(16)
+const ipvMatrix= new Float32Array(16)
 
 // per frame — zero allocation
-mat4Mul(pv, proj, view)
-mat4Invert(ipv, pv)
-mapLocation(out, px, py, pz, WORLD, SCREEN, { proj, view, pv, ipv }, vp, WEBGL)
+mat4Mul(pvMatrix, proj, view)
+mat4Invert(ipvMatrix, pvMatrix)
+mapLocation(out, px, py, pz, WORLD, SCREEN,
+  { pMatrix: proj, vMatrix: view, pvMatrix, ipvMatrix }, vp, WEBGL)
 ```
 
 ---
