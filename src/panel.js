@@ -134,7 +134,10 @@ function _wrapTrack(track, cam, isCameraTrack, pInst) {
   };
 
   const w = {
-    get playing() { return track.playing; },
+    get playing()  { return track.playing; },
+    get loop()     { return track.loop; },
+    get pingPong() { return track.pingPong; },
+    get rate()     { return track.rate; },
     play:  (o) => {
       track.play(o);
       if (!track.playing && track.keyframes.length === 1) _applySnap();

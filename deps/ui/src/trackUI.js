@@ -29,6 +29,18 @@
  *   target.reset()       Clear all keyframes and stop.
  *   target.info()        Returns { keyframes, segments, seg, f, time, ... }.
  *
+ * State initialisation
+ * --------------------
+ *   _rate and _mode are seeded from the live track state (target.rate,
+ *   target.loop, target.pingPong) with opt values as fallback.  This means
+ *   both orderings work correctly:
+ *
+ *     track.play({ loop: true })   // before createPanel
+ *     createPanel(track, ...)      // panel opens showing "loop"  ✓
+ *
+ *     createPanel(track, ...)      // panel created first
+ *     track.play({ loop: true })   // onPlay fires _syncFromTrack ✓
+ *
  * Layout (top → bottom)
  * ---------------------
  *   Title row  — optional, becomes collapse toggle when collapsible=true
@@ -64,8 +76,8 @@ import {
  * @param {boolean} [opt.seek=true]       Show seek slider.
  * @param {boolean} [opt.props=true]      Show rate slider + mode select.
  * @param {boolean} [opt.info=false]      Show time/keyframe readout.
- * @param {number}  [opt.rate=1]          Initial rate.
- * @param {boolean} [opt.loop=false]      Initial loop mode.
+ * @param {number}  [opt.rate=1]          Initial rate (overridden by target.rate if set).
+ * @param {boolean} [opt.loop=false]      Initial loop mode (overridden by target.loop).
  * @param {boolean} [opt.pingPong=false]  Initial pingPong mode (overrides loop).
  * @param {number}  [opt.depth=0.5]       Initial add-pose depth [0..1]: 0 = near, 1 = far.
  * @param {number}  [opt.x=0]            Container left (px).
@@ -91,9 +103,16 @@ export function createTrackUI(target, opt) {
   const rateSliderW  = opt.rateWidth  ?? sliderW;
   const depthSliderW = opt.depthWidth ?? sliderW;
 
-  // Mutable playback / capture parameters — only updated by UI controls
-  let _rate  = opt.rate ?? 1;
-  let _mode  = opt.pingPong ? 'pingPong' : opt.loop ? 'loop' : 'once';
+  // ── Seed _rate and _mode from live track state, fall back to opt ──────────
+  //
+  // This covers the play-before-createPanel ordering.
+  // The play-after-createPanel ordering is handled by _syncFromTrack in onPlay.
+
+  let _rate  = (typeof target.rate === 'number') ? target.rate
+             : (opt.rate ?? 1);
+  let _mode  = (target.pingPong || opt.pingPong) ? 'pingPong'
+             : (target.loop     || opt.loop)     ? 'loop'
+             : 'once';
   let _depth = (typeof opt.depth === 'number') ? opt.depth : 0.5;
 
   const container = createContainer('track-ui');
@@ -103,7 +122,7 @@ export function createTrackUI(target, opt) {
 
   let _vis     = true;
   let _seeking = false;
-  let _lastKf  = -1;   // keyframe count last seen — avoids DOM thrashing
+  let _lastKf  = -1;
 
   /** Assemble play() options from current UI state. */
   function _playOpts() {
@@ -125,7 +144,6 @@ export function createTrackUI(target, opt) {
   let _collapsed    = canCollapse && !!opt.collapsed;
   let chevron       = null;
 
-  // body wraps all rows below the title — the collapsible region.
   const body = document.createElement('div');
   body.className = 'p5t-body';
   body.style.cssText = 'display:flex;flex-direction:column;gap:0px;';
@@ -154,24 +172,22 @@ export function createTrackUI(target, opt) {
     container.appendChild(titleRow);
   }
 
-  // ── Row 1 — controls: [+] [▶/⏸] [↺] ────────────────────────────────────
+  // ── Row 1 — controls: [+] [▶/⏸] [↺] ─────────────────────────────────────
 
   const ctrlRow = document.createElement('div');
   ctrlRow.className = 'p5t-controls';
   ctrlRow.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;align-items:center;';
 
-  // + button (add keyframe) — only if target supports it
   const hasAdd = typeof target.add === 'function';
   if (hasAdd) {
     const btnAdd = createButton('\u002B', () => {
       target.add(_depth);
-      _lastKf = -1;   // force enabled-state refresh
+      _lastKf = -1;
     });
     btnAdd.title = 'Add keyframe';
     ctrlRow.appendChild(btnAdd);
   }
 
-  // Play/Pause button — sole play/stop control
   const btnPlay = createButton('\u25B6', () => {
     if (target.playing) {
       target.stop();
@@ -183,14 +199,13 @@ export function createTrackUI(target, opt) {
   btnPlay.title = 'Play / Pause';
   ctrlRow.appendChild(btnPlay);
 
-  // ↺ reset button (clear keyframes) — only if target supports it
   let btnReset = null;
   const hasReset = typeof target.reset === 'function';
   if (hasReset) {
     btnReset = createButton('\u21BA', () => {
       target.reset();
       _syncPlayBtn();
-      _lastKf = -1;   // force enabled-state refresh
+      _lastKf = -1;
     });
     btnReset.title = 'Reset (clear keyframes)';
     ctrlRow.appendChild(btnReset);
@@ -198,7 +213,7 @@ export function createTrackUI(target, opt) {
 
   body.appendChild(ctrlRow);
 
-  // ── Row 1b — depth slider (when target supports add) ─────────────────────
+  // ── Row 1b — depth slider ─────────────────────────────────────────────────
 
   if (hasAdd && opt.depth !== false) {
     const depthRow = document.createElement('div');
@@ -219,7 +234,7 @@ export function createTrackUI(target, opt) {
     body.appendChild(depthRow);
   }
 
-  // ── Row 2 — seek slider (conditional) ────────────────────────────────────
+  // ── Row 2 — seek slider ───────────────────────────────────────────────────
 
   let seekSlider, seekLabel;
   if (showSeek) {
@@ -319,6 +334,7 @@ export function createTrackUI(target, opt) {
 
   target.onPlay = function () {
     _syncPlayBtn();
+    _syncFromTrack();
     if (typeof _prevOnPlay === 'function') {
       try { _prevOnPlay.apply(this, arguments); } catch (_) {}
     }
@@ -345,12 +361,32 @@ export function createTrackUI(target, opt) {
     btnPlay.textContent = target.playing ? '\u23F8' : '\u25B6';
   }
 
+  /**
+   * Pull rate and mode from live track state into UI controls.
+   * Called at onPlay time to handle play-after-createPanel ordering,
+   * and at init time (via seeded _rate/_mode) for play-before-createPanel.
+   */
+  function _syncFromTrack() {
+    // rate
+    if (typeof target.rate === 'number' && target.rate !== _rate) {
+      _rate = target.rate;
+      if (rateSlider) rateSlider.value = _rate;
+      if (rateLabel)  rateLabel.textContent = `rate: ${_rate.toFixed(2)}`;
+    }
+    // mode
+    const liveMode = target.pingPong ? 'pingPong' : target.loop ? 'loop' : 'once';
+    if (liveMode !== _mode) {
+      _mode = liveMode;
+      if (modeSelect) modeSelect.value = _mode;
+    }
+  }
+
   function _updateEnabledState() {
     const kf = _kfCount();
     if (kf === _lastKf) return;
     _lastKf = kf;
     btnPlay.disabled = kf === 0;
-    if (btnReset) btnReset.disabled = kf === 0;
+    if (btnReset)   btnReset.disabled   = kf === 0;
     if (seekSlider) seekSlider.disabled = kf < 2;
   }
 
