@@ -113,28 +113,39 @@ function _cameraToSpec(cam) {
 }
 
 /**
- * Wrap CameraTrack.add() to intercept { camera } specs.
+ * Wrap CameraTrack.add() to intercept { camera } specs and the no-arg form.
  *
  * Accepts all forms the core supports, plus:
+ *   (no args)    — capture the track's bound camera (track.camera); no-op if unset
  *   { camera }   — duck-typed lookat object (p5.Camera or compatible);
  *                  reads eyeX/Y/Z, centerX/Y/Z, upX/Y/Z
  *
  * Arrays are processed element-by-element so { camera } entries inside
  * bulk adds are also resolved.
  *
+ * Equivalent forms for a track returned by createTrack(cam):
+ *   track.add()
+ *   track.add({ camera: cam })
+ *   track.add({ camera: getCamera() })
+ *   track.add(cam.capturePose())   // zero-alloc, prefer in hot paths
+ *
  * @param {CameraTrack} track
  */
 function _patchCameraTrackAdd(track) {
   const _coreAdd = track.add.bind(track);
-
   track.add = function (spec, opts) {
-    // Bulk array — recurse so each entry is individually resolved.
+    // No-arg shortcut — capture the bound camera if available.
+    if (spec == null) {
+      if (track.camera) spec = { camera: track.camera };
+      else return;
+    }
+    // Bulk array — recurse so { camera } entries are resolved per-element.
     if (Array.isArray(spec)) {
       for (const s of spec) track.add(s, opts);
       return;
     }
     // { camera } — convert to plain { eye, center, up } before forwarding.
-    if (spec && typeof spec === 'object' && spec.camera != null) {
+    if (spec.camera != null) {
       const converted = _cameraToSpec(spec.camera);
       if (converted) { _coreAdd(converted, opts); return; }
     }
@@ -202,8 +213,9 @@ export function installTrack(p5, fn) {
    *
    * track.add({ eye:[0,0,500], center:[0,0,0] })
    * track.add({ eye:[300,-150,0], center:[0,0,0] })
-   * track.add({ camera: cam })           // capture live p5.Camera pose
-   * track.add({ camera: getCamera() })   // or from any lookat camera
+   * track.add()                          // capture bound camera (track.camera)
+   * track.add({ camera: cam })           // capture any p5.Camera
+   * track.add({ camera: getCamera() })   // or from the default camera
    * track.play({ loop: true })
    *
    * // in draw(): no guard needed — applyPose fires automatically in predraw
