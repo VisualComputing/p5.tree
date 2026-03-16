@@ -501,7 +501,7 @@ releasePipe('key')    // release a named pipeline
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.19'
+p5.Tree.VERSION   // '0.0.20'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -550,9 +550,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.19/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.esm.js)
 
 ---
 

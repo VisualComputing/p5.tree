@@ -18,6 +18,13 @@
  *
  *  p5.Camera.capturePose  read live camera → { eye, center, up }
  *  p5.Camera.applyPose    write { eye, center, up } → cam.camera()
+ *
+ * ── { camera } spec support ───────────────────────────────────────────────────
+ *  CameraTrack.add() returned by createTrack() accepts a { camera } spec:
+ *    track.add({ camera: cam })        — capture live pose from a p5.Camera
+ *    track.add({ camera: getCamera() })
+ *  Interception is in the bridge (here), not in deps/tree — eyeX/centerX/upX
+ *  are p5-specific property names; the numeric core stays renderer-agnostic.
  */
 
 'use strict';
@@ -87,6 +94,54 @@ function _wirePoseTrack(track, pInst) {
   track._onDeactivate = () => unregisterPlayer(pInst, player);
 }
 
+// ── { camera } spec → { eye, center, up } conversion (bridge-side only) ──────
+//
+// Duck-types on p5.Camera lookat properties: eyeX/Y/Z, centerX/Y/Z, upX/Y/Z.
+// Returns null when the object doesn't look like a lookat camera.
+
+function _cameraToSpec(cam) {
+  if (!cam || typeof cam !== 'object') return null;
+  if (cam.eyeX === undefined || cam.centerX === undefined) return null;
+  const ux = cam.upX !== undefined ? cam.upX : 0;
+  const uy = cam.upY !== undefined ? cam.upY : 1;
+  const uz = cam.upZ !== undefined ? cam.upZ : 0;
+  return {
+    eye:    [cam.eyeX,    cam.eyeY,    cam.eyeZ],
+    center: [cam.centerX, cam.centerY, cam.centerZ],
+    up:     [ux, uy, uz],
+  };
+}
+
+/**
+ * Wrap CameraTrack.add() to intercept { camera } specs.
+ *
+ * Accepts all forms the core supports, plus:
+ *   { camera }   — duck-typed lookat object (p5.Camera or compatible);
+ *                  reads eyeX/Y/Z, centerX/Y/Z, upX/Y/Z
+ *
+ * Arrays are processed element-by-element so { camera } entries inside
+ * bulk adds are also resolved.
+ *
+ * @param {CameraTrack} track
+ */
+function _patchCameraTrackAdd(track) {
+  const _coreAdd = track.add.bind(track);
+
+  track.add = function (spec, opts) {
+    // Bulk array — recurse so each entry is individually resolved.
+    if (Array.isArray(spec)) {
+      for (const s of spec) track.add(s, opts);
+      return;
+    }
+    // { camera } — convert to plain { eye, center, up } before forwarding.
+    if (spec && typeof spec === 'object' && spec.camera != null) {
+      const converted = _cameraToSpec(spec.camera);
+      if (converted) { _coreAdd(converted, opts); return; }
+    }
+    _coreAdd(spec, opts);
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Install
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -147,6 +202,8 @@ export function installTrack(p5, fn) {
    *
    * track.add({ eye:[0,0,500], center:[0,0,0] })
    * track.add({ eye:[300,-150,0], center:[0,0,0] })
+   * track.add({ camera: cam })           // capture live p5.Camera pose
+   * track.add({ camera: getCamera() })   // or from any lookat camera
    * track.play({ loop: true })
    *
    * // in draw(): no guard needed — applyPose fires automatically in predraw
@@ -191,6 +248,9 @@ export function installTrack(p5, fn) {
     // Expose so createTrackUI can read it without an extra option.
     track.camera = cam;
 
+    // Patch add() to accept { camera: p5Camera } specs (bridge-side only).
+    _patchCameraTrackAdd(track);
+
     const applyPlayer = {
       tick() {
         if (!track.playing) return false;
@@ -222,10 +282,10 @@ export function installTrack(p5, fn) {
    */
   p5.Renderer3D.prototype.rotateQuat = function (q, opts) {
     const p = this._pInst, eps = opts?.eps ?? 1e-8;
-    const x=q[0],y=q[1],z=q[2];
-    const sinHalf = Math.sqrt(x*x+y*y+z*z);
+    const x=q[0], y=q[1], z=q[2];
+    const sinHalf = Math.sqrt(x*x + y*y + z*z);
     if (sinHalf < eps) return this;
-    const angle = 2*Math.atan2(sinHalf, q[3]);
+    const angle = 2 * Math.atan2(sinHalf, q[3]);
     p.rotate(angle, [x/sinHalf, y/sinHalf, z/sinHalf]);
     return this;
   };
@@ -320,7 +380,7 @@ export function installTrack(p5, fn) {
       const upX=rm[4], upY=rm[5], upZ=rm[6];
       const fwdX=-rm[8], fwdY=-rm[9], fwdZ=-rm[10];
       const dx=this.centerX-this.eyeX, dy=this.centerY-this.eyeY, dz=this.centerZ-this.eyeZ;
-      const dist=Math.sqrt(dx*dx+dy*dy+dz*dz)||1;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
       this.camera(
         pose.pos[0], pose.pos[1], pose.pos[2],
         pose.pos[0]+fwdX*dist, pose.pos[1]+fwdY*dist, pose.pos[2]+fwdZ*dist,
