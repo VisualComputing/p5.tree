@@ -335,41 +335,160 @@ function _parseVec3(v) {
   return null;
 }
 
+// Euler: unit axis vectors and the six valid intrinsic orderings.
+const _EULER_AXES   = { X:[1,0,0], Y:[0,1,0], Z:[0,0,1] };
+const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
+
+/**
+ * Parse any rotation representation into a unit quaternion [x,y,z,w].
+ *
+ * Accepted forms:
+ *
+ *   [x,y,z,w]
+ *     Raw quaternion array.
+ *
+ *   { axis:[x,y,z], angle }
+ *     Axis-angle.  Axis need not be unit.
+ *
+ *   { dir:[x,y,z], up?:[x,y,z] }
+ *     Object orientation — forward direction (−Z) with optional up hint.
+ *
+ *   { eMatrix: mat4 }
+ *     Extract rotation block from an eye (eye→world) matrix.
+ *     Column-major Float32Array(16), plain Array, or { mat4 } wrapper.
+ *
+ *   { mat3: mat3 }
+ *     Column-major 3×3 rotation matrix — Float32Array(9) or plain Array.
+ *
+ *   { euler:[rx,ry,rz], order?:'YXZ' }
+ *     Intrinsic Euler angles (radians).  Angles are indexed by order position:
+ *     e[0] rotates around order[0] axis, e[1] around order[1], e[2] around order[2].
+ *     Supported orders: YXZ (default), XYZ, ZYX, ZXY, XZY, YZX.
+ *     Note: intrinsic ABC = extrinsic CBA with the same angles — to use
+ *     extrinsic order ABC, reverse the string and use intrinsic CBA.
+ *
+ *   { from:[x,y,z], to:[x,y,z] }
+ *     Shortest-arc rotation from one direction onto another.
+ *     Both vectors are normalised internally.
+ *     Antiparallel input: 180° rotation around a perpendicular axis.
+ *
+ * @param {*} v
+ * @returns {number[]|null}  [x,y,z,w] or null if unparseable.
+ */
 function _parseQuat(v) {
   if (!v) return null;
-  if (Array.isArray(v) && v.length === 4 && v.every(n => typeof n === 'number')) return [v[0],v[1],v[2],v[3]];
+
+  // raw [x,y,z,w]
+  if (Array.isArray(v) && v.length === 4 && v.every(n => typeof n === 'number'))
+    return [v[0],v[1],v[2],v[3]];
+
+  // { axis, angle }
   if (v.axis && typeof v.angle === 'number') {
     const a = Array.isArray(v.axis) ? v.axis : [v.axis.x||0, v.axis.y||0, v.axis.z||0];
     return qFromAxisAngle([0,0,0,1], a[0],a[1],a[2], v.angle);
   }
+
+  // { dir, up? }
   if (v.dir) {
     const d = Array.isArray(v.dir) ? v.dir : [v.dir.x||0, v.dir.y||0, v.dir.z||0];
     const u = v.up ? (Array.isArray(v.up) ? v.up : [v.up.x||0, v.up.y||0, v.up.z||0]) : null;
     return qFromLookDir([0,0,0,1], d, u);
   }
-  // { view } — column-major mat4 or {mat4} wrapper
-  if (v.view != null) {
-    const m = (ArrayBuffer.isView(v.view) || Array.isArray(v.view)) ? v.view : (v.view.mat4 ?? null);
-    if (m && m.length === 16) return qFromMat4([0,0,0,1], m);
+
+  // { eMatrix } — rotation block from eye (eye→world) matrix, col-major mat4
+  if (v.eMatrix != null) {
+    const m = (ArrayBuffer.isView(v.eMatrix) || Array.isArray(v.eMatrix))
+      ? v.eMatrix : (v.eMatrix.mat4 ?? null);
+    if (m && m.length >= 16) return qFromMat4([0,0,0,1], m);
   }
-  // { eye, center, up? } — lookat shorthand matching CameraTrack input
-  if (v.eye && v.center) {
-    const eye = _parseVec3(v.eye), ctr = _parseVec3(v.center);
-    if (eye && ctr) {
-      const up  = (v.up ? _parseVec3(v.up) : null) || [0,1,0];
-      let fx=ctr[0]-eye[0], fy=ctr[1]-eye[1], fz=ctr[2]-eye[2];
-      const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1; fx/=fl; fy/=fl; fz/=fl;
-      let rx=fy*up[2]-fz*up[1], ry=fz*up[0]-fx*up[2], rz=fx*up[1]-fy*up[0];
-      const rl=Math.sqrt(rx*rx+ry*ry+rz*rz)||1; rx/=rl; ry/=rl; rz/=rl;
-      const ux=ry*fz-rz*fy, uy=rz*fx-rx*fz, uz=rx*fy-ry*fx;
-      return qFromRotMat3x3([0,0,0,1], rx,ux,-fx, ry,uy,-fy, rz,uz,-fz);
+
+  // { mat3 } — column-major 3×3 rotation matrix
+  // col0=[m0,m1,m2], col1=[m3,m4,m5], col2=[m6,m7,m8]
+  // row-major for qFromRotMat3x3: row0=[m0,m3,m6], row1=[m1,m4,m7], row2=[m2,m5,m8]
+  if (v.mat3 != null) {
+    const m = v.mat3;
+    if ((ArrayBuffer.isView(m) || Array.isArray(m)) && m.length >= 9)
+      return qFromRotMat3x3([0,0,0,1], m[0],m[3],m[6], m[1],m[4],m[7], m[2],m[5],m[8]);
+  }
+
+  // { euler, order? } — intrinsic Euler angles (radians), default order YXZ
+  if (v.euler != null) {
+    const e = v.euler;
+    if (!Array.isArray(e) || e.length < 3) return null;
+    const order = (typeof v.order === 'string' && _EULER_ORDERS.has(v.order))
+      ? v.order : 'YXZ';
+    const q = [0,0,0,1];
+    const s = [0,0,0,1]; // scratch — reused each step
+    for (let i = 0; i < 3; i++) {
+      const ax = _EULER_AXES[order[i]];
+      qMul(q, q, qFromAxisAngle(s, ax[0],ax[1],ax[2], e[i]));
     }
+    return q;
   }
+
+  // { from, to } — shortest-arc rotation from one direction onto another
+  if (v.from != null && v.to != null) {
+    const f = Array.isArray(v.from) ? v.from : [v.from.x||0, v.from.y||0, v.from.z||0];
+    const t = Array.isArray(v.to)   ? v.to   : [v.to.x||0,   v.to.y||0,   v.to.z||0];
+    const fl = Math.sqrt(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]) || 1;
+    const tl = Math.sqrt(t[0]*t[0]+t[1]*t[1]+t[2]*t[2]) || 1;
+    const fx=f[0]/fl, fy=f[1]/fl, fz=f[2]/fl;
+    const tx=t[0]/tl, ty=t[1]/tl, tz=t[2]/tl;
+    const dot = fx*tx + fy*ty + fz*tz;
+    // parallel — identity
+    if (dot >= 1 - 1e-8) return [0,0,0,1];
+    // antiparallel — 180° around any perpendicular axis
+    if (dot <= -1 + 1e-8) {
+      // cross(from, X=[1,0,0]) = [0, fz, -fy]
+      let px=0, py=fz, pz=-fy;
+      let pl = Math.sqrt(px*px+py*py+pz*pz);
+      if (pl < 1e-8) {
+        // from ≈ ±X; try cross(from, Z=[0,0,1]) = [fy, -fx, 0]
+        px=fy; py=-fx; pz=0;
+        pl = Math.sqrt(px*px+py*py+pz*pz);
+      }
+      if (pl < 1e-8) return [0,0,0,1];
+      return qFromAxisAngle([0,0,0,1], px/pl,py/pl,pz/pl, Math.PI);
+    }
+    // general case — axis = normalize(cross(from, to))
+    let ax=fy*tz-fz*ty, ay=fz*tx-fx*tz, az=fx*ty-fy*tx;
+    const al = Math.sqrt(ax*ax+ay*ay+az*az) || 1;
+    return qFromAxisAngle([0,0,0,1], ax/al,ay/al,az/al,
+      Math.acos(Math.max(-1, Math.min(1, dot))));
+  }
+
   return null;
 }
 
+/**
+ * Parse a PoseTrack keyframe spec.
+ *
+ * Accepted forms:
+ *
+ *   { mMatrix }
+ *     Decompose a column-major mat4 into TRS via mat4ToTransform.
+ *     Float32Array(16), plain Array, or { mat4 } wrapper.
+ *     pos from col3, scl from column lengths, rot from normalised rotation block.
+ *
+ *   { pos, rot, scl }
+ *     Explicit TRS.  pos and scl are vec3, rot accepts any form from _parseQuat.
+ *     All fields are optional — missing pos/scl default to [0,0,0] / [1,1,1],
+ *     missing rot defaults to identity.
+ *
+ * @param {Object} spec
+ * @returns {{ pos:number[], rot:number[], scl:number[] }|null}
+ */
 function _parseSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
+
+  // { mMatrix } — full TRS decomposition from model matrix
+  if (spec.mMatrix != null) {
+    const m = (ArrayBuffer.isView(spec.mMatrix) || Array.isArray(spec.mMatrix))
+      ? spec.mMatrix : (spec.mMatrix.mat4 ?? null);
+    if (!m || m.length < 16) return null;
+    return mat4ToTransform({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }, m);
+  }
+
   const pos = _parseVec3(spec.pos) || [0,0,0];
   const rot = _parseQuat(spec.rot) || [0,0,0,1];
   const scl = _parseVec3(spec.scl) || [1,1,1];
@@ -393,15 +512,20 @@ function _sameTransform(a, b) {
  *
  *   { eye, center, up? }
  *     Explicit lookat.  up defaults to [0,1,0] and is normalised on storage.
+ *     Note: eye here is a vec3 — distinguished from { eMatrix } by length.
  *
- *   { view: mat4 }
- *     Column-major view matrix (Float32Array(16), plain Array, or {mat4} wrapper).
- *     eye is extracted from the matrix translation block.
- *     center = eye + forward * 1 (unit distance — sufficient for interpolation).
- *     up defaults to [0,1,0]. The matrix's up_ortho (col1) is intentionally
- *     NOT extracted; using up_ortho as the hint causes orbitControl drift.
- *     If you need to preserve roll from a rolled camera, pass the live
- *     camera's up hint via capturePose() instead of using { view }.
+ *   { vMatrix: mat4 }
+ *     Column-major view matrix (world→eye).
+ *     eye reconstructed via -R^T·t; center = eye + forward·1; up = [0,1,0].
+ *     The matrix's up_ortho (col1) is intentionally NOT used as up —
+ *     passing it to cam.camera() shifts orbitControl's orbit reference.
+ *     Float32Array(16), plain Array, or { mat4 } wrapper.
+ *
+ *   { eMatrix: mat4 }
+ *     Column-major eye matrix (eye→world, i.e. inverse view).
+ *     eye read directly from col3; center = eye + forward·1; up = [0,1,0].
+ *     Simpler extraction than vMatrix; prefer this form when eMatrix is available.
+ *     Float32Array(16), plain Array, or { mat4 } wrapper.
  *
  * @param {Object} spec
  * @returns {{ eye:number[], center:number[], up:number[] }|null}
@@ -409,34 +533,38 @@ function _sameTransform(a, b) {
 function _parseCameraSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
 
-  // { view } form
-  if (spec.view != null) {
-    const m = (ArrayBuffer.isView(spec.view) || Array.isArray(spec.view))
-      ? spec.view
-      : (spec.view.mat4 ?? null);
+  // { vMatrix } — view matrix (world→eye); reconstruct eye via -R^T·t
+  if (spec.vMatrix != null) {
+    const m = (ArrayBuffer.isView(spec.vMatrix) || Array.isArray(spec.vMatrix))
+      ? spec.vMatrix : (spec.vMatrix.mat4 ?? null);
     if (!m || m.length < 16) return null;
-    // Extract eye position: eye = -R^T * t
-    // Column-major view mat: col0=right, col1=up_ortho, col2=-fwd, col3=translation
     const ex = -(m[0]*m[12] + m[4]*m[13] + m[8]*m[14]);
     const ey = -(m[1]*m[12] + m[5]*m[13] + m[9]*m[14]);
     const ez = -(m[2]*m[12] + m[6]*m[13] + m[10]*m[14]);
-    // forward = -col2 = [-m[8], -m[9], -m[10]]
     const fx=-m[8], fy=-m[9], fz=-m[10];
     const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
-    // center = eye + normalized_fwd * 1
-    const cx=ex+fx/fl, cy=ey+fy/fl, cz=ez+fz/fl;
-    return { eye:[ex,ey,ez], center:[cx,cy,cz], up:[0,1,0] };
+    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0] };
   }
 
-  // { eye, center, up? } form
+  // { eMatrix } — eye matrix (eye→world); eye = col3, forward = -col2
+  if (spec.eMatrix != null) {
+    const m = (ArrayBuffer.isView(spec.eMatrix) || Array.isArray(spec.eMatrix))
+      ? spec.eMatrix : (spec.eMatrix.mat4 ?? null);
+    if (!m || m.length < 16) return null;
+    const ex=m[12], ey=m[13], ez=m[14];
+    const fx=-m[8], fy=-m[9], fz=-m[10];
+    const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
+    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0] };
+  }
+
+  // { eye, center, up? } — explicit lookat (eye is a vec3, not a mat4)
   const eye    = _parseVec3(spec.eye);
   const center = _parseVec3(spec.center);
   if (!eye || !center) return null;
-
   const upRaw = spec.up ? _parseVec3(spec.up) : null;
   const up    = upRaw || [0,1,0];
   const ul    = Math.sqrt(up[0]*up[0]+up[1]*up[1]+up[2]*up[2]) || 1;
-  return { eye, center, up: [up[0]/ul, up[1]/ul, up[2]/ul] };
+  return { eye, center, up:[up[0]/ul, up[1]/ul, up[2]/ul] };
 }
 
 function _sameCameraKeyframe(a, b) {
@@ -703,13 +831,17 @@ class Track {
  * Keyframe shape: { pos:[x,y,z], rot:[x,y,z,w], scl:[x,y,z] }
  *
  * add() accepts individual specs or a bulk array of specs:
- *   { pos, rot, scl }                    direct TRS
- *   { pos, rot: [x,y,z,w] }             explicit quaternion
- *   { pos, rot: { axis, angle } }        axis-angle
- *   { pos, rot: { dir, up? } }           look direction (object orientation)
- *   { pos, rot: { view: mat4 } }         from view matrix rotation block
- *   { pos, rot: { eye, center, up? } }   lookat shorthand
- *   [ spec, spec, ... ]                  bulk
+ *
+ *   { mMatrix }                          — full TRS from model matrix
+ *   { pos, rot, scl }                    — direct TRS
+ *   { pos, rot: [x,y,z,w] }             — explicit quaternion
+ *   { pos, rot: { axis, angle } }        — axis-angle
+ *   { pos, rot: { dir, up? } }           — look direction
+ *   { pos, rot: { eMatrix: mat4 } }      — rotation from eye matrix
+ *   { pos, rot: { mat3 } }               — column-major 3×3 rotation matrix
+ *   { pos, rot: { euler, order? } }      — intrinsic Euler angles (default YXZ)
+ *   { pos, rot: { from, to } }           — shortest-arc between two directions
+ *   [ spec, spec, ... ]                  — bulk
  *
  * eval() writes { pos, rot, scl }:
  *   pos — Catmull-Rom (posInterp='catmullrom') or lerp
@@ -719,7 +851,8 @@ class Track {
  * @example
  * const track = new PoseTrack()
  * track.add({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] })
- * track.add({ pos:[100,0,0], rot:[0,0,0,1], scl:[1,1,1] })
+ * track.add({ pos:[100,0,0], rot: { euler:[0, Math.PI/2, 0] } })
+ * track.add({ mMatrix: someModelMatrix })
  * track.play({ loop: true })
  * // per frame:
  * track.tick()
@@ -854,16 +987,17 @@ export class PoseTrack extends Track {
  * as well as free-fly paths where center moves independently.
  *
  * add() accepts individual specs or a bulk array of specs:
- *   { eye, center, up? }    explicit lookat; up defaults to [0,1,0]
- *   { view: mat4 }          view matrix; eye extracted, center = eye+fwd*1,
- *                           up = [0,1,0] (safe default — see note below)
- *   [ spec, spec, ... ]     bulk
  *
- * Note on up for { view: mat4 }:
- *   The view matrix's col1 (up_ortho) is intentionally not used as up.
- *   For upright cameras up_ortho differs from the hint [0,1,0], and
- *   passing it to cam.camera() would shift orbitControl's orbit reference.
- *   Use capturePose() when you need to preserve the real up hint.
+ *   { eye, center, up? }   explicit lookat; up defaults to [0,1,0]
+ *   { vMatrix: mat4 }      view matrix (world→eye); eye reconstructed via -R^T·t
+ *   { eMatrix: mat4 }      eye matrix (eye→world); eye read from col3 directly
+ *   [ spec, spec, ... ]    bulk
+ *
+ * Note on up for matrix forms:
+ *   up is always [0,1,0].  The matrix's col1 (up_ortho) is intentionally
+ *   not used — it differs from the hint [0,1,0] for upright cameras and
+ *   passing it to cam.camera() shifts orbitControl's orbit reference.
+ *   Use capturePose() (p5.tree bridge) when the real up hint is needed.
  *
  * eval() writes { eye, center, up }:
  *   eye    — Catmull-Rom (eyeInterp='catmullrom') or lerp
@@ -873,7 +1007,8 @@ export class PoseTrack extends Track {
  * @example
  * const track = new CameraTrack()
  * track.add({ eye:[0,0,500], center:[0,0,0] })
- * track.add({ eye:[300,-150,0], center:[0,0,0] })
+ * track.add({ eMatrix: myEyeMatrix })
+ * track.add({ vMatrix: myViewMatrix })
  * track.play({ loop: true })
  * // per frame:
  * track.tick()
@@ -908,7 +1043,7 @@ export class CameraTrack extends Track {
    * Append one or more camera keyframes. Adjacent duplicates are skipped by default.
    *
    * @param {Object|Object[]} spec
-   *   { eye, center, up? }  or  { view: mat4 }  or  an array of either.
+   *   { eye, center, up? }  or  { vMatrix: mat4 }  or  { eMatrix: mat4 }  or  an array of either.
    * @param {{ deduplicate?: boolean }} [opts]
    */
   add(spec, opts) {

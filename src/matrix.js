@@ -58,9 +58,9 @@ import {
 // Module-level working buffers — internal intermediates, never returned
 // ═══════════════════════════════════════════════════════════════════════════
 
-const _pv   = new Float32Array(16);  // PV intermediate
-const _ipv  = new Float32Array(16);  // IPV intermediate
-const _wa   = new Float32Array(16);  // single-step intermediate (eye, MV, …)
+const _pv   = new Float32Array(16);  // pvMatrix intermediate
+const _ipv  = new Float32Array(16);  // ipvMatrix intermediate
+const _wa   = new Float32Array(16);  // single-step intermediate (eMatrix, MV, …)
 const _wb   = new Float32Array(16);  // toFrameInv for custom MATRIX space
 const _vp   = new Float32Array(4);   // viewport [x, y, w, h]
 const _tmp3 = new Float32Array(3);   // p5.Vector out path in map*** functions
@@ -111,12 +111,10 @@ export function installMatrix(p5, fn) {
     (Array.isArray(v) || ArrayBuffer.isView(v) || v instanceof p5.Vector);
 
   // ── p5.Matrix utilities ───────────────────────────────────────────────────
-  //
-  // Mirrors p5.createVector — callable without new.
-    
+
   fn.createMatrix = (...args) => new p5.Matrix(...args);
 
-  // ── Simple matrix queries ────────────────────────────────────────────────
+  // ── Simple matrix queries ─────────────────────────────────────────────────
   //
   // Each reads from live p5 renderer state and writes into the caller-provided
   // out buffer. Accepts Float32Array | ArrayLike | p5.Matrix for out.
@@ -134,7 +132,7 @@ export function installMatrix(p5, fn) {
   fn.pMatrix = function (out) { return this._renderer.pMatrix(out); };
 
   /**
-   * Model matrix.
+   * Model matrix (local → world).
    * @param {Float32Array|p5.Matrix} out  16-element destination.
    * @returns {typeof out}
    */
@@ -170,7 +168,7 @@ export function installMatrix(p5, fn) {
   p5.Renderer3D.prototype.eMatrix = function (out) { return this.states.curCamera.eMatrix(out); };
   fn.eMatrix = function (out) { return this._renderer.eMatrix(out); };
 
-  // ── Composite matrix queries ─────────────────────────────────────────────
+  // ── Composite matrix queries ──────────────────────────────────────────────
   //
   // out is first; optional matrix overrides follow in an opts object.
   // All matrix opts accept Float32Array | ArrayLike | p5.Matrix.
@@ -248,9 +246,7 @@ export function installMatrix(p5, fn) {
 
   /**
    * Location transform matrix: inv(to) · from.
-   *
    * Maps a point from the `from` frame into the `to` frame: p_to = out · p_from.
-   *
    * @param {Float32Array|p5.Matrix} out   16-element destination.
    * @param {Float32Array|p5.Matrix} from  Source frame transform.
    * @param {Float32Array|p5.Matrix} to    Destination frame transform.
@@ -264,9 +260,7 @@ export function installMatrix(p5, fn) {
 
   /**
    * Direction transform matrix: to₃ · inv(from₃).
-   *
    * Uses only the upper-left 3×3 blocks (rotation/scale, no translation).
-   *
    * @param {Float32Array|p5.Matrix} out   9-element destination.
    * @param {Float32Array|p5.Matrix} from  Source frame transform (mat4).
    * @param {Float32Array|p5.Matrix} to    Destination frame transform (mat4).
@@ -364,12 +358,15 @@ export function installMatrix(p5, fn) {
   // matrix (Float32Array | ArrayLike | p5.Matrix) for a custom MATRIX frame.
   // p5.Tree.MODEL must be resolved to the live _modelMat4 ref before calling.
   // _wb holds toFrameInv for the MATRIX-to path; valid until coreMap* returns.
+  //
+  // Bag field names match the xMatrix convention throughout — no translation
+  // at the boundary; opts keys flow directly into the core bag unchanged.
 
   function _buildBag(renderer, options, from, to) {
     const bag = {
-      proj: _rawMat4(options.pMatrix) ?? _projMat4(renderer),
-      view: _rawMat4(options.vMatrix) ?? _viewMat4(renderer),
-      eye: null, pv: null, ipv: null,
+      pMatrix: _rawMat4(options.pMatrix) ?? _projMat4(renderer),
+      vMatrix: _rawMat4(options.vMatrix) ?? _viewMat4(renderer),
+      eMatrix: null, pvMatrix: null, ipvMatrix: null,
     };
     let fromStr, toStr;
     if (from != null && typeof from !== 'string') {
@@ -395,8 +392,8 @@ export function installMatrix(p5, fn) {
    *   mapLocation(out, opts?)          — defaults to ORIGIN
    *   mapLocation(out)                 — defaults to ORIGIN, EYE→WORLD
    *
-   * @param {Float32Array|ArrayLike|p5.Vector} out    3-element destination.
-   * @param {Float32Array|ArrayLike|p5.Vector} [point]  Input coordinates.
+   * @param {Float32Array|ArrayLike|p5.Vector} out     3-element destination.
+   * @param {Float32Array|ArrayLike|p5.Vector} [point] Input coordinates.
    * @param {{
    *   from?:      string | Float32Array | p5.Matrix,
    *   to?:        string | Float32Array | p5.Matrix,
@@ -407,13 +404,8 @@ export function installMatrix(p5, fn) {
    *   ipvMatrix?: Float32Array | p5.Matrix,
    * }} [opts]
    * @returns {typeof out}
-   *
-   * @example
-   * const loc = new Float32Array(3)
-   * p.mapLocation(loc, [0,0,0], { from: p5.Tree.EYE, to: p5.Tree.WORLD })
    */
   p5.Renderer3D.prototype.mapLocation = function (out, ...rest) {
-    // Disambiguate: rest[0] is the input point if it looks like a vector.
     const hasVec = _isVec(rest[0]);
     const point  = hasVec ? rest[0] : p5.Tree.ORIGIN;
     const opts   = (hasVec ? rest[1] : rest[0]) ?? {};
@@ -432,21 +424,20 @@ export function installMatrix(p5, fn) {
     if (fromStr === EYE || toStr === EYE ||
         fromStr === SCREEN || toStr === SCREEN ||
         fromStr === NDC    || toStr === NDC) {
-      bag.eye = _rawMat4(opts.eMatrix) ??
-        (mat4Invert(_wa, bag.view), _wa);
+      bag.eMatrix = _rawMat4(opts.eMatrix) ??
+        (mat4Invert(_wa, bag.vMatrix), _wa);
     }
     if (toStr === SCREEN || toStr === NDC || fromStr === SCREEN || fromStr === NDC) {
-      bag.pv = _rawMat4(opts.pvMatrix) ??
-        (mat4Mul(_pv, bag.proj, bag.view), _pv);
+      bag.pvMatrix = _rawMat4(opts.pvMatrix) ??
+        (mat4Mul(_pv, bag.pMatrix, bag.vMatrix), _pv);
       if (fromStr === SCREEN || fromStr === NDC) {
-        bag.ipv = _rawMat4(opts.ipvMatrix) ??
-          (mat4Invert(_ipv, bag.pv), _ipv);
+        bag.ipvMatrix = _rawMat4(opts.ipvMatrix) ??
+          (mat4Invert(_ipv, bag.pvMatrix), _ipv);
       }
     }
 
     _vp[0] = 0; _vp[1] = this.height; _vp[2] = this.width; _vp[3] = -this.height;
 
-    // If out is p5.Vector, core writes into _tmp3, then we copy back.
     const isVecOut = out instanceof p5.Vector;
     const buf = isVecOut ? _tmp3 : out;
     coreMapLocation(buf, px, py, pz, fromStr, toStr, bag, _vp, _ndcZ);
@@ -476,10 +467,6 @@ export function installMatrix(p5, fn) {
    *   vMatrix?: Float32Array | p5.Matrix,
    * }} [opts]
    * @returns {typeof out}
-   *
-   * @example
-   * const dir = new Float32Array(3)
-   * p.mapDirection(dir, [0,0,-1], { from: p5.Tree.EYE, to: p5.Tree.WORLD })
    */
   p5.Renderer3D.prototype.mapDirection = function (out, ...rest) {
     const hasVec = _isVec(rest[0]);
@@ -497,8 +484,8 @@ export function installMatrix(p5, fn) {
 
     const { bag, fromStr, toStr } = _buildBag(this, opts, from, to);
 
-    bag.eye = _rawMat4(opts.eMatrix) ??
-      (mat4Invert(_wa, bag.view), _wa);
+    bag.eMatrix = _rawMat4(opts.eMatrix) ??
+      (mat4Invert(_wa, bag.vMatrix), _wa);
 
     _vp[0] = 0; _vp[1] = this.height; _vp[2] = this.width; _vp[3] = -this.height;
 
@@ -509,48 +496,28 @@ export function installMatrix(p5, fn) {
     return out;
   };
 
-  // ── Utilities ─────────────────────────────────────────────────────────────
-
-  fn.pixelRatio = function (point) { return this._renderer.pixelRatio(point); };
+  // ── pixelRatio ────────────────────────────────────────────────────────────
 
   /**
-   * World-units-per-pixel at the given world-space point.
-   * @param {ArrayLike|p5.Vector} [point]  Defaults to origin.
+   * World-units-per-pixel at a world position.
+   * @param {Float32Array|ArrayLike|p5.Vector} [worldPos]
+   *   World position to query. Defaults to the camera world position.
+   * @param {{ eMatrix?: Float32Array|p5.Matrix }} [opts]
    * @returns {number}
    */
-  p5.Renderer3D.prototype.pixelRatio = function (point = p5.Tree.ORIGIN) {
+  p5.Renderer3D.prototype.pixelRatio = function (worldPos, opts = {}) {
     const proj = _projMat4(this);
-    if (projIsOrtho(proj)) return corePixelRatio(proj, this.height, 0, _ndcZ);
-    const px = point.x ?? point[0] ?? 0;
-    const py = point.y ?? point[1] ?? 0;
-    const pz = point.z ?? point[2] ?? 0;
-    const view = _viewMat4(this);
-    const eyeZ = view[2]*px + view[6]*py + view[10]*pz + view[14];
+    let eyeZ;
+    if (worldPos) {
+      const wx = worldPos.x ?? worldPos[0] ?? 0;
+      const wy = worldPos.y ?? worldPos[1] ?? 0;
+      const wz = worldPos.z ?? worldPos[2] ?? 0;
+      const view = _viewMat4(this);
+      eyeZ = view[2]*wx + view[6]*wy + view[10]*wz + view[14];
+    } else {
+      eyeZ = _viewMat4(this)[14];
+    }
     return corePixelRatio(proj, this.height, eyeZ, _ndcZ);
   };
-
-  fn.texOffset = function (image) { return [1 / image.width, 1 / image.height]; };
-
-  fn.mousePosition = function (flip = true) {
-    const pd = this.pixelDensity();
-    return [pd * this.mouseX, pd * (flip ? this.height - this.mouseY : this.mouseY)];
-  };
-
-  fn.pointerPosition = function (...args) { return this._renderer.pointerPosition(...args); };
-  fn.resolution      = function ()        { return this._renderer.resolution(); };
-
-  p5.Renderer3D.prototype.pointerPosition = function (...args) {
-    let pointerX, pointerY, flip = true;
-    for (const arg of args) {
-      if (typeof arg === 'number') { pointerX == null ? (pointerX = arg) : (pointerY = arg); }
-      else if (typeof arg === 'boolean') { flip = arg; }
-    }
-    const pd = this.pixelDensity();
-    return [pd * pointerX, pd * (flip ? this.height - pointerY : pointerY)];
-  };
-
-  p5.Renderer3D.prototype.resolution = function () {
-    const pd = this.pixelDensity();
-    return [pd * this.width, pd * this.height];
-  };
+  fn.pixelRatio = function (worldPos, opts) { return this._renderer.pixelRatio(worldPos, opts); };
 }
