@@ -288,7 +288,7 @@ export function installTrack(p5, fn) {
    * Rotate by a unit quaternion [x,y,z,w].
    * @method rotateQuat
    * @memberof p5.Renderer3D
-   * @param {number[]} q
+   * @param {Float32Array|ArrayLike} q  Unit quaternion [x,y,z,w].
    * @param {{ eps?:number }} [opts]
    * @returns {p5.Renderer3D} this
    */
@@ -306,7 +306,7 @@ export function installTrack(p5, fn) {
    * Apply a TRS pose { pos, rot, scl } to the current transform stack.
    * @method applyPose
    * @memberof p5.Renderer3D
-   * @param {{ pos?:number[], rot?:number[], scl?:number[] }} pose
+   * @param {{ pos?:ArrayLike, rot?:ArrayLike, scl?:ArrayLike }} pose
    * @returns {p5.Renderer3D} this
    */
   p5.Renderer3D.prototype.applyPose = function (pose) {

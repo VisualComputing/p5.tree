@@ -69,16 +69,17 @@ function _computePlanes(renderer, eRaw) {
   const view = _viewMat4(renderer);
   const e    = eRaw ?? (mat4Invert(_eye, view), _eye);
   const proj = _projMat4(renderer);
+  const ndcZ = -1;
   frustumPlanes(
     _planes,
-    e[12], e[13], e[14],    // position
-    -e[8], -e[9], -e[10],   // viewDir = −col2
-     e[4],  e[5],  e[6],    // up      =  col1
-     e[0],  e[1],  e[2],    // right   =  col0
+    e[12], e[13], e[14],
+    -e[8], -e[9], -e[10],
+     e[4],  e[5],  e[6],
+     e[0],  e[1],  e[2],
     projIsOrtho(proj),
-    projNear(proj, -1), projFar(proj),
-    projLeft(proj, -1), projRight(proj, -1),
-    projTop(proj, -1),  projBottom(proj, -1)
+    projNear(proj, ndcZ), projFar(proj),
+    projLeft(proj, ndcZ), projRight(proj, ndcZ),
+    projTop(proj, ndcZ),  projBottom(proj, ndcZ)
   );
   return _planes;
 }
@@ -153,14 +154,14 @@ export function installDrawing(p5, fn) {
   /**
    * Test whether the mouse cursor is over the current model's origin.
    * @param {{
-   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
    *   size?:     number,
    *   shape?:    number,
-   *   eMatrix?:  Float32Array | p5.Matrix,
-   *   pMatrix?:  Float32Array | p5.Matrix,
-   *   vMatrix?:  Float32Array | p5.Matrix,
-   *   pvMatrix?: Float32Array | p5.Matrix,
+   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {boolean}
    */
@@ -179,14 +180,14 @@ export function installDrawing(p5, fn) {
    * @param {number}  [pointerX]
    * @param {number}  [pointerY]
    * @param {{
-   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
    *   size?:     number,
    *   shape?:    number,
-   *   eMatrix?:  Float32Array | p5.Matrix,
-   *   pMatrix?:  Float32Array | p5.Matrix,
-   *   vMatrix?:  Float32Array | p5.Matrix,
-   *   pvMatrix?: Float32Array | p5.Matrix,
+   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {boolean}
    */
@@ -255,13 +256,13 @@ export function installDrawing(p5, fn) {
   /**
    * Draw a screen-space crosshair centred on the current model's origin.
    * @param {{
-   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
    *   size?:     number,
-   *   eMatrix?:  Float32Array | p5.Matrix,
-   *   pMatrix?:  Float32Array | p5.Matrix,
-   *   vMatrix?:  Float32Array | p5.Matrix,
-   *   pvMatrix?: Float32Array | p5.Matrix,
+   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    */
   p5.Renderer3D.prototype.cross = function ({
@@ -290,14 +291,14 @@ export function installDrawing(p5, fn) {
   /**
    * Draw a screen-space bulls-eye overlay centred on the current model's origin.
    * @param {{
-   *   mMatrix?:  Float32Array | p5.Matrix,
+   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
    *   size?:     number,
    *   shape?:    number,
-   *   eMatrix?:  Float32Array | p5.Matrix,
-   *   pMatrix?:  Float32Array | p5.Matrix,
-   *   vMatrix?:  Float32Array | p5.Matrix,
-   *   pvMatrix?: Float32Array | p5.Matrix,
+   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    */
   p5.Renderer3D.prototype.bullsEye = function ({
@@ -342,9 +343,9 @@ export function installDrawing(p5, fn) {
    *
    * @param {{
    *   pg?,
-   *   eMatrix?: Float32Array | p5.Matrix,
-   *   pMatrix?: Float32Array | p5.Matrix,
-   *   vMatrix?: Float32Array | p5.Matrix,
+   *   eMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?: Float32Array | ArrayLike | p5.Matrix,
    *   bits?:    number,
    *   viewer?:  function,
    * }} [opts]
@@ -366,7 +367,7 @@ export function installDrawing(p5, fn) {
       console.error('displaying viewFrustum requires a pg different than this'); return;
     }
 
-    // Resolve raw buffers — accept Float32Array | p5.Matrix | undefined.
+    // Resolve raw buffers — accept Float32Array | ArrayLike | p5.Matrix | undefined.
     // pg supplies defaults when eMatrix / pMatrix are not given explicitly.
     const eRaw = _rawMat4(eMatrix) ?? (pg ? (pg._renderer.eMatrix(_eye), _eye) : null);
     const pRaw = _rawMat4(pMatrix) ?? (pg ? _projMat4(pg._renderer) : null);
@@ -574,7 +575,7 @@ export function installDrawing(p5, fn) {
    * For per-object visibility tests prefer calling `visibility()` directly —
    * its fast path bypasses this object entirely.
    *
-   * @param {{ eMatrix?: Float32Array | p5.Matrix }} [opts]
+   * @param {{ eMatrix?: Float32Array | ArrayLike | p5.Matrix }} [opts]
    * @returns {object}
    */
   p5.Renderer3D.prototype.bounds = function ({ eMatrix } = {}) {

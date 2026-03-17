@@ -39,9 +39,7 @@
 'use strict';
 
 import {
-  WORLD, EYE, NDC, SCREEN, MODEL, MATRIX,
-  WEBGL, WEBGPU,
-  INVISIBLE, VISIBLE, SEMIVISIBLE,
+  WORLD, EYE, NDC, SCREEN, MATRIX,
 } from './constants.js';
 
 // ═══════════════════════════════════════════════════════════════════════════

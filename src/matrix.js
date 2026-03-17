@@ -121,7 +121,7 @@ export function installMatrix(p5, fn) {
 
   /**
    * Projection matrix.
-   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {typeof out}
    */
   p5.Renderer3D.prototype.pMatrix = function (out) {
@@ -133,7 +133,7 @@ export function installMatrix(p5, fn) {
 
   /**
    * Model matrix (local → world).
-   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {typeof out}
    */
   p5.Renderer3D.prototype.mMatrix = function (out) {
@@ -145,7 +145,7 @@ export function installMatrix(p5, fn) {
 
   /**
    * View matrix (world → eye).
-   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {typeof out}
    */
   p5.Camera.prototype.vMatrix = function (out) {
@@ -158,7 +158,7 @@ export function installMatrix(p5, fn) {
 
   /**
    * Eye matrix (eye → world, i.e. inverse view).
-   * @param {Float32Array|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {typeof out|null} out, or null if the view matrix is singular.
    */
   p5.Camera.prototype.eMatrix = function (out) {
@@ -175,8 +175,8 @@ export function installMatrix(p5, fn) {
 
   /**
    * Projection-view matrix: P · V.
-   * @param {Float32Array|p5.Matrix} out
-   * @param {{ pMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   * @param {{ pMatrix?: Float32Array|ArrayLike|p5.Matrix, vMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
    * @returns {typeof out}
    */
   p5.Renderer3D.prototype.pvMatrix = function (out, { pMatrix, vMatrix } = {}) {
@@ -188,8 +188,8 @@ export function installMatrix(p5, fn) {
 
   /**
    * Inverse projection-view matrix: inv(P · V).
-   * @param {Float32Array|p5.Matrix} out
-   * @param {{ pMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix, pvMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   * @param {{ pMatrix?: Float32Array|ArrayLike|p5.Matrix, vMatrix?: Float32Array|ArrayLike|p5.Matrix, pvMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
    *   Pass `pvMatrix` to skip recomputing P · V.
    * @returns {typeof out|null} out, or null if singular.
    */
@@ -203,8 +203,8 @@ export function installMatrix(p5, fn) {
 
   /**
    * Model-view matrix: V · M.
-   * @param {Float32Array|p5.Matrix} out
-   * @param {{ mMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   * @param {{ mMatrix?: Float32Array|ArrayLike|p5.Matrix, vMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
    * @returns {typeof out}
    */
   p5.Renderer3D.prototype.mvMatrix = function (out, { mMatrix, vMatrix } = {}) {
@@ -216,8 +216,8 @@ export function installMatrix(p5, fn) {
 
   /**
    * Projection-model-view matrix: P · V · M.
-   * @param {Float32Array|p5.Matrix} out
-   * @param {{ pMatrix?: Float32Array|p5.Matrix, mMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   * @param {{ pMatrix?: Float32Array|ArrayLike|p5.Matrix, mMatrix?: Float32Array|ArrayLike|p5.Matrix, vMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
    * @returns {typeof out}
    */
   p5.Renderer3D.prototype.pmvMatrix = function (out, { pMatrix, mMatrix, vMatrix } = {}) {
@@ -230,8 +230,8 @@ export function installMatrix(p5, fn) {
 
   /**
    * Normal matrix: inverseTranspose(upper 3×3 of V · M).
-   * @param {Float32Array|p5.Matrix} out  9-element destination.
-   * @param {{ mMatrix?: Float32Array|p5.Matrix, vMatrix?: Float32Array|p5.Matrix, mvMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
+   * @param {{ mMatrix?: Float32Array|ArrayLike|p5.Matrix, vMatrix?: Float32Array|ArrayLike|p5.Matrix, mvMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
    *   Pass `mvMatrix` to skip recomputing V · M.
    * @returns {typeof out}
    */
@@ -247,9 +247,9 @@ export function installMatrix(p5, fn) {
   /**
    * Location transform matrix: inv(to) · from.
    * Maps a point from the `from` frame into the `to` frame: p_to = out · p_from.
-   * @param {Float32Array|p5.Matrix} out   16-element destination.
-   * @param {Float32Array|p5.Matrix} from  Source frame transform.
-   * @param {Float32Array|p5.Matrix} to    Destination frame transform.
+   * @param {Float32Array|ArrayLike|p5.Matrix} out   16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} from  Source frame transform.
+   * @param {Float32Array|ArrayLike|p5.Matrix} to    Destination frame transform.
    * @returns {typeof out|null} out, or null if `to` is singular.
    */
   p5.Renderer3D.prototype.lMatrix = function (out, from, to) {
@@ -261,9 +261,9 @@ export function installMatrix(p5, fn) {
   /**
    * Direction transform matrix: to₃ · inv(from₃).
    * Uses only the upper-left 3×3 blocks (rotation/scale, no translation).
-   * @param {Float32Array|p5.Matrix} out   9-element destination.
-   * @param {Float32Array|p5.Matrix} from  Source frame transform (mat4).
-   * @param {Float32Array|p5.Matrix} to    Destination frame transform (mat4).
+   * @param {Float32Array|ArrayLike|p5.Matrix} out   9-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} from  Source frame transform (mat4).
+   * @param {Float32Array|ArrayLike|p5.Matrix} to    Destination frame transform (mat4).
    * @returns {typeof out|null} out, or null if `from` is singular.
    */
   p5.Renderer3D.prototype.dMatrix = function (out, from, to) {
@@ -395,13 +395,13 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Vector} out     3-element destination.
    * @param {Float32Array|ArrayLike|p5.Vector} [point] Input coordinates.
    * @param {{
-   *   from?:      string | Float32Array | p5.Matrix,
-   *   to?:        string | Float32Array | p5.Matrix,
-   *   eMatrix?:   Float32Array | p5.Matrix,
-   *   pMatrix?:   Float32Array | p5.Matrix,
-   *   vMatrix?:   Float32Array | p5.Matrix,
-   *   pvMatrix?:  Float32Array | p5.Matrix,
-   *   ipvMatrix?: Float32Array | p5.Matrix,
+   *   from?:      string | Float32Array | ArrayLike | p5.Matrix,
+   *   to?:        string | Float32Array | ArrayLike | p5.Matrix,
+   *   eMatrix?:   Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?:   Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?:   Float32Array | ArrayLike | p5.Matrix,
+   *   pvMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   ipvMatrix?: Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {typeof out}
    */
@@ -460,11 +460,11 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Vector} out   3-element destination.
    * @param {Float32Array|ArrayLike|p5.Vector} [dir] Input direction.
    * @param {{
-   *   from?:    string | Float32Array | p5.Matrix,
-   *   to?:      string | Float32Array | p5.Matrix,
-   *   eMatrix?: Float32Array | p5.Matrix,
-   *   pMatrix?: Float32Array | p5.Matrix,
-   *   vMatrix?: Float32Array | p5.Matrix,
+   *   from?:    string | Float32Array | ArrayLike | p5.Matrix,
+   *   to?:      string | Float32Array | ArrayLike | p5.Matrix,
+   *   eMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?: Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {typeof out}
    */
@@ -502,7 +502,7 @@ export function installMatrix(p5, fn) {
    * World-units-per-pixel at a world position.
    * @param {Float32Array|ArrayLike|p5.Vector} [worldPos]
    *   World position to query. Defaults to the camera world position.
-   * @param {{ eMatrix?: Float32Array|p5.Matrix }} [opts]
+   * @param {{ eMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
    * @returns {number}
    */
   p5.Renderer3D.prototype.pixelRatio = function (worldPos, opts = {}) {

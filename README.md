@@ -353,37 +353,12 @@ createPanel({
 | `x`, `y`      | `0`     | Position (px).                            |
 | `width`       | `120`   | Slider width (px).                        |
 | `hidden`      | `false` | Start hidden.                             |
-| `parent`      | canvas container | Mount target.                  |
-
-Additional parameter panel options: `labels`, `offset`.
+| `parent`      | canvas container | Mount target.                    |
 
 ## Track transport panel
 
 ```js
-// CameraTrack — camera auto-resolved from track.camera
-const cam   = createCamera()
-const track = createTrack(cam)
-const panel = createPanel(track, { x: 10, y: 10, color: 'white', title: 'Camera' })
-
-// PoseTrack — curCamera used for + button by default
-const track = createTrack()
-const panel = createPanel(track, { x: 10, y: 10, color: 'white' })
-
-// Suppress + button
-createPanel(track, { camera: null, x: 10, y: 10 })
-```
-
-The panel seeds its initial `rate` and `mode` from live track state — so calling `track.play({ loop:true })` either before or after `createPanel` both display correctly.
-
-Transport panel layout:
-
-```
-  [ + ]  [ ▶/⏸ ]  [ ↺ ]       — add keyframe / play-pause / reset
-  depth: ──────────────         — placement depth for new keyframes (0=near, 1=far)
-  seek:  ──────────────         — scrub position [0, 1]
-  rate:  ──────────────         — signed speed (negative reverses)
-  mode:  [ once | loop | pingPong ]
-  t: 0.412  seg 1/3  kf 4       — info readout
+createPanel(track, { x: 10, y: 10, color: 'white' })
 ```
 
 | Option      | Default     | Description                                    |
@@ -478,7 +453,7 @@ releasePipe('key')    // release a named pipeline
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.21'
+p5.Tree.VERSION   // '0.0.20'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -513,7 +488,7 @@ viewFrustum({ pg, eMatrix, pMatrix, vMatrix, bits, viewer })
 
 `viewFrustum` bits: `p5.Tree.NEAR`, `p5.Tree.FAR`, `p5.Tree.BODY`, `p5.Tree.APEX`.
 
-Matrix params accept `Float32Array(16)` | `p5.Matrix` throughout.
+Matrix params accept `Float32Array(16)` | `ArrayLike` | `p5.Matrix` throughout.
 
 ---
 
@@ -528,9 +503,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.esm.js)
 
 ---
 
