@@ -510,9 +510,9 @@ function _sameTransform(a, b) {
  *
  * Accepted forms:
  *
- *   { eye, center, up? }
- *     Explicit lookat.  up defaults to [0,1,0] and is normalised on storage.
- *     Note: eye here is a vec3 — distinguished from { eMatrix } by length.
+ *   { eye, center?, up? }
+ *     Explicit lookat.  center defaults to [0,0,0], up defaults to [0,1,0].
+ *     Both are normalised/stored as-is.  eye must be a vec3.
  *
  *   { vMatrix: mat4 }
  *     Column-major view matrix (world→eye).
@@ -557,10 +557,10 @@ function _parseCameraSpec(spec) {
     return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0] };
   }
 
-  // { eye, center, up? } — explicit lookat (eye is a vec3, not a mat4)
+  // { eye, center?, up? } — explicit lookat (eye is a vec3, not a mat4)
   const eye    = _parseVec3(spec.eye);
-  const center = _parseVec3(spec.center);
-  if (!eye || !center) return null;
+  if (!eye) return null;
+  const center = _parseVec3(spec.center) || [0,0,0];
   const upRaw = spec.up ? _parseVec3(spec.up) : null;
   const up    = upRaw || [0,1,0];
   const ul    = Math.sqrt(up[0]*up[0]+up[1]*up[1]+up[2]*up[2]) || 1;
@@ -832,16 +832,18 @@ class Track {
  *
  * add() accepts individual specs or a bulk array of specs:
  *
- *   { mMatrix }                          — full TRS from model matrix
- *   { pos, rot, scl }                    — direct TRS
- *   { pos, rot: [x,y,z,w] }             — explicit quaternion
- *   { pos, rot: { axis, angle } }        — axis-angle
- *   { pos, rot: { dir, up? } }           — look direction
- *   { pos, rot: { eMatrix: mat4 } }      — rotation from eye matrix
- *   { pos, rot: { mat3 } }               — column-major 3×3 rotation matrix
- *   { pos, rot: { euler, order? } }      — intrinsic Euler angles (default YXZ)
- *   { pos, rot: { from, to } }           — shortest-arc between two directions
- *   [ spec, spec, ... ]                  — bulk
+ *   { mMatrix }                           — full TRS from model matrix
+ *   { pos?, rot?, scl? }                  — direct TRS; all fields optional
+ *   { pos?, rot: [x,y,z,w] }             — explicit quaternion
+ *   { pos?, rot: { axis, angle } }        — axis-angle
+ *   { pos?, rot: { dir, up? } }           — look direction
+ *   { pos?, rot: { eMatrix: mat4 } }      — rotation from eye matrix
+ *   { pos?, rot: { mat3 } }               — column-major 3×3 rotation matrix
+ *   { pos?, rot: { euler, order? } }      — intrinsic Euler angles (default YXZ)
+ *   { pos?, rot: { from, to } }           — shortest-arc between two directions
+ *   [ spec, spec, ... ]                   — bulk
+ *
+ * Missing fields default to: pos → [0,0,0], rot → [0,0,0,1], scl → [1,1,1].
  *
  * eval() writes { pos, rot, scl }:
  *   pos — Catmull-Rom (posInterp='catmullrom') or lerp
@@ -850,8 +852,9 @@ class Track {
  *
  * @example
  * const track = new PoseTrack()
- * track.add({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] })
+ * track.add({ pos:[0,0,0] })                           // identity rot, uniform scl
  * track.add({ pos:[100,0,0], rot: { euler:[0, Math.PI/2, 0] } })
+ * track.add({ rot: { axis:[0,1,0], angle: Math.PI } }) // pos defaults to [0,0,0]
  * track.add({ mMatrix: someModelMatrix })
  * track.play({ loop: true })
  * // per frame:
@@ -985,10 +988,12 @@ export class PoseTrack extends Track {
  * own paths, up nlerped on the unit sphere. This correctly handles cameras
  * that always look at a fixed target (center stays at origin throughout)
  * as well as free-fly paths where center moves independently.
+ * 
+ * Missing fields default to: center → [0,0,0], up → [0,1,0].
  *
  * add() accepts individual specs or a bulk array of specs:
  *
- *   { eye, center, up? }   explicit lookat; up defaults to [0,1,0]
+ *   { eye, center?, up? }  explicit lookat; center defaults to [0,0,0], up to [0,1,0]
  *   { vMatrix: mat4 }      view matrix (world→eye); eye reconstructed via -R^T·t
  *   { eMatrix: mat4 }      eye matrix (eye→world); eye read from col3 directly
  *   [ spec, spec, ... ]    bulk
@@ -1006,7 +1011,8 @@ export class PoseTrack extends Track {
  *
  * @example
  * const track = new CameraTrack()
- * track.add({ eye:[0,0,500], center:[0,0,0] })
+ * track.add({ eye:[0,0,500] })                 // center defaults to [0,0,0]
+ * track.add({ eye:[300,-150,0], center:[0,0,0] })
  * track.add({ eMatrix: myEyeMatrix })
  * track.add({ vMatrix: myViewMatrix })
  * track.play({ loop: true })
@@ -1043,7 +1049,7 @@ export class CameraTrack extends Track {
    * Append one or more camera keyframes. Adjacent duplicates are skipped by default.
    *
    * @param {Object|Object[]} spec
-   *   { eye, center, up? }  or  { vMatrix: mat4 }  or  { eMatrix: mat4 }  or  an array of either.
+   *   { eye, center?, up? }  or  { vMatrix: mat4 }  or  { eMatrix: mat4 }  or  an array of either.
    * @param {{ deduplicate?: boolean }} [opts]
    */
   add(spec, opts) {

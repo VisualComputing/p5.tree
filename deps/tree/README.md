@@ -126,7 +126,7 @@ track.centerInterp = 'catmullrom'  // smoother when center is also moving freely
 `add()` accepts:
 
 ```js
-track.add({ eye, center, up? })    // explicit lookat; up defaults to [0,1,0]
+track.add({ eye, center?, up? })   // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
 track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed
 track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
 track.add([ spec, spec, ... ])     // bulk

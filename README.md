@@ -130,7 +130,7 @@ function draw() {
 `add()` accepts multiple forms:
 
 ```js
-track.add({ eye, center, up? })    // explicit lookat; up defaults to [0,1,0]
+track.add({ eye, center?, up? })   // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
 track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed via -R^T·t
 track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
 track.add(cam.capturePose())       // capture live camera state (zero-alloc with pre-allocated out)
@@ -478,7 +478,7 @@ releasePipe('key')    // release a named pipeline
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.20'
+p5.Tree.VERSION   // '0.0.21'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -528,9 +528,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.20/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.esm.js)
 
 ---
 
