@@ -330,8 +330,9 @@ const _clampS  = (x, lo, hi) => x < lo ? lo : (x > hi ? hi : x);
 
 function _parseVec3(v) {
   if (!v) return null;
-  if (Array.isArray(v) && v.length >= 3 && v.every(n => typeof n === 'number')) return [v[0],v[1],v[2]];
-  if (typeof v === 'object' && 'x' in v) return [v.x||0, v.y||0, v.z||0];
+  if (ArrayBuffer.isView(v) && v.length >= 3) return [v[0], v[1], v[2]];
+  if (Array.isArray(v) && v.length >= 3 && v.every(n => typeof n === 'number')) return [v[0], v[1], v[2]];
+  if (typeof v === 'object' && 'x' in v) return [v.x || 0, v.y || 0, v.z || 0];
   return null;
 }
 
@@ -377,10 +378,9 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
  */
 function _parseQuat(v) {
   if (!v) return null;
-
-  // raw [x,y,z,w]
-  if (Array.isArray(v) && v.length === 4 && v.every(n => typeof n === 'number'))
-    return [v[0],v[1],v[2],v[3]];
+  
+  // raw [x,y,z,w] — plain array or typed array
+  if ((Array.isArray(v) || ArrayBuffer.isView(v)) && v.length === 4) return [v[0], v[1], v[2], v[3]];
 
   // { axis, angle }
   if (v.axis && typeof v.angle === 'number') {
