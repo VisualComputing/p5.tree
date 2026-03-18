@@ -91,6 +91,8 @@ export function detectNDC(renderer) {
   }
 }
 
+export const getNdcZ = () => _ndcZ;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Raw p5 state access — direct Float32Array refs, no copies
 // ═══════════════════════════════════════════════════════════════════════════

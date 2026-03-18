@@ -14,6 +14,7 @@ import { installDrawing } from './drawing.js';
 import { installTrack, tickPlayers, clearPlayers } from './track.js';
 import { installPipe } from './pipe.js';
 import { installPanel } from './panel.js';
+import { installPick, releasePickFbo } from './pick.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
 
@@ -34,6 +35,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   // §6 — Panel (parameter panels + track transport controls)
   installPanel(p5, fn);
+  
+  // §7 — Color-ID picking
+  installPick(p5, fn);
 
   // ── Lifecycle hooks ────────────────────────────────────────────────
 
@@ -52,5 +56,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   lifecycles.remove = function () {
     clearPlayers(this);
     this.releasePipe(true);
+    releasePickFbo(this); 
   };
 });
