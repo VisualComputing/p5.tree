@@ -311,7 +311,6 @@ export function installMatrix(p5, fn) {
     p.push();
     p.resetShader();
     p.resetMatrix();
-    this._hudPrevCam = states.curCamera;
     this._hudDepthMode = undefined;
     this._hudDepthWasEnabled = undefined;
     if (typeof this.clearDepth === 'function') {
@@ -347,8 +346,6 @@ export function installMatrix(p5, fn) {
       }
     }
     p.pop();
-    this._hudPrevCam !== undefined && p.setCamera(this._hudPrevCam);
-    this._hudPrevCam = undefined;
     this._hudDepthWasEnabled = undefined;
     this._hudDepthMode = undefined;
     this._hudActive = false;
