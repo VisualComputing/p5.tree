@@ -298,59 +298,6 @@ export function installMatrix(p5, fn) {
   fn.fov  = function () { return this._renderer.fov(); };
   fn.hfov = function () { return this._renderer.hfov(); };
 
-  // ── HUD (beginHUD / endHUD) ───────────────────────────────────────────────
-
-  fn.beginHUD = function (...args) { this._renderer?.beginHUD?.(...args); return this; };
-  fn.endHUD   = function (...args) { this._renderer?.endHUD?.(...args);   return this; };
-
-  p5.Renderer3D.prototype.beginHUD = function () {
-    if (this._hudActive === true) return;
-    const p = this._pInst;
-    const states = this.states;
-    if (!p || !states) return;
-    p.push();
-    p.resetShader();
-    p.resetMatrix();
-    this._hudDepthMode = undefined;
-    this._hudDepthWasEnabled = undefined;
-    if (typeof this.clearDepth === 'function') {
-      this.flushDraw?.();
-      this.clearDepth(1);
-      this._hudDepthMode = 'clearDepth';
-    } else {
-      const gl = this.drawingContext;
-      if (gl && typeof gl.isEnabled === 'function' && gl.DEPTH_TEST !== undefined) {
-        this._hudDepthWasEnabled = gl.isEnabled(gl.DEPTH_TEST);
-        gl.flush?.();
-        gl.disable(gl.DEPTH_TEST);
-        this._hudDepthMode = 'depthTestToggle';
-      }
-    }
-    if (this._hudCam === undefined) this._hudCam = p.createCamera();
-    const z = 1e6;
-    this._hudCam.ortho(0, p.width, -p.height, 0, -z, z);
-    this._hudCam.camera(0, 0, 1, 0, 0, 0, 0, 1, 0);
-    p.setCamera(this._hudCam);
-    this._hudActive = true;
-  };
-
-  p5.Renderer3D.prototype.endHUD = function () {
-    if (this._hudActive !== true) return;
-    const p = this._pInst;
-    if (!p) return;
-    if (this._hudDepthMode === 'depthTestToggle') {
-      const gl = this.drawingContext;
-      if (gl && gl.DEPTH_TEST !== undefined) {
-        gl.flush?.();
-        this._hudDepthWasEnabled ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
-      }
-    }
-    p.pop();
-    this._hudDepthWasEnabled = undefined;
-    this._hudDepthMode = undefined;
-    this._hudActive = false;
-  };
-
   // ── _buildBag — shared bag-builder for mapLocation / mapDirection ─────────
   //
   // from / to are either a space-string constant (EYE, WORLD, SCREEN, …) or a

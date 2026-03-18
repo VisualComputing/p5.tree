@@ -1,13 +1,14 @@
 /**
- * @file Drawing helpers, picking, view frustum display, and visibility queries.
- * @module p5.tree/drawing
+ * @file Gizmos — scene-space diagnostic helpers: axes, grid, cross, bullsEye,
+ *               viewFrustum, and visibility queries.
+ * @module p5.tree/gizmos
  * @license GPL-3.0-only
  *
- * Depends on p5.tree/matrix (mapLocation, mapDirection, pixelRatio,
- * beginHUD/endHUD, isOrtho, plane queries, p5.Tree constants).
+ * Depends on p5.tree/hud (beginHUD / endHUD), p5.tree/matrix (mapLocation,
+ * pixelRatio, p5.Tree constants).
  *
- * All internal calls to mapLocation / mapDirection write into module-level
- * Float32Array buffers — no p5.Vector allocations anywhere.
+ * All internal calls to mapLocation write into module-level Float32Array
+ * buffers — no p5.Vector allocations anywhere.
  *
  * ── Visibility pattern ────────────────────────────────────────────────────
  *
@@ -35,14 +36,13 @@ import {
 // Module-level working buffers — never returned to caller
 // ═══════════════════════════════════════════════════════════════════════════
 
-const _sl     = new Float32Array(3);   // screen location (picking, cross, bullsEye)
+const _sl     = new Float32Array(3);   // screen location (cross, bullsEye)
 const _wl     = new Float32Array(3);   // world location  (pixelRatio input)
 const _eye    = new Float32Array(16);  // eye matrix for _computePlanes / viewFrustum
 const _planes = new Float64Array(24);  // 6 frustum planes × [a,b,c,d]
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Unified type normaliser — zero alloc
-// p5.Matrix exposes its internal Float32Array via .mat4.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const _rawMat4 = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
@@ -88,7 +88,12 @@ function _computePlanes(renderer, eRaw) {
 // Install
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function installDrawing(p5, fn) {
+/**
+ * Install gizmo helpers on fn and p5.Renderer3D.
+ * @param {p5}    p5
+ * @param {Object} fn  p5 prototype.
+ */
+export function installGizmos(p5, fn) {
 
   // ── Axes ──────────────────────────────────────────────────────────────────
 
@@ -144,81 +149,6 @@ export function installDrawing(p5, fn) {
       p.line(-size, pos, 0, +size, pos, 0);
     }
     p.pop();
-  };
-
-  // ── Picking ───────────────────────────────────────────────────────────────
-
-  fn.mousePicking   = function (opts)    { return this._renderer.mousePicking(opts); };
-  fn.pointerPicking = function (...args) { return this._renderer.pointerPicking(...args); };
-
-  /**
-   * Test whether the mouse cursor is over the current model's origin.
-   * @param {{
-   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   x?, y?,
-   *   size?:     number,
-   *   shape?:    number,
-   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
-   * }} [opts]
-   * @returns {boolean}
-   */
-  p5.Renderer3D.prototype.mousePicking = function ({
-    mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
-    eMatrix, pMatrix, vMatrix, pvMatrix
-  } = {}) {
-    const p = this._pInst;
-    if (!p) return false;
-    return this.pointerPicking(p.mouseX, p.mouseY,
-      { mMatrix: mMatrix ?? _modelMat4(this), x, y, size, shape, eMatrix, pMatrix, vMatrix, pvMatrix });
-  };
-
-  /**
-   * Test whether an arbitrary pointer is over the current model's origin.
-   * @param {number}  [pointerX]
-   * @param {number}  [pointerY]
-   * @param {{
-   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   x?, y?,
-   *   size?:     number,
-   *   shape?:    number,
-   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
-   * }} [opts]
-   * @returns {boolean}
-   */
-  p5.Renderer3D.prototype.pointerPicking = function (...args) {
-    let pointerX, pointerY;
-    const config = {};
-    for (const arg of args) {
-      if (typeof arg === 'number' && Number.isFinite(arg)) {
-        pointerX == null ? pointerX = arg : pointerY = arg;
-      } else if (arg && typeof arg === 'object') { Object.assign(config, arg); }
-    }
-    const p = this._pInst;
-    if (pointerX == null) pointerX = p ? p.mouseX : this.width  / 2;
-    if (pointerY == null) pointerY = p ? p.mouseY : this.height / 2;
-
-    let { mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
-          eMatrix, pMatrix, vMatrix, pvMatrix } = config;
-    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
-
-    if (x == null || y == null) {
-      // Map model origin through its frame to screen space.
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
-      x = _sl[0]; y = _sl[1];
-      // World position for pixel-ratio scaling.
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
-      size = size / this.pixelRatio(_wl);
-    }
-    const r = size / 2.0, dx = x - pointerX, dy = y - pointerY;
-    return shape === p5.Tree.CIRCLE
-      ? Math.sqrt(dx * dx + dy * dy) < r
-      : (Math.abs(dx) < r && Math.abs(dy) < r);
   };
 
   // ── Circle primitive ──────────────────────────────────────────────────────
@@ -367,8 +297,6 @@ export function installDrawing(p5, fn) {
       console.error('displaying viewFrustum requires a pg different than this'); return;
     }
 
-    // Resolve raw buffers — accept Float32Array | ArrayLike | p5.Matrix | undefined.
-    // pg supplies defaults when eMatrix / pMatrix are not given explicitly.
     const eRaw = _rawMat4(eMatrix) ?? (pg ? (pg._renderer.eMatrix(_eye), _eye) : null);
     const pRaw = _rawMat4(pMatrix) ?? (pg ? _projMat4(pg._renderer) : null);
 
@@ -479,13 +407,14 @@ export function installDrawing(p5, fn) {
    *
    * Accepts Float32Array(3) or plain array for corner1/corner2/center.
    *
+   * @method visibility
+   * @for p5
    * @returns {number} p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
    */
   p5.Renderer3D.prototype.visibility = function (...args) {
     const { corner1, corner2, center, radius, bounds: userBounds } = this._parseVisibilityArgs(...args);
 
     if (!userBounds) {
-      // ── Fast path ──────────────────────────────────────────────────────
       const planes = _computePlanes(this);
       if (center) {
         const cx = center.x ?? center[0] ?? 0;
@@ -518,7 +447,6 @@ export function installDrawing(p5, fn) {
   };
 
   // ── Keyed-bounds visibility helpers (fallback path) ───────────────────────
-  // All scalar — no p5.Vector allocations.
 
   p5.Renderer3D.prototype._pointVisibility = function (point, bounds) {
     const px = point.x ?? point[0] ?? 0;
@@ -541,7 +469,7 @@ export function installDrawing(p5, fn) {
     for (const key in bounds) {
       const { a, b, c, d } = bounds[key];
       const dist = a * cx + b * cy + c * cz - d;
-      if (dist > radius)            return p5.Tree.INVISIBLE;
+      if (dist > radius)              return p5.Tree.INVISIBLE;
       if (dist > 0 || -dist < radius) allIn = false;
     }
     return allIn ? p5.Tree.VISIBLE : p5.Tree.SEMIVISIBLE;
@@ -575,14 +503,14 @@ export function installDrawing(p5, fn) {
    * For per-object visibility tests prefer calling `visibility()` directly —
    * its fast path bypasses this object entirely.
    *
+   * @method bounds
+   * @for p5
    * @param {{ eMatrix?: Float32Array | ArrayLike | p5.Matrix }} [opts]
    * @returns {object}
    */
   p5.Renderer3D.prototype.bounds = function ({ eMatrix } = {}) {
     const eRaw = _rawMat4(eMatrix) ?? (mat4Invert(_eye, _viewMat4(this)), _eye);
     _computePlanes(this, eRaw);
-    // _planes index order from @nakednous/tree frustumPlanes:
-    //   0=LEFT, 1=RIGHT, 2=NEAR, 3=FAR, 4=TOP, 5=BOTTOM
     const keys = [p5.Tree.LEFT, p5.Tree.RIGHT, p5.Tree.NEAR, p5.Tree.FAR, p5.Tree.TOP, p5.Tree.BOTTOM];
     const result = {};
     for (let i = 0; i < 6; i++) {
@@ -598,6 +526,8 @@ export function installDrawing(p5, fn) {
    * Signed distance from a point to one frustum plane.
    * Positive → outside (invisible side).
    *
+   * @method distanceToBound
+   * @for p5
    * @param {ArrayLike|p5.Vector} point
    * @param {number|string} key  p5.Tree plane constant (LEFT, RIGHT, NEAR, FAR, TOP, BOTTOM).
    * @param {object} [bounds]    Keyed bounds object. Defaults to current frustum.

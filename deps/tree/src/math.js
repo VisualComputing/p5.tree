@@ -739,3 +739,45 @@ export function pixelRatio(proj, vpH, eyeZ, ndcZMin) {
   }
   return 2 * Math.abs(eyeZ) * Math.tan(projFov(proj) / 2) / vpH;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pick-matrix
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Apply the pick-matrix in-place:  proj ← M_pick · proj
+ *
+ * Zooms the frustum so that pixel (px, py) maps to the full NDC square,
+ * making a 1×1 framebuffer render contain exactly that pixel's content.
+ * Convention-independent — correct for both perspective and orthographic.
+ *
+ * M_pick (column-major):
+ *   [ sx   0   0   tx ]     sx = W,  sy = H
+ *   [  0  sy   0   ty ]     cx = NDC X of pixel centre =  2*(px+0.5)/W − 1
+ *   [  0   0   1    0 ]     cy = NDC Y of pixel centre =  1 − 2*(py+0.5)/H
+ *   [  0   0   0    1 ]     tx = −cx·W,  ty = −cy·H
+ *
+ * @param {Float32Array} proj  Projection mat4 — mutated in place.
+ * @param {number} px  Query X (CSS pixels).
+ * @param {number} py  Query Y (CSS pixels).
+ * @param {number} W   Canvas width  (CSS pixels).
+ * @param {number} H   Canvas height (CSS pixels).
+ * @returns {Float32Array} proj (same reference)
+ */
+export function applyPickMatrix(proj, px, py, W, H) {
+  const cx =  2 * (px + 0.5) / W - 1;
+  const cy = -2 * (py + 0.5) / H + 1;   // Y flip: screen-down → NDC-up
+  const sx = W;
+  const sy = H;
+  const tx = -cx * W;
+  const ty = -cy * H;
+  // P_pick = M_pick * P_orig  (rows 2 and 3 are unchanged)
+  for (let j = 0; j < 4; j++) {
+    const a = proj[j * 4];
+    const b = proj[j * 4 + 1];
+    const d = proj[j * 4 + 3];
+    proj[j * 4]     = sx * a + tx * d;
+    proj[j * 4 + 1] = sy * b + ty * d;
+  }
+  return proj;
+}

@@ -10,11 +10,12 @@ import p5 from 'p5';
 
 import { installConstants } from './constants.js';
 import { installMatrix, detectNDC } from './matrix.js';
-import { installDrawing } from './drawing.js';
+import { installHud } from './hud.js';
+import { installGizmos } from './gizmos.js';
+import { installPicking, releasePickFbo } from './picking.js';
 import { installTrack, tickPlayers, clearPlayers } from './track.js';
 import { installPipe } from './pipe.js';
 import { installPanel } from './panel.js';
-import { installPick, releasePickFbo } from './pick.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
 
@@ -24,20 +25,23 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §2 — Matrix queries, space transforms, HUD
   installMatrix(p5, fn);
 
-  // §3 — Drawing helpers, picking, viewFrustum, visibility
-  installDrawing(p5, fn);
+  // §3 — HUD (beginHUD / endHUD)
+  installHud(p5, fn);
+  
+  // §4 — Gizmos (axes, grid, cross, bullsEye, viewFrustum, visibility)
+  installGizmos(p5, fn);
+  
+  // §5 — Picking (colorPick, mousePick, mouseHit, pointerHit, tag)
+  installPicking(p5, fn);
 
-  // §4 — PoseTrack, adapters, camera path API + global forwarders
+  // §6 — PoseTrack, adapters, camera path API + global forwarders
   installTrack(p5, fn);
 
-  // §5 — Pipe (post-processing chain)
+  // §7 — Pipe (post-processing chain)
   installPipe(p5, fn);
 
-  // §6 — Panel (parameter panels + track transport controls)
+  // §8 — Panel (parameter panels + track transport controls)
   installPanel(p5, fn);
-  
-  // §7 — Color-ID picking
-  installPick(p5, fn);
 
   // ── Lifecycle hooks ────────────────────────────────────────────────
 
@@ -56,6 +60,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
   lifecycles.remove = function () {
     clearPlayers(this);
     this.releasePipe(true);
-    releasePickFbo(this); 
+    releasePickFbo(this);
   };
 });
