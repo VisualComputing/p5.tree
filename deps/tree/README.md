@@ -252,6 +252,8 @@ projLeft  projRight  projTop  projBottom
 
 **Pixel ratio:** `pixelRatio(proj, vpH, eyeZ, ndcZMin)` — world-units-per-pixel at a given depth, handles both perspective and orthographic.
 
+**Pick matrix:** `applyPickMatrix(proj, px, py, W, H)` — mutates a projection mat4 in-place so that pixel `(px, py)` maps to the full NDC square. Used by the p5.tree GPU color-ID picking implementation. Convention-independent (perspective and orthographic).
+
 ---
 
 ### Constants

@@ -24,8 +24,11 @@ Shader tools, animation tracks, camera keyframe interpolation, space transforms,
 * [Post-processing](#post-processing)
   * [pipe](#pipe)
   * [releasePipe](#releasepipe)
+* [Picking](#picking)
+  * [GPU color-ID picking](#gpu-color-id-picking)
+  * [CPU proximity picking](#cpu-proximity-picking)
 * [Utilities](#utilities)
-* [Drawing stuff](#drawing-stuff)
+* [Gizmos](#gizmos)
 * [Releases](#releases)
 * [Usage](#usage)
   * [CDN](#cdn)
@@ -186,21 +189,16 @@ reset() → onStop → _onDeactivate
 
 `track.playing`, `track.loop`, `track.pingPong`, `track.rate`, `track.duration`, `track.keyframes` — readable at any time.
 
-One-keyframe behaviour: `play()` with exactly one keyframe snaps `eval()` without starting playback or firing hooks.
-
 ## Camera helpers
 
 ```js
-getCamera()              // returns curCamera — use with createTrack()
+const cam = createCamera()
+const out = {}
 
-cam.capturePose()        // → { eye, center, up } from live camera state
-cam.capturePose(out)     // zero-allocation form with pre-allocated out
+cam.capturePose(out)    // → { eye, center, up } — zero-alloc with pre-allocated out
+cam.applyPose(pose)     // set camera from { eye, center, up }
 
-cam.applyPose(pose)      // apply { eye, center, up } → cam.camera()
-                         // also accepts { pos, rot, scl } TRS (shake / bob)
-
-applyPose(pose)          // apply { pos, rot, scl } to the transform stack
-rotateQuat(q)            // rotate by [x,y,z,w] quaternion
+getCamera()             // → current active p5.Camera (or null before setup)
 ```
 
 ---
@@ -208,10 +206,6 @@ rotateQuat(q)            // rotate by [x,y,z,w] quaternion
 # Space transformations
 
 ## Matrix operations
-
-`createMatrix(...args)` — convenience wrapper around `new p5.Matrix(...args)`.
-
-## Matrix queries
 
 All matrix queries share the same contract:
 - `out` is the **first** parameter — the caller owns the buffer
@@ -254,7 +248,7 @@ eMatrix(e)
 pMatrix(pm)
 pvMatrix(pv)
 viewFrustum({ eMatrix: e, pMatrix: pm })
-mousePicking({ pvMatrix: pv, eMatrix: e })
+mouseHit({ pvMatrix: pv, eMatrix: e })
 ```
 
 ## Frustum queries
@@ -266,6 +260,9 @@ lPlane()   rPlane()   bPlane()   tPlane()   // side planes
 nPlane()   fPlane()                          // near / far
 fov()      hfov()                            // field of view (radians)
 isOrtho()                                    // true for orthographic
+
+pixelRatio([worldPos], [{ pMatrix, vMatrix }])
+// world-units-per-pixel at worldPos (defaults to camera position)
 ```
 
 ## Coordinate space conversions
@@ -361,16 +358,16 @@ createPanel({
 createPanel(track, { x: 10, y: 10, color: 'white' })
 ```
 
-| Option      | Default     | Description                                    |
-|-------------|-------------|------------------------------------------------|
-| `seek`      | `true`      | Show seek slider.                              |
-| `props`     | `true`      | Show rate slider + mode select.                |
-| `info`      | `false`     | Show time/keyframe readout.                    |
-| `rate`      | track.rate  | Initial rate.                                  |
-| `loop`      | track.loop  | Initial loop mode.                             |
-| `pingPong`  | track.pingPong | Initial pingPong mode.                      |
-| `depth`     | `0.5`       | Initial + button depth [0..1].                 |
-| `camera`    | curCamera   | Camera for + button. `null` suppresses it.     |
+| Option      | Default        | Description                                    |
+|-------------|----------------|------------------------------------------------|
+| `seek`      | `true`         | Show seek slider.                              |
+| `props`     | `true`         | Show rate slider + mode select.                |
+| `info`      | `false`        | Show time/keyframe readout.                    |
+| `rate`      | track.rate     | Initial rate.                                  |
+| `loop`      | track.loop     | Initial loop mode.                             |
+| `pingPong`  | track.pingPong | Initial pingPong mode.                         |
+| `depth`     | `0.5`          | Initial + button depth [0..1].                 |
+| `camera`    | curCamera      | Camera for + button. `null` suppresses it.     |
 
 Lifecycle hooks can be passed directly in opt:
 
@@ -450,10 +447,76 @@ releasePipe('key')    // release a named pipeline
 
 ---
 
+# Picking
+
+Two complementary strategies — GPU color-ID for whole-scene picking, CPU proximity for per-object hit testing.
+
+## GPU color-ID picking
+
+Renders the scene into a cached 1×1 framebuffer with a pick-matrix projection aligned to the query pixel, reads back one RGBA pixel, and decodes a 24-bit integer id. Supports up to 16 777 215 unique ids. id `0` is reserved for background / miss.
+
+```js
+// tag(id) encodes an integer as a CSS hex string — works with fill() regardless of colorMode()
+fill(tag(1)); box(60)
+fill(tag(2)); sphere(40)
+```
+
+```js
+// colorPick — explicit coordinates
+const hit = colorPick(mouseX, mouseY, () => {
+  push(); fill(tag(1)); box(60);    pop()
+  push(); fill(tag(2)); sphere(40); pop()
+})
+if (hit === 1) console.log('box!')
+if (hit === 2) console.log('sphere!')
+
+// mousePick — shorthand for colorPick(mouseX, mouseY, fn)
+const hit = mousePick(() => {
+  push(); fill(tag(1)); box(60);    pop()
+  push(); fill(tag(2)); sphere(40); pop()
+})
+```
+
+Before `drawFn` is called, the library unconditionally sets `noLights()`, `noStroke()`, `resetShader()`. The FBO is lazily allocated on first use and released on sketch removal.
+
+## CPU proximity picking
+
+Tests whether a pointer position falls within a radius of the current model's projected screen-space origin. Zero GPU round-trip — call inside `push()`/`pop()` for each pickable object.
+
+```js
+// mouseHit — test against mouseX/mouseY
+push()
+translate(x, y, z)
+if (mouseHit()) { fill('red') } else { fill('white') }
+box(60)
+pop()
+
+// pointerHit — explicit coordinates (base form)
+push()
+translate(x, y, z)
+if (pointerHit(touchX, touchY)) { fill('red') } else { fill('white') }
+box(60)
+pop()
+```
+
+Both accept the same options object:
+
+| Option     | Default          | Description                                    |
+|------------|------------------|------------------------------------------------|
+| `mMatrix`  | current model    | Override model matrix.                         |
+| `size`     | `50`             | Hit radius (world units, auto-scaled by depth).|
+| `shape`    | `p5.Tree.CIRCLE` | `CIRCLE` or `SQUARE`.                          |
+| `eMatrix`  | current eye      | Pre-computed eye matrix.                       |
+| `pMatrix`  | current proj     | Override projection.                           |
+| `vMatrix`  | current view     | Override view.                                 |
+| `pvMatrix` | P·V              | Pre-computed PV.                               |
+
+---
+
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.21'
+p5.Tree.VERSION   // '0.0.22'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -461,20 +524,15 @@ p5.Tree.VERSION   // '0.0.21'
 ```js
 visibility({ corner1, corner2 })    // box
 visibility({ center, radius })      // sphere
-visibility({ point })               // point
+visibility({ center })              // point
 // → p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
-```
-
-**Picking:**
-
-```js
-mousePicking({ pvMatrix, eMatrix, [shape] })
-// shape: p5.Tree.CIRCLE (default) | p5.Tree.SQUARE
 ```
 
 ---
 
-# Drawing stuff
+# Gizmos
+
+Scene-space diagnostic helpers — drawn to understand the scene, not to build it.
 
 ```js
 axes([{ size, bits, mMatrix, eMatrix, pMatrix, vMatrix, pvMatrix }])
@@ -503,9 +561,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.21/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.esm.js)
 
 ---
 
