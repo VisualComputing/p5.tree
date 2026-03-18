@@ -24,10 +24,10 @@
  * ── API symmetry ──────────────────────────────────────────────────────────
  *
  *   colorPick(x, y, drawFn)   GPU — base form
- *   mousePick(drawFn)          GPU — shorthand for colorPick(mouseX, mouseY, fn)
+ *   mousePick(drawFn)         GPU — shorthand for colorPick(mouseX, mouseY, fn)
  *
  *   pointerHit(x, y, opts)    CPU — base form (renderer method)
- *   mouseHit(opts)             CPU — shorthand for pointerHit(mouseX, mouseY, opts)
+ *   mouseHit(opts)            CPU — shorthand for pointerHit(mouseX, mouseY, opts)
  */
 
 'use strict';

@@ -448,20 +448,23 @@ export function installMatrix(p5, fn) {
    * World-units-per-pixel at a world position.
    * @param {Float32Array|ArrayLike|p5.Vector} [worldPos]
    *   World position to query. Defaults to the camera world position.
-   * @param {{ eMatrix?: Float32Array|ArrayLike|p5.Matrix }} [opts]
+   * @param {{
+   *   pMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   * }} [opts]
    * @returns {number}
    */
-  p5.Renderer3D.prototype.pixelRatio = function (worldPos, opts = {}) {
-    const proj = _projMat4(this);
+  p5.Renderer3D.prototype.pixelRatio = function (worldPos, { pMatrix, vMatrix } = {}) {
+    const proj = _rawMat4(pMatrix) ?? _projMat4(this);
+    const view = _rawMat4(vMatrix) ?? _viewMat4(this);
     let eyeZ;
     if (worldPos) {
       const wx = worldPos.x ?? worldPos[0] ?? 0;
       const wy = worldPos.y ?? worldPos[1] ?? 0;
       const wz = worldPos.z ?? worldPos[2] ?? 0;
-      const view = _viewMat4(this);
       eyeZ = view[2]*wx + view[6]*wy + view[10]*wz + view[14];
     } else {
-      eyeZ = _viewMat4(this)[14];
+      eyeZ = view[14];
     }
     return corePixelRatio(proj, this.height, eyeZ, _ndcZ);
   };
