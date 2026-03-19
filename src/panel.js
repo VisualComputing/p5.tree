@@ -1,7 +1,7 @@
 /**
  * @file Unified panel bridge: parameter panels and track transport controls.
  * @module p5.tree/panel
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * ── What lives here ──────────────────────────────────────────────────────────
  *  fn.createPanel(trackOrSchema, opt)

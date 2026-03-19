@@ -1,7 +1,7 @@
 /**
  * @file DOM-based transport controls for PoseTrack (or any compatible target).
  * @module ui/trackUI
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Zero p5 dependencies.  Pure vanilla DOM.
  *

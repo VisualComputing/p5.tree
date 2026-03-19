@@ -1,7 +1,7 @@
 /**
  * @file PoseTrack / CameraTrack bridge: player registry, camera pose helpers.
  * @module p5.tree/track
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * ── What lives here ──────────────────────────────────────────────────────────
  *  Player registry

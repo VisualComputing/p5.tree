@@ -1,7 +1,7 @@
 /**
  * @file Pure quaternion/spline math + track state machines.
  * @module tree/track
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Zero dependencies.  No p5, DOM, WebGL, or WebGPU usage.
  *

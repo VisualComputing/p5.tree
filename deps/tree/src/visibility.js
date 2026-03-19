@@ -1,7 +1,7 @@
 /**
  * @file Frustum planes and visibility tests — zero allocations.
  * @module tree/visibility
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Planes are a flat Float64Array(24): 6 planes × 4 floats [a, b, c, d].
  * All inputs are scalars. All outputs are INVISIBLE | VISIBLE | SEMIVISIBLE.

@@ -1,6 +1,6 @@
 {
   "name": "p5.tree",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "description": "Shader development and space transformations WEBGL addon library.",
   "type": "module",
   "main": "dist/p5.tree.esm.js",
@@ -44,13 +44,13 @@
     "geometry"
   ],
   "author": "Jean Pierre Charalambos <nakednous@gmail.com>",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "peerDependencies": {
     "p5": "^2.2.2"
   },
   "dependencies": {
-    "@nakednous/tree": "^0.0.6",
-    "@nakednous/ui": "^0.0.4"
+    "@nakednous/tree": "^0.0.7",
+    "@nakednous/ui": "^0.0.5"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.3",

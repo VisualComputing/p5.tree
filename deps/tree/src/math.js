@@ -1,7 +1,7 @@
 /**
  * @file Pure numeric math — mat4, mat3, projection queries, space transforms.
  * @module tree/math
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * CONVENTIONS (all functions in this module follow these):
  *

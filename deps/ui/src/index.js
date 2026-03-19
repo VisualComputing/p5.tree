@@ -1,7 +1,7 @@
 /**
  * @file UI package entry point — parameter panels and transport controls.
  * @module ui
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Pure vanilla DOM.  Zero p5 dependencies.
  * Mount into any container (canvas parent, Vue, React, plain HTML).

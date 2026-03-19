@@ -1,7 +1,7 @@
 /**
  * @file Picking — GPU color-ID picking and CPU proximity tests.
  * @module p5.tree/picking
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * ── GPU color-ID picking ──────────────────────────────────────────────────
  *

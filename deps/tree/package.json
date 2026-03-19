@@ -1,6 +1,6 @@
 {
   "name": "@nakednous/tree",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "tree — pure numeric core. Zero dependencies.",
   "type": "module",
   "main": "dist/index.js",
@@ -18,5 +18,5 @@
     "prepublishOnly": "npm run build"
   },
   "author": "Jean Pierre Charalambos <nakednous@gmail.com>",
-  "license": "GPL-3.0-only"
+  "license": "AGPL-3.0-only"
 }

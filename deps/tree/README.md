@@ -309,5 +309,5 @@ mapLocation(out, px, py, pz, WORLD, SCREEN,
 
 ## License
 
-GPL-3.0-only  
+AGPL-3.0-only  
 © JP Charalambos

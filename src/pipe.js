@@ -1,7 +1,7 @@
 /**
  * @file Post-processing pipeline (pipe + releasePipe).
  * @module p5.tree/pipe
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Contains the `fn.pipe()` and `fn.releasePipe()` functions.
  */

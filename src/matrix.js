@@ -1,7 +1,7 @@
 /**
  * @file Matrix queries, space transforms, and HUD — p5 bridge layer.
  * @module p5.tree/matrix
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Thin bridge: reads raw Float32Array refs from p5 renderer state and feeds
  * them directly into @nakednous/tree core functions.

@@ -1,7 +1,7 @@
 /**
  * @file Schema-driven parameter panel — binds named controls to a target.
  * @module ui/bindUI
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Zero p5 dependencies.  Pure vanilla DOM.
  *

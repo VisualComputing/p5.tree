@@ -1,7 +1,7 @@
 /**
  * @file Shared vanilla DOM element factories.
  * @module ui/dom
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Zero dependencies — no p5, no framework.
  * Each function creates and returns a raw HTMLElement.

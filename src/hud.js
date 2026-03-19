@@ -1,7 +1,7 @@
 /**
  * @file HUD (Heads-Up Display) — 2D screen-space overlay mode.
  * @module p5.tree/hud
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  *
  * Coordinates: (x, y) ∈ [0, width] × [0, height], origin top-left,
  * y increasing downward.

@@ -516,7 +516,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.22'
+p5.Tree.VERSION   // '0.0.23'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -561,9 +561,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.22/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.23/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.23/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.23/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.23/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.23/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.23/dist/p5.tree.esm.js)
 
 ---
 

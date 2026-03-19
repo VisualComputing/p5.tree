@@ -1,7 +1,7 @@
 /**
  * @file Install constants onto p5.Tree.
  * @module p5.tree/constants
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  */
 
 import * as C from '@nakednous/tree';
@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.22'),
+    VERSION: CONST('0.0.23'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)

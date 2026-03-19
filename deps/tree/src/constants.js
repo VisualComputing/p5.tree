@@ -1,7 +1,7 @@
 /**
  * @file Core constants — zero dependencies.
  * @module tree/constants
- * @license GPL-3.0-only
+ * @license AGPL-3.0-only
  */
 
 // Coordinate spaces
