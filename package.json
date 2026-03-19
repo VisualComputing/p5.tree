@@ -1,7 +1,7 @@
 {
   "name": "p5.tree",
-  "version": "0.0.23",
-  "description": "Shader development and space transformations WEBGL addon library.",
+  "version": "0.0.24",
+  "description": "Render pipeline for p5.js v2 — pose and camera interpolation, space transforms, frustum visibility, HUD, post-processing pipe, picking, and shader UI.",
   "type": "module",
   "main": "dist/p5.tree.esm.js",
   "module": "dist/p5.tree.esm.js",
