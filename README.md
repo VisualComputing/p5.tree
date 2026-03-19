@@ -477,7 +477,11 @@ const hit = mousePick(() => {
 })
 ```
 
-Before `drawFn` is called, the library unconditionally sets `noLights()`, `noStroke()`, `resetShader()`. The FBO is lazily allocated on first use and released on sketch removal.
+Before `drawFn` is called, the library unconditionally sets `noLights()`, `noStroke()`, `resetShader()`.
+Stroke is excluded from the pick buffer by default — call `stroke(tag(id))` inside `drawFn` to include it,
+skipping the stroke render passes when precision or performance warrants it.
+When stroke is included, both `fill` and `stroke` must carry the same `tag(id)`.
+The FBO is lazily allocated on first use and released on sketch removal.
 
 ## CPU proximity picking
 

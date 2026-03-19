@@ -117,6 +117,9 @@ export function installPicking(p5, fn) {
    *
    * Before `drawFn` is called the library unconditionally calls:
    * `noLights()`, `noStroke()`, `resetShader()`.
+   * Stroke is excluded from the pick buffer by default — call
+   * `stroke(tag(id))` inside `drawFn` to include it. When stroke is
+   * included, both `fill` and `stroke` must carry the same `tag(id)`.
    *
    * The FBO is lazily allocated on first use and released in `lifecycles.remove`.
    *
