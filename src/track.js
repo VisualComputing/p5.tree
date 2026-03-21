@@ -8,19 +8,18 @@
  *    registerPlayer / unregisterPlayer / tickPlayers / clearPlayers
  *
  *  fn.getCamera          Return the current p5 camera (curCamera).
- *  fn.createTrack(cam?)  Unified factory:
- *                          cam is p5.Camera → CameraTrack wired + auto-apply
- *                          cam omitted/null → PoseTrack wired to the draw loop
+ *  fn.createPoseTrack()        PoseTrack wired to the draw loop.
+ *  fn.createCameraTrack(cam)   CameraTrack wired + auto-apply; cam required.
  *
  *  p5.Renderer3D.rotateQuat   rotate by [x,y,z,w] quaternion
  *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
  *  fn.rotateQuat / fn.applyPose   forwarders to the renderer
  *
- *  p5.Camera.capturePose  read live camera → { eye, center, up }
- *  p5.Camera.applyPose    write { eye, center, up } → cam.camera()
+ *  p5.Camera.capturePose  read live camera → { eye, center, up, fov, halfHeight }
+ *  p5.Camera.applyPose    write { eye, center, up, fov, halfHeight } → cam.camera() + projection
  *
  * ── { camera } spec support ───────────────────────────────────────────────────
- *  CameraTrack.add() returned by createTrack() accepts a { camera } spec:
+ *  CameraTrack.add() returned by createCameraTrack() accepts a { camera } spec:
  *    track.add({ camera: cam })        — capture live pose from a p5.Camera
  *    track.add({ camera: getCamera() })
  *  Interception is in the bridge (here), not in deps/tree — eyeX/centerX/upX
@@ -29,7 +28,8 @@
 
 'use strict';
 
-import { PoseTrack, CameraTrack, qToMat4 } from '@nakednous/tree';
+import { PoseTrack, CameraTrack, qToMat4,
+         projFov, projTop, projIsOrtho } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Player registry
@@ -123,7 +123,7 @@ function _cameraToSpec(cam) {
  * Arrays are processed element-by-element so { camera } entries inside
  * bulk adds are also resolved.
  *
- * Equivalent forms for a track returned by createTrack(cam):
+ * Equivalent forms for a track returned by createCameraTrack(cam):
  *   track.add()
  *   track.add({ camera: cam })
  *   track.add({ camera: getCamera() })
@@ -167,9 +167,9 @@ export function installTrack(p5, fn) {
   /**
    * Return the current p5 camera (curCamera).
    *
-   * Use with createTrack() to bind a CameraTrack to the default camera:
+   * Use with createCameraTrack() to bind a CameraTrack to the default camera:
    * ```js
-   * const track = createTrack(getCamera())
+   * const track = createCameraTrack(getCamera())
    * ```
    *
    * Returns null if called before createCanvas().
@@ -182,16 +182,14 @@ export function installTrack(p5, fn) {
     return this._renderer?.states?.curCamera ?? null;
   };
 
-  // ── fn.createTrack ─────────────────────────────────────────────────────────
+  // ── fn.createPoseTrack ─────────────────────────────────────────────────────
 
   /**
-   * Unified track factory. Returns a PoseTrack or CameraTrack depending
-   * on whether a camera is provided.
+   * Create a PoseTrack wired to the p5 draw loop.
    *
-   * **PoseTrack** — pass nothing (or null):
    * ```js
-   * const track = createTrack()
-   * const out = { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }
+   * const track = createPoseTrack()
+   * const out   = { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }
    *
    * track.add({ pos:[0,0,0],   rot:[0,0,0,1], scl:[1,1,1] })
    * track.add({ pos:[200,0,0], rot:[0,0,0,1], scl:[1,1,1] })
@@ -206,10 +204,25 @@ export function installTrack(p5, fn) {
    * }
    * ```
    *
-   * **CameraTrack (explicit camera)**:
+   * @method createPoseTrack
+   * @memberof p5
+   * @returns {PoseTrack}
+   */
+  fn.createPoseTrack = function () {
+    const track = new PoseTrack();
+    _wirePoseTrack(track, this);
+    return track;
+  };
+
+  // ── fn.createCameraTrack ───────────────────────────────────────────────────
+
+  /**
+   * Create a CameraTrack bound to a p5.Camera.
+   * Playback applies the interpolated lookat + projection automatically each frame.
+   *
    * ```js
    * const cam   = createCamera()
-   * const track = createTrack(cam)
+   * const track = createCameraTrack(cam)
    *
    * track.add({ eye:[0,0,500], center:[0,0,0] })
    * track.add({ eye:[300,-150,0], center:[0,0,0] })
@@ -223,44 +236,28 @@ export function installTrack(p5, fn) {
    * orbitControl()
    * ```
    *
-   * **CameraTrack (default camera)**:
+   * Use getCamera() to bind to the default camera:
    * ```js
-   * const track = createTrack(getCamera())
+   * const track = createCameraTrack(getCamera())
    * ```
    *
-   * Interpolation modes are set directly on the returned track:
+   * Interpolation modes:
    * ```js
-   * track.posInterp    = 'linear'       // PoseTrack: 'catmullrom' | 'linear'
-   * track.rotInterp    = 'squad'        // PoseTrack: 'slerp' | 'nlerp' | 'squad'
-   * track.eyeInterp    = 'linear'       // CameraTrack: 'catmullrom' | 'linear'
-   * track.centerInterp = 'catmullrom'   // CameraTrack: 'catmullrom' | 'linear'
+   * track.eyeInterp    = 'linear'       // 'catmullrom' | 'linear'
+   * track.centerInterp = 'catmullrom'   // 'catmullrom' | 'linear'
    * ```
    *
-   * @method createTrack
+   * @method createCameraTrack
    * @memberof p5
-   * @param {p5.Camera|null} [cam]
-   *   Camera to drive.  Pass a p5.Camera (or getCamera()) for a CameraTrack.
-   *   Omit or pass null/undefined for an unbound PoseTrack.
-   * @returns {PoseTrack|CameraTrack}
+   * @param {p5.Camera} cam  Camera to drive. Use getCamera() for the default camera.
+   * @returns {CameraTrack}
    */
-  fn.createTrack = function (cam) {
+  fn.createCameraTrack = function (cam) {
     const pInst = this;
+    const track  = new CameraTrack();
+    const out    = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
 
-    // ── PoseTrack path ──────────────────────────────────────────────────────
-    if (!cam) {
-      const track = new PoseTrack();
-      _wirePoseTrack(track, pInst);
-      return track;
-    }
-
-    // ── CameraTrack path ────────────────────────────────────────────────────
-    const track = new CameraTrack();
-    const out   = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
-
-    // Expose so createTrackUI can read it without an extra option.
     track.camera = cam;
-
-    // Patch add() to accept { camera: p5Camera } specs (bridge-side only).
     _patchCameraTrackAdd(track);
 
     const applyPlayer = {
@@ -275,7 +272,6 @@ export function installTrack(p5, fn) {
     track._onActivate   = () => registerPlayer(pInst, applyPlayer);
     track._onDeactivate = () => {
       unregisterPlayer(pInst, applyPlayer);
-      // Land exactly on the final keyframe when playback ends.
       if (track.keyframes.length > 0) cam.applyPose(track.eval(out));
     };
 
@@ -326,7 +322,7 @@ export function installTrack(p5, fn) {
   // ── p5.Camera — capturePose / applyPose ────────────────────────────────────
 
   /**
-   * Read the live camera state into a { eye, center, up } object.
+   * Read the live camera state into a { eye, center, up, fov, halfHeight } object.
    *
    * - `eye`    ← [eyeX, eyeY, eyeZ]
    * - `center` ← [centerX, centerY, centerZ]
@@ -335,24 +331,40 @@ export function installTrack(p5, fn) {
    * Reads cam.upX/Y/Z directly — always the real hint, correct for both
    * upright cameras (up=[0,1,0]) and pole-flipped cameras (up=[0,-1,0]).
    *
+   * Also captures the current projection:
+   *   fov        — vertical fov (radians) for perspective cameras; null for ortho.
+   *   halfHeight — world-unit half-height of ortho frustum; null for perspective.
+   *
    * Pass a pre-allocated out to avoid allocation per frame:
    * ```js
-   * const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
+   * const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
    * track.add(cam.capturePose(out))
    * ```
    *
    * @method capturePose
    * @memberof p5.Camera
-   * @param {{ eye:number[], center:number[], up:number[] }} [out]
-   * @returns {{ eye:number[], center:number[], up:number[] }}
+   * @param {{ eye:number[], center:number[], up:number[], fov:number|null, halfHeight:number|null }} [out]
+   * @returns {{ eye:number[], center:number[], up:number[], fov:number|null, halfHeight:number|null }}
    */
   p5.Camera.prototype.capturePose = function (out) {
-    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
+    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
     out.eye[0]    = this.eyeX;    out.eye[1]    = this.eyeY;    out.eye[2]    = this.eyeZ;
     out.center[0] = this.centerX; out.center[1] = this.centerY; out.center[2] = this.centerZ;
     out.up[0]     = this.upX !== undefined ? this.upX : 0;
     out.up[1]     = this.upY !== undefined ? this.upY : 1;
     out.up[2]     = this.upZ !== undefined ? this.upZ : 0;
+    const pMat = this._renderer?.states?.uPMatrix;
+    if (pMat) {
+      if (projIsOrtho(pMat)) {
+        out.fov        = null;
+        out.halfHeight = projTop(pMat, -1);   // WebGL ndcZMin is always −1
+      } else {
+        out.fov        = projFov(pMat);
+        out.halfHeight = null;
+      }
+    } else {
+      out.fov = null; out.halfHeight = null;
+    }
     return out;
   };
 
@@ -381,6 +393,13 @@ export function installTrack(p5, fn) {
         pose.center[0], pose.center[1], pose.center[2],
         up[0],          up[1],          up[2]
       );
+      if (pose.fov != null) {
+        this.perspective(pose.fov);
+      } else if (pose.halfHeight != null) {
+        const aspect = (this._renderer.width / this._renderer.height) || 1;
+        const hw = pose.halfHeight;
+        this.ortho(-hw * aspect, hw * aspect, -hw, hw);
+      }
       return this;
     }
 

@@ -41,9 +41,9 @@ Render pipeline for p5.js [p5.js v2](https://beta.p5js.org/) — pose and camera
 A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path), depending on whether a camera is passed.
 
 ```js
-const track = createTrack()             // PoseTrack — animates any object
-const track = createTrack(cam)          // CameraTrack — drives a p5.Camera
-const track = createTrack(getCamera())  // CameraTrack on the default camera
+const track = createPoseTrack()                 // PoseTrack — animates any object
+const track = createCameraTrack(cam)            // CameraTrack — drives a p5.Camera
+const track = createCameraTrack(getCamera())    // CameraTrack on the default camera
 ```
 
 ## PoseTrack — object animation
@@ -51,7 +51,7 @@ const track = createTrack(getCamera())  // CameraTrack on the default camera
 Stores `{ pos, rot, scl }` keyframes. Interpolates position with centripetal Catmull-Rom, rotation with slerp or nlerp, scale with linear.
 
 ```js
-const track = createTrack()
+const track = createPoseTrack()
 const out   = { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }
 
 track.add({ pos:[-150, 0, 0], rot:[0,0,0,1], scl:[1,1,1] })
@@ -114,7 +114,7 @@ let cam, track
 function setup() {
   createCanvas(600, 400, WEBGL)
   cam   = createCamera()
-  track = createTrack(cam)
+  track = createCameraTrack(cam)
 
   track.add({ eye:[0,0,500], center:[0,0,0] })
   track.add({ eye:[300,-150,0], center:[0,0,0] })
@@ -133,13 +133,19 @@ function draw() {
 `add()` accepts multiple forms:
 
 ```js
-track.add({ eye, center?, up? })   // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
-track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed via -R^T·t
-track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
-track.add(cam.capturePose())       // capture live camera state (zero-alloc with pre-allocated out)
-track.add()                        // shortcut — captures track's bound camera
-track.add([ spec, spec, ... ])     // bulk
+track.add({ eye, center?, up?, fov?, halfHeight? })
+                               // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
+track.add({ vMatrix: mat4 })   // view matrix (world→eye); eye reconstructed via -R^T·t
+track.add({ eMatrix: mat4 })   // eye matrix (eye→world); eye read from col3
+track.add(cam.capturePose())   // capture live camera state (zero-alloc with pre-allocated out)
+track.add()                    // shortcut — captures track's bound camera
+track.add([ spec, spec, ... ]) // bulk
 ```
+
+`fov` (radians) animates perspective field of view.
+`halfHeight` (world units) animates the vertical extent of an ortho frustum —
+width is derived from aspect ratio at apply time, preserving image proportions.
+Both fields are captured automatically by `track.add()` and `track.add({ camera: cam })`.
 
 `vMatrix` and `eMatrix` both default `up` to `[0,1,0]`. Pass `cam.capturePose()` when the real up hint needs preserving.
 

@@ -543,7 +543,8 @@ function _parseCameraSpec(spec) {
     const ez = -(m[2]*m[12] + m[6]*m[13] + m[10]*m[14]);
     const fx=-m[8], fy=-m[9], fz=-m[10];
     const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
-    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0] };
+    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0],
+             fov:null, halfHeight:null };
   }
 
   // { eMatrix } — eye matrix (eye→world); eye = col3, forward = -col2
@@ -554,7 +555,8 @@ function _parseCameraSpec(spec) {
     const ex=m[12], ey=m[13], ez=m[14];
     const fx=-m[8], fy=-m[9], fz=-m[10];
     const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
-    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0] };
+    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0],
+             fov:null, halfHeight:null };
   }
 
   // { eye, center?, up? } — explicit lookat (eye is a vec3, not a mat4)
@@ -564,7 +566,12 @@ function _parseCameraSpec(spec) {
   const upRaw = spec.up ? _parseVec3(spec.up) : null;
   const up    = upRaw || [0,1,0];
   const ul    = Math.sqrt(up[0]*up[0]+up[1]*up[1]+up[2]*up[2]) || 1;
-  return { eye, center, up:[up[0]/ul, up[1]/ul, up[2]/ul] };
+  return {
+    eye, center,
+    up: [up[0]/ul, up[1]/ul, up[2]/ul],
+    fov:        typeof spec.fov        === 'number' ? spec.fov        : null,
+    halfHeight: typeof spec.halfHeight === 'number' ? spec.halfHeight : null,
+  };
 }
 
 function _sameCameraKeyframe(a, b) {
@@ -573,6 +580,8 @@ function _sameCameraKeyframe(a, b) {
     if (a.center[i]!==b.center[i]) return false;
     if (a.up[i]!==b.up[i]) return false;
   }
+  if (a.fov !== b.fov) return false;
+  if (a.halfHeight !== b.halfHeight) return false;
   return true;
 }
 
@@ -982,7 +991,12 @@ export class PoseTrack extends Track {
 /**
  * Lookat camera keyframe track.
  *
- * Keyframe shape: { eye:[x,y,z], center:[x,y,z], up:[x,y,z] }
+ * Keyframe shape: { eye:[x,y,z], center:[x,y,z], up:[x,y,z], fov?:number, halfHeight?:number }
+ *
+ * fov        — vertical fov (radians) for perspective cameras; null for ortho.
+ * halfHeight — world-unit half-height of ortho frustum; null for perspective.
+ * Both are optional and nullable. eval() lerps each only when both adjacent
+ * keyframes carry a non-null value for that field.
  *
  * Each field is independently interpolated — eye and center along their
  * own paths, up nlerped on the unit sphere. This correctly handles cameras
@@ -993,7 +1007,9 @@ export class PoseTrack extends Track {
  *
  * add() accepts individual specs or a bulk array of specs:
  *
- *   { eye, center?, up? }  explicit lookat; center defaults to [0,0,0], up to [0,1,0]
+ *   { eye, center?, up?, fov?, halfHeight? }
+ *                         explicit lookat; center defaults to [0,0,0], up to [0,1,0].
+ *                         fov and halfHeight are mutually exclusive nullable scalars.
  *   { vMatrix: mat4 }      view matrix (world→eye); eye reconstructed via -R^T·t
  *   { eMatrix: mat4 }      eye matrix (eye→world); eye read from col3 directly
  *   [ spec, spec, ... ]    bulk
@@ -1004,10 +1020,12 @@ export class PoseTrack extends Track {
  *   passing it to cam.camera() shifts orbitControl's orbit reference.
  *   Use capturePose() (p5.tree bridge) when the real up hint is needed.
  *
- * eval() writes { eye, center, up }:
- *   eye    — Catmull-Rom (eyeInterp='catmullrom') or lerp
- *   center — Catmull-Rom (centerInterp='catmullrom') or lerp
- *   up     — nlerp (normalize-after-lerp on unit sphere)
+ * eval() writes { eye, center, up, fov, halfHeight }:
+ *   eye        — Catmull-Rom (eyeInterp='catmullrom') or lerp
+ *   center     — Catmull-Rom (centerInterp='catmullrom') or lerp
+ *   up         — nlerp (normalize-after-lerp on unit sphere)
+ *   fov        — lerp when both keyframes carry non-null fov; else null
+ *   halfHeight — lerp when both keyframes carry non-null halfHeight; else null
  *
  * @example
  * const track = new CameraTrack()
@@ -1088,7 +1106,7 @@ export class CameraTrack extends Track {
    * @returns {{ eye:number[], center:number[], up:number[] }} out
    */
   eval(out) {
-    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
+    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
     const n = this.keyframes.length;
     if (n === 0) return out;
 
@@ -1097,6 +1115,8 @@ export class CameraTrack extends Track {
       out.eye[0]=k.eye[0];       out.eye[1]=k.eye[1];       out.eye[2]=k.eye[2];
       out.center[0]=k.center[0]; out.center[1]=k.center[1]; out.center[2]=k.center[2];
       out.up[0]=k.up[0];         out.up[1]=k.up[1];         out.up[2]=k.up[2];
+      out.fov        = k.fov;
+      out.halfHeight = k.halfHeight;
       return out;
     }
 
@@ -1131,6 +1151,13 @@ export class CameraTrack extends Track {
     const uz = k0.up[2] + t*(k1.up[2]-k0.up[2]);
     const ul = Math.sqrt(ux*ux+uy*uy+uz*uz) || 1;
     out.up[0]=ux/ul; out.up[1]=uy/ul; out.up[2]=uz/ul;
+
+    // fov — lerp (perspective); null when either keyframe lacks it
+    out.fov        = (k0.fov        !== null && k1.fov        !== null)
+      ? k0.fov        + t * (k1.fov        - k0.fov)        : null;
+    // halfHeight — lerp (ortho); null when either keyframe lacks it
+    out.halfHeight = (k0.halfHeight !== null && k1.halfHeight !== null)
+      ? k0.halfHeight + t * (k1.halfHeight - k0.halfHeight) : null;
 
     return out;
   }

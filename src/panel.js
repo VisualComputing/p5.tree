@@ -17,7 +17,7 @@
  *  5. Register player      → auto-tick via predraw loop
  *
  * ── Camera resolution for + button ───────────────────────────────────────────
- *  CameraTrack              → track.camera (set by createTrack)
+ *  CameraTrack              → track.camera (set by createCameraTrack)
  *  PoseTrack + opt.camera   → use that camera explicitly
  *  PoseTrack, omitted       → curCamera (covers ~90% of use cases)
  *  Either  + null           → + button suppressed
@@ -102,7 +102,7 @@ function _centerAtDepth(pInst, d) {
  * The wrapper exposes the transport contract (_createTrackUI duck-type):
  *   play, stop, seek, time, playing, reset, info, add (optional)
  *
- * For CameraTrack: apply is already wired in createTrack; the wrapper only
+ * For CameraTrack: apply is already wired in createCameraTrack; the wrapper only
  *   handles snap (1-kf), seek-while-stopped, and + button capture.
  *   Depth slider is suppressed (not meaningful for camera tracks).
  *
@@ -185,11 +185,11 @@ export function installPanel(p5, fn) {
    * ```js
    * // CameraTrack — camera auto-resolved from track.camera
    * const cam   = createCamera()
-   * const track = createTrack(cam)
+   * const track = createCameraTrack(cam)
    * createPanel(track, { x: 10, y: 10, color: 'white' })
    *
    * // PoseTrack — curCamera used for + button by default
-   * const track = createTrack()
+   * const track = createPoseTrack()
    * createPanel(track, { x: 10, y: 10, color: 'white' })
    *
    * // PoseTrack — explicit camera override

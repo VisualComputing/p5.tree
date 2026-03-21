@@ -94,7 +94,7 @@ rot: { eMatrix: mat4 }                            // rotation block of an eye ma
 
 ### CameraTrack — lookat keyframe animation
 
-A renderer-agnostic state machine for `{ eye, center, up }` lookat keyframes. Each field is independently interpolated — eye and center along their own paths, up nlerped on the unit sphere.
+A renderer-agnostic state machine for `{ eye, center, up, fov?, halfHeight? }` lookat keyframes. Each field is independently interpolated — eye and center along their own paths, up nlerped on the unit sphere.
 
 ```js
 import { CameraTrack } from '@nakednous/tree'
@@ -105,7 +105,7 @@ track.add({ eye:[300,-150,0], center:[0,0,0] })
 track.play({ loop: true, duration: 90 })
 
 // per-frame — zero allocation
-const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
+const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
 track.tick()
 track.eval(out)
 // apply: cam.camera(out.eye[0],out.eye[1],out.eye[2],
@@ -126,13 +126,20 @@ track.centerInterp = 'catmullrom'  // smoother when center is also moving freely
 `add()` accepts:
 
 ```js
-track.add({ eye, center?, up? })   // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
+track.add({ eye, center?, up?, fov?, halfHeight? })
+                                   // fov — vertical fov (radians) for perspective
+                                   // halfHeight — world-unit half-height for ortho
+                                   // both nullable; omit to leave projection unchanged
 track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed
 track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
 track.add([ spec, spec, ... ])     // bulk
 ```
 
 Note: both matrix forms default `up` to `[0,1,0]`. The matrix col1 (up_ortho) is intentionally not used — it differs from the hint for upright cameras and would shift orbitControl's orbit reference. Use `capturePose()` (p5.tree bridge) when the real up hint is needed.
+
+`fov` and `halfHeight` are lerped between keyframes only when both adjacent
+keyframes carry a non-null value for that field. Mixed or null entries pass
+`null` through — the bridge leaves the projection unchanged.
 
 ---
 
@@ -301,7 +308,7 @@ mapLocation(out, px, py, pz, WORLD, SCREEN,
 
 ## Relationship to `p5.tree`
 
-[p5.tree](https://github.com/VisualComputing/p5.tree) is the bridge layer. It reads live renderer state (camera matrices, viewport dimensions, NDC convention) and passes it to `@nakednous/tree` functions. It wires `PoseTrack` and `CameraTrack` to the p5 draw loop, exposes `createTrack` / `getCamera`, and provides `createPanel` for transport and parameter UIs.
+[p5.tree](https://github.com/VisualComputing/p5.tree) is the bridge layer. It reads live renderer state (camera matrices, viewport dimensions, NDC convention) and passes it to `@nakednous/tree` functions. It wires `PoseTrack` and `CameraTrack` to the p5 draw loop, exposes `createPoseTrack` / `createCameraTrack` / `getCamera`, and provides `createPanel` for transport and parameter UIs.
 
 `@nakednous/tree` provides the algorithms. The bridge provides the wiring.
 
