@@ -175,7 +175,21 @@ export function installPicking(p5, fn) {
 
     const proj = states.uPMatrix.mat4;
     for (let i = 0; i < 16; i++) proj[i] = _pickProjSave[i];
-    applyPickMatrix(proj, px, py, p.width, p.height);
+    // ── WORKAROUND: p5 bug — remove block and uncomment restore line ──────
+    // p5 v2 sets mouseX/mouseY as (clientX - rect.left) / scrollWidth * width.
+    // scrollWidth is unaffected by parent CSS transform: scale(), so mouseX/mouseY
+    // land in visual CSS-pixel space rather than logical canvas space when a parent
+    // (e.g. Slidev) applies CSS scaling. Both px/py and rect dimensions share the
+    // same visual space, so passing rect.width/height keeps the ratio correct.
+    // Fix in p5: src/events/pointer.js _updatePointerCoords — replace
+    //   canvas.scrollWidth / this.width   with  rect.width  / this.width
+    //   canvas.scrollHeight / this.height with  rect.height / this.height
+    const _pickRect = renderer.canvas.getBoundingClientRect();
+    applyPickMatrix(proj, px, py,
+      _pickRect.width  || p.width,
+      _pickRect.height || p.height);
+    // applyPickMatrix(proj, px, py, p.width, p.height); // ← restore on removal
+    // ── END WORKAROUND ────────────────────────────────────────────────────
 
     // ── 5. Pick render state ────────────────────────────────────────────────
     p.background(0);   // clear to id 0 (background / miss)
@@ -259,7 +273,17 @@ export function installPicking(p5, fn) {
 
     if (x == null || y == null) {
       this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
-      x = _sl[0]; y = _sl[1];
+      // ── WORKAROUND: p5 bug — remove block and uncomment restore line ────
+      // mapLocation → SCREEN returns logical canvas coordinates.
+      // pointerX/pointerY from p5.mouseX/mouseY are in visual CSS-pixel space
+      // (same bug as colorPick above). Scale logical → visual so the comparison
+      // is in the same space. See colorPick comment for p5 fix location.
+      const _hitRect = this.canvas.getBoundingClientRect();
+      const _hsx = (_hitRect.width  || this.width)  / this.width;
+      const _hsy = (_hitRect.height || this.height) / this.height;
+      x = _sl[0] * _hsx; y = _sl[1] * _hsy;
+      // x = _sl[0]; y = _sl[1]; // ← restore on removal
+      // ── END WORKAROUND ──────────────────────────────────────────────────
       this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
       size = size / this.pixelRatio(_wl);
     }
