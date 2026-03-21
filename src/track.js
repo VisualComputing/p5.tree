@@ -30,6 +30,7 @@
 
 import { PoseTrack, CameraTrack, qToMat4,
          projFov, projTop, projIsOrtho } from '@nakednous/tree';
+import { getNdcZ } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Player registry
@@ -353,11 +354,11 @@ export function installTrack(p5, fn) {
     out.up[0]     = this.upX !== undefined ? this.upX : 0;
     out.up[1]     = this.upY !== undefined ? this.upY : 1;
     out.up[2]     = this.upZ !== undefined ? this.upZ : 0;
-    const pMat = this._renderer?.states?.uPMatrix;
+    const pMat = this._renderer?.states?.uPMatrix?.mat4;
     if (pMat) {
       if (projIsOrtho(pMat)) {
         out.fov        = null;
-        out.halfHeight = projTop(pMat, -1);   // WebGL ndcZMin is always −1
+        out.halfHeight = projTop(pMat, getNdcZ());
       } else {
         out.fov        = projFov(pMat);
         out.halfHeight = null;
