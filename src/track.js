@@ -137,17 +137,20 @@ function _patchCameraTrackAdd(track) {
   track.add = function (spec, opts) {
     // No-arg shortcut — capture the bound camera if available.
     if (spec == null) {
-      if (track.camera) spec = { camera: track.camera };
-      else return;
+      if (!track.camera) return;
+      spec = { camera: track.camera };
     }
     // Bulk array — recurse so { camera } entries are resolved per-element.
     if (Array.isArray(spec)) {
       for (const s of spec) track.add(s, opts);
       return;
     }
-    // { camera } — convert to plain { eye, center, up } before forwarding.
+    // { camera } — prefer capturePose() so fov/halfHeight are included;
+    // fall back to _cameraToSpec for non-p5 duck-typed cameras.
     if (spec.camera != null) {
-      const converted = _cameraToSpec(spec.camera);
+      const converted = typeof spec.camera.capturePose === 'function'
+        ? spec.camera.capturePose()
+        : _cameraToSpec(spec.camera);
       if (converted) { _coreAdd(converted, opts); return; }
     }
     _coreAdd(spec, opts);
