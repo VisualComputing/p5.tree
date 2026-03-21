@@ -117,10 +117,10 @@ function _centerAtDepth(pInst, d) {
  */
 function _wrapTrack(track, cam, isCameraTrack, pInst) {
   const _snapOut = isCameraTrack
-    ? { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
+    ? { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
     : { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] };
 
-  const _captureOut = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
+  const _captureOut = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
 
   function _applySnap() {
     if (cam && track.keyframes.length > 0) cam.applyPose(track.eval(_snapOut));
@@ -156,10 +156,9 @@ function _wrapTrack(track, cam, isCameraTrack, pInst) {
       w.add = (d) => {
         const pos = _centerAtDepth(pInst, typeof d === 'number' ? d : 0.5) || [0,0,0];
         cam.capturePose(_captureOut);
-        track.add({
-          pos,
-          rot: { eye: _captureOut.eye, center: _captureOut.center, up: _captureOut.up },
-        });
+        const e = _captureOut.eye, c = _captureOut.center;
+        const dir = [c[0]-e[0], c[1]-e[1], c[2]-e[2]];
+        track.add({ pos, rot: { dir, up: _captureOut.up } });
       };
     }
   }
