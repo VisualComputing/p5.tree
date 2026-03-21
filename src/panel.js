@@ -90,7 +90,7 @@ function _centerAtDepth(pInst, d) {
   const ndcZ   = ndcMin + d * (1 - ndcMin);
   mat4Mul(_sc_pv, proj, view);
   if (!mat4Invert(_sc_ipv, _sc_pv)) return null;
-  coreMapLocation(_sc_v3, 0, 0, ndcZ, NDC, WORLD, { ipv: _sc_ipv }, [0, 0, 1, 1], ndcMin);
+  coreMapLocation(_sc_v3, 0, 0, ndcZ, NDC, WORLD, { ipvMatrix: _sc_ipv }, [0, 0, 1, 1], ndcMin);
   return [_sc_v3[0], _sc_v3[1], _sc_v3[2]];
 }
 
