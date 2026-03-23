@@ -42,7 +42,7 @@
 
 import {
   EYE, NDC, SCREEN, MATRIX, WEBGL, WEBGPU,
-  mat4Mul, mat4Invert, mat4MulPoint, mat3NormalFromMat4,
+  mat4Mul, mat4Invert, mat3NormalFromMat4,
   mat4Location, mat3Direction,
   mapLocation as coreMapLocation,
   mapDirection as coreMapDirection,
@@ -60,7 +60,7 @@ const _ipv  = new Float32Array(16);  // ipvMatrix intermediate
 const _wa   = new Float32Array(16);  // single-step intermediate (eMatrix, MV, …)
 const _wb   = new Float32Array(16);  // toFrameInv for custom MATRIX space
 const _vp   = new Float32Array(4);   // viewport [x, y, w, h]
-const _tmp3 = new Float32Array(3);   // p5.Vector out path in map*** / mat4MulPoint
+const _tmp3 = new Float32Array(3);   // p5.Vector out path in map*** functions
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Unified type normalisers — zero alloc
@@ -301,26 +301,6 @@ export function installMatrix(p5, fn) {
     return mat4Invert(buf, _rawMat4(src)) === null ? null : out;
   };
   fn.mat4Invert = function (out, src) { return this._renderer.mat4Invert(out, src); };
-
-  /**
-   * Transform a point by a mat4: out = m · [x, y, z, 1], perspective-divided.
-   * Accepts Float32Array | ArrayLike | p5.Vector for both `out` and `point`.
-   * @param {Float32Array|ArrayLike|p5.Vector} out    3-element destination.
-   * @param {Float32Array|ArrayLike|p5.Matrix} m      16-element transform.
-   * @param {Float32Array|ArrayLike|p5.Vector} point  Input point.
-   * @returns {typeof out}
-   */
-  p5.Renderer3D.prototype.mat4MulPoint = function (out, m, point) {
-    const px = point.x ?? point[0] ?? 0;
-    const py = point.y ?? point[1] ?? 0;
-    const pz = point.z ?? point[2] ?? 0;
-    const isVecOut = out instanceof p5.Vector;
-    const buf = isVecOut ? _tmp3 : out;
-    mat4MulPoint(buf, _rawMat4(m), px, py, pz);
-    if (isVecOut) { out.x = buf[0]; out.y = buf[1]; out.z = buf[2]; }
-    return out;
-  };
-  fn.mat4MulPoint = function (out, m, point) { return this._renderer.mat4MulPoint(out, m, point); };
 
   // ── Projection scalar queries ─────────────────────────────────────────────
 
