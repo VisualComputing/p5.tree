@@ -268,7 +268,11 @@ export function installPanel(p5, fn) {
     // Intercept p5 shader targets — wrap setUniform as a plain function.
     if (opt.target && typeof opt.target.setUniform === 'function') {
       const shader = opt.target;
-      opt.target   = (name, value) => shader.setUniform(name, value);
+      // p5 wires _renderer into the shader on the first shader() call inside draw();
+      // guard against predraw ticks firing before the shader is activated.
+      opt.target   = (name, value) => {
+        if (shader._renderer) shader.setUniform(name, value);
+      };
     }
 
     const panel = _createPanel(trackOrSchema, opt);
