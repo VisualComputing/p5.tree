@@ -14,7 +14,6 @@ Render pipeline for p5.js [p5.js v2](https://beta.p5js.org/) — pose and camera
     -   [Camera helpers](#camera-helpers)
 -   [Space transformations](#space-transformations)
     -   [Matrix operations](#matrix-operations)
-    -   [Matrix queries](#matrix-queries)
     -   [Frustum queries](#frustum-queries)
     -   [Coordinate space conversions](#coordinate-space-conversions)
     -   [Heads Up Display](#heads-up-display)
