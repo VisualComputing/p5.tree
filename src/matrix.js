@@ -1,19 +1,16 @@
 /**
- * @file Matrix queries, space transforms, and HUD — p5 bridge layer.
+ * @file Matrix queries, space transforms, and frustum scalar queries.
  * @module p5.tree/matrix
  * @license AGPL-3.0-only
  *
- * Thin bridge: reads raw Float32Array refs from p5 renderer state and feeds
- * them directly into @nakednous/tree core functions.
+ * ── Overview ──────────────────────────────────────────────────────────────
  *
- * All matrix queries follow the same contract as @nakednous/tree:
- *   - `out` is the first parameter — caller owns the buffer
- *   - the function returns `out` (or null on a singular matrix)
- *   - no heap allocations; all intermediates use module-level working buffers
+ *   All matrix query functions follow the same contract:
+ *     out  — first parameter, caller-owned buffer, written and returned.
+ *     null — returned on degeneracy (singular matrix).
+ *     zero allocations in hot paths.
  *
- * ── Unified input types ───────────────────────────────────────────────────
- *
- *   Matrix params (16-elem): Float32Array | ArrayLike | p5.Matrix
+ *   Matrix params (16-elem):  Float32Array | ArrayLike | p5.Matrix(.mat4)
  *     Internally normalised via _rawMat4(m) = m.mat4 ?? m — zero alloc.
  *
  *   Matrix params (9-elem):  Float32Array | ArrayLike | p5.Matrix(.mat3)
@@ -45,7 +42,7 @@
 
 import {
   EYE, NDC, SCREEN, MATRIX, WEBGL, WEBGPU,
-  mat4Mul, mat4Invert, mat3NormalFromMat4,
+  mat4Mul, mat4Invert, mat4MulPoint, mat3NormalFromMat4,
   mat4Location, mat3Direction,
   mapLocation as coreMapLocation,
   mapDirection as coreMapDirection,
@@ -63,7 +60,7 @@ const _ipv  = new Float32Array(16);  // ipvMatrix intermediate
 const _wa   = new Float32Array(16);  // single-step intermediate (eMatrix, MV, …)
 const _wb   = new Float32Array(16);  // toFrameInv for custom MATRIX space
 const _vp   = new Float32Array(4);   // viewport [x, y, w, h]
-const _tmp3 = new Float32Array(3);   // p5.Vector out path in map*** functions
+const _tmp3 = new Float32Array(3);   // p5.Vector out path in map*** / mat4MulPoint
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Unified type normalisers — zero alloc
@@ -254,11 +251,11 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} to    Destination frame transform.
    * @returns {typeof out|null} out, or null if `to` is singular.
    */
-  p5.Renderer3D.prototype.lMatrix = function (out, from, to) {
+  p5.Renderer3D.prototype.mat4Location = function (out, from, to) {
     const buf = _rawMat4(out);
     return mat4Location(buf, _rawMat4(from), _rawMat4(to)) === null ? null : out;
   };
-  fn.lMatrix = function (out, from, to) { return this._renderer.lMatrix(out, from, to); };
+  fn.mat4Location = function (out, from, to) { return this._renderer.mat4Location(out, from, to); };
 
   /**
    * Direction transform matrix: to₃ · inv(from₃).
@@ -268,11 +265,62 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} to    Destination frame transform (mat4).
    * @returns {typeof out|null} out, or null if `from` is singular.
    */
-  p5.Renderer3D.prototype.dMatrix = function (out, from, to) {
+  p5.Renderer3D.prototype.mat3Direction = function (out, from, to) {
     const buf = _rawMat3(out);
     return mat3Direction(buf, _rawMat4(from), _rawMat4(to)) === null ? null : out;
   };
-  fn.dMatrix = function (out, from, to) { return this._renderer.dMatrix(out, from, to); };
+  fn.mat3Direction = function (out, from, to) { return this._renderer.mat3Direction(out, from, to); };
+
+  // ── Raw math — forwarded from @nakednous/tree ─────────────────────────────
+  //
+  // Exposed for sketches that need custom matrix arithmetic (e.g. composing a
+  // bias matrix with a light PV for shadow mapping) without reaching into the
+  // @nakednous/tree package directly.  Same out-first, zero-alloc contract.
+
+  /**
+   * Matrix product: out = A · B  (column-major).
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} A
+   * @param {Float32Array|ArrayLike|p5.Matrix} B
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.mat4Mul = function (out, A, B) {
+    mat4Mul(_rawMat4(out), _rawMat4(A), _rawMat4(B));
+    return out;
+  };
+  fn.mat4Mul = function (out, A, B) { return this._renderer.mat4Mul(out, A, B); };
+
+  /**
+   * Matrix inverse: out = inv(src).
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} src
+   * @returns {typeof out|null} out, or null if singular.
+   */
+  p5.Renderer3D.prototype.mat4Invert = function (out, src) {
+    const buf = _rawMat4(out);
+    return mat4Invert(buf, _rawMat4(src)) === null ? null : out;
+  };
+  fn.mat4Invert = function (out, src) { return this._renderer.mat4Invert(out, src); };
+
+  /**
+   * Transform a point by a mat4: out = m · [x, y, z, 1], perspective-divided.
+   * Accepts Float32Array | ArrayLike | p5.Vector for both `out` and `point`.
+   * @param {Float32Array|ArrayLike|p5.Vector} out    3-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} m      16-element transform.
+   * @param {Float32Array|ArrayLike|p5.Vector} point  Input point.
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.mat4MulPoint = function (out, m, point) {
+    const px = point.x ?? point[0] ?? 0;
+    const py = point.y ?? point[1] ?? 0;
+    const pz = point.z ?? point[2] ?? 0;
+    const isVecOut = out instanceof p5.Vector;
+    const buf = isVecOut ? _tmp3 : out;
+    mat4MulPoint(buf, _rawMat4(m), px, py, pz);
+    if (isVecOut) { out.x = buf[0]; out.y = buf[1]; out.z = buf[2]; }
+    return out;
+  };
+  fn.mat4MulPoint = function (out, m, point) { return this._renderer.mat4MulPoint(out, m, point); };
 
   // ── Projection scalar queries ─────────────────────────────────────────────
 

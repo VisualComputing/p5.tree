@@ -237,22 +237,35 @@ ipvMatrix(out, [{ pMatrix, vMatrix, pvMatrix }])
 mvMatrix(out,  [{ mMatrix, vMatrix }])
 pmvMatrix(out, [{ pMatrix, mMatrix, vMatrix }])
 nMatrix(out,   [{ mMatrix, vMatrix, mvMatrix }])  // 9-element out
-lMatrix(out, from, to)   // location transform: inv(to) · from
-dMatrix(out, from, to)   // direction transform: to₃ · inv(from₃), 9-element out
+mat4Location(out, from, to)   // location transform: inv(to) · from
+mat3Direction(out, from, to)  // direction transform: to₃ · inv(from₃), 9-element out
+```
+
+**Raw matrix math** — forwarded from `@nakednous/tree`, same out-first contract:
+
+```js
+mat4Mul(out, A, B)          // out = A · B  (column-major)
+mat4Invert(out, src)        // out = inv(src), null if singular
+mat4MulPoint(out, m, point) // out = m · [x,y,z,1] perspective-divided
+                            // point: Float32Array | ArrayLike | p5.Vector
 ```
 
 **Zero-allocation draw-loop pattern:**
 
 ```js
 // setup — allocate once
-const e  = new Float32Array(16)
-const pm = new Float32Array(16)
-const pv = new Float32Array(16)
+const e   = new Float32Array(16)
+const pm  = new Float32Array(16)
+const pv  = new Float32Array(16)
+const wlm = new Float32Array(16)   // e.g. bias · lightPV for shadow mapping
+const pt  = new Float32Array(3)
 
 // draw — zero allocations
 eMatrix(e)
 pMatrix(pm)
 pvMatrix(pv)
+mat4Mul(wlm, biasMatrix, pv)
+mat4MulPoint(pt, wlm, lightPosition)
 viewFrustum({ eMatrix: e, pMatrix: pm })
 mouseHit({ pvMatrix: pv, eMatrix: e })
 ```
@@ -526,7 +539,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.24'
+p5.Tree.VERSION   // '0.0.25'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -571,9 +584,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.24/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.24/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.24/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.24/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.24/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.24/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.esm.js)
 
 ---
 
