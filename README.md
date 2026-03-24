@@ -38,7 +38,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — pose and camera inter
 
 # Tracks
 
-A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path), depending on whether a camera is passed.
+A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path).
 
 ```js
 const track = createPoseTrack()                 // PoseTrack — animates any object
