@@ -8,8 +8,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — pose and camera inter
 
 -   [Tracks](#tracks)
     -   [PoseTrack --- object animation](#posetrack--object-animation)
-    -   [CameraTrack --- camera keyframe
-        paths](#cameratrack--camera-keyframe-paths)
+    -   [CameraTrack --- camera keyframe paths](#cameratrack--camera-keyframe-paths)
     -   [Playback options](#playback-options)
     -   [Camera helpers](#camera-helpers)
 -   [Space transformations](#space-transformations)
@@ -38,7 +37,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — pose and camera inter
 
 # Tracks
 
-A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path).
+A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path), depending on whether a camera is passed.
 
 ```js
 const track = createPoseTrack()                 // PoseTrack — animates any object
@@ -48,7 +47,7 @@ const track = createCameraTrack(getCamera())    // CameraTrack on the default ca
 
 ## PoseTrack — object animation
 
-Stores `{ pos, rot, scl }` keyframes. Interpolates position with centripetal Catmull-Rom, rotation with slerp or nlerp, scale with linear.
+Stores `{ pos, rot, scl }` keyframes. Interpolates position with cubic Hermite (auto-computed centripetal Catmull-Rom tangents by default), rotation with slerp or nlerp, scale with linear.
 
 ```js
 const track = createPoseTrack()
@@ -72,9 +71,19 @@ function draw() {
 `add()` accepts flexible specs. Top-level forms:
 
 ```js
-track.add({ pos, rot, scl })       // explicit TRS — rot accepts any form below
-track.add({ mMatrix: mat4 })       // decompose model matrix into TRS
-track.add([ spec, spec, ... ])     // bulk
+track.add({ pos, rot, scl })                      // explicit TRS — rot accepts any form below
+track.add({ pos, rot, scl, tanIn, tanOut })        // with Hermite tangents (vec3, optional)
+track.add({ mMatrix: mat4 })                       // decompose model matrix into TRS
+track.add([ spec, spec, ... ])                     // bulk
+```
+
+`tanIn` is the incoming position tangent at this keyframe; `tanOut` is the outgoing tangent. When only one is given, the other mirrors it. When neither is given, centripetal Catmull-Rom tangents are auto-computed — identical to the default smooth behavior.
+
+```js
+track.add({ pos:[0,0,0] })                                      // auto tangents
+track.add({ pos:[100,0,0], tanOut:[0,50,0] })                   // leave heading +Y
+track.add({ pos:[200,0,0], tanIn:[0,50,0], tanOut:[-30,0,0] })  // arrive from +Y, leave heading -X
+track.add({ pos:[300,0,0] })                                    // auto tangents
 ```
 
 `rot` sub-forms — all normalised internally, no pre-processing needed:
@@ -95,11 +104,13 @@ Supported Euler orders: `YXZ` (default, matches p5 Y-up), `XYZ`, `ZYX`, `ZXY`, `
 Interpolation modes:
 
 ```js
-track.posInterp = 'catmullrom'  // default — smooth curves
+track.posInterp = 'hermite'  // default — Hermite; auto-CR tangents when none stored
 track.posInterp = 'linear'
+track.posInterp = 'step'     // snap to k0; useful for discrete state changes
 
-track.rotInterp = 'slerp'       // default — constant angular velocity
-track.rotInterp = 'nlerp'       // faster, slightly non-constant speed
+track.rotInterp = 'slerp'    // default — constant angular velocity
+track.rotInterp = 'nlerp'    // faster, slightly non-constant speed
+track.rotInterp = 'step'     // snap to k0 quaternion
 ```
 
 `eval(out)` writes into a pre-allocated buffer — zero heap allocation per frame. Use `toMatrix(outMat4)` to evaluate directly into a column-major mat4.
@@ -133,8 +144,11 @@ function draw() {
 `add()` accepts multiple forms:
 
 ```js
-track.add({ eye, center?, up?, fov?, halfHeight? })
+track.add({ eye, center?, up?, fov?, halfHeight?,
+            eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? })
                                // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
+                               // eyeTanIn/Out — Hermite tangents for eye path
+                               // centerTanIn/Out — Hermite tangents for center path
 track.add({ vMatrix: mat4 })   // view matrix (world→eye); eye reconstructed via -R^T·t
 track.add({ eMatrix: mat4 })   // eye matrix (eye→world); eye read from col3
 track.add(cam.capturePose())   // capture live camera state (zero-alloc with pre-allocated out)
@@ -152,11 +166,13 @@ Both fields are captured automatically by `track.add()` and `track.add({ camera:
 Interpolation modes:
 
 ```js
-track.eyeInterp    = 'catmullrom'  // default
+track.eyeInterp    = 'hermite'  // default — auto-CR tangents when none stored
 track.eyeInterp    = 'linear'
+track.eyeInterp    = 'step'
 
-track.centerInterp = 'linear'      // default — suits fixed lookat targets
-track.centerInterp = 'catmullrom'  // smoother when center is also flying
+track.centerInterp = 'linear'   // default — suits fixed lookat targets
+track.centerInterp = 'hermite'  // smoother when center is also flying
+track.centerInterp = 'step'
 ```
 
 ## Playback options
@@ -339,54 +355,66 @@ Coordinates: `(x, y) ∈ [0, width] × [0, height]`, origin top-left, y increasi
 
 A unified `createPanel` factory covers parameter bindings and track transport controls. The first argument determines the panel type.
 
-```js
-createPanel(track,  opt)   // transport panel
-createPanel(schema, opt)   // parameter panel
-```
-
 ## Parameter panel
 
-Binds named parameters to DOM controls. When `target` is provided, values are pushed automatically every frame.
+Binds named schema keys to DOM sliders, checkboxes, color pickers, dropdowns, and buttons. Target receives `(name, value)` on each dirty tick.
 
 ```js
-createPanel({
-  blurRadius: { min: 0, max: 10, value: 2, step: 0.1 },
-  showGrid:   { value: true },
-  tint:       { value: '#ff8844' },
-}, { target: myShader, x: 10, y: 10, labels: true, color: 'white' })
+const panel = createPanel({
+  speed:     { min: 0, max: 0.05, value: 0.012, step: 0.001 },
+  shininess: { min: 1, max: 200,  value: 80,    step: 1,    type: 'int' },
+  showGrid:  { value: true },
+  tint:      { value: '#ff8844' },
+  fxOrder:   { type: 'select', options: [
+                 { label: 'noise → dof', value: '1' },
+                 { label: 'dof → noise', value: '2' }
+               ], value: '1' }
+}, { x: 10, y: 10, width: 160, labels: true, title: 'Scene', color: 'white',
+     target: (name, value) => shader.setUniform(name, value) })
+
+// call every frame
+panel.tick()
 ```
 
-`target` can be a p5 shader (calls `setUniform` automatically), a plain function `(name, value) => ...`, or an object with `.set(name, value)`. Omit `target` to read values manually via `panel.name.value()`.
-
-| Option        | Default | Description                               |
-|---------------|---------|-------------------------------------------|
-| `target`      | —       | Value sink.                               |
-| `labels`      | `false` | Show per-binding labels.                  |
-| `title`       | —       | Bold title row.                           |
-| `collapsible` | `false` | Title row becomes a collapse toggle.      |
-| `collapsed`   | `false` | Start collapsed (implies collapsible).    |
-| `color`       | —       | Text color.                               |
-| `x`, `y`      | `0`     | Position (px).                            |
-| `width`       | `120`   | Slider width (px).                        |
-| `hidden`      | `false` | Start hidden.                             |
-| `parent`      | canvas container | Mount target.                    |
+| Option     | Default         | Description                                              |
+|------------|-----------------|----------------------------------------------------------|
+| `target`   | —               | `fn(name, value)` or object with `.set(name, value)`.   |
+| `x` / `y`  | `0`             | Position (px).                                          |
+| `width`    | `120`           | Slider width (px).                                      |
+| `labels`   | `false`         | Show parameter name labels.                             |
+| `title`    | —               | Optional title row.                                     |
+| `collapsible` | `false`      | Title row becomes a collapse toggle.                    |
+| `collapsed`   | `false`      | Start collapsed (implies collapsible).                  |
+| `color`    | —               | Container text color.                                   |
+| `hidden`   | `false`         | Start hidden.                                           |
+| `parent`   | `document.body` | Mount target (`HTMLElement`).                           |
 
 ## Track transport panel
 
+Controls playback of any `PoseTrack` or `CameraTrack`.
+
 ```js
-createPanel(track, { x: 10, y: 10, color: 'white' })
+const ui = createPanel(track, {
+  x: 10, y: 10, width: 170,
+  loop: false, rate: 1,
+  seek: true, props: true, info: true,
+  color: 'white'
+})
+
+// call every frame
+ui.tick()
 ```
 
-| Option      | Default        | Description                                    |
-|-------------|----------------|------------------------------------------------|
-| `seek`      | `true`         | Show seek slider.                              |
-| `props`     | `true`         | Show rate slider + mode select.                |
-| `info`      | `false`        | Show time/keyframe readout.                    |
-| `rate`      | track.rate     | Initial rate.                                  |
-| `loop`      | track.loop     | Initial loop mode.                             |
-| `pingPong`  | track.pingPong | Initial pingPong mode.                         |
-| `depth`     | `0.5`          | Initial + button depth [0..1].                 |
-| `camera`    | curCamera      | Camera for + button. `null` suppresses it.     |
+| Option      | Default        | Description                                        |
+|-------------|----------------|----------------------------------------------------|
+| `seek`      | `true`         | Show seek slider.                                  |
+| `props`     | `true`         | Show rate slider + mode select.                    |
+| `info`      | `false`        | Show time/keyframe readout.                        |
+| `rate`      | track.rate     | Initial rate.                                      |
+| `loop`      | track.loop     | Initial loop mode.                                 |
+| `pingPong`  | track.pingPong | Initial pingPong mode.                             |
+| `depth`     | `0.5`          | Initial + button depth [0..1].                     |
+| `camera`    | curCamera      | Camera for + button. `null` suppresses it.         |
 
 Lifecycle hooks can be passed directly in opt:
 
@@ -539,7 +567,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.25'
+p5.Tree.VERSION   // '0.0.26'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -584,9 +612,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.25/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.esm.js)
 
 ---
 

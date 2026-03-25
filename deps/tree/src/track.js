@@ -11,7 +11,7 @@
  *    qFromAxisAngle qFromLookDir qFromRotMat3x3 qFromMat4 qToMat4
  *    quatToAxisAngle
  *  Spline / vector helpers
- *    catmullRomVec3  lerpVec3
+ *    hermiteVec3  lerpVec3
  *  Transform / mat4 helpers
  *    transformToMat4  mat4ToTransform
  *  Tracks
@@ -238,32 +238,41 @@ function _dist3(a, b) {
 }
 
 /**
- * Centripetal Catmull-Rom interpolation (alpha=0.5, Barry-Goldman).
- * out = interp(p0, p1, p2, p3, t) where t∈[0,1] maps p1→p2.
- * Boundary: p0===p1 or p2===p3 clamps the end tangent.
+ * Cubic Hermite interpolation between p0 and p1 with explicit tangents.
+ * Catmull-Rom is a special case where m0/m1 are auto-computed from neighbors.
  * @param {number[]} out  3-element result.
- * @param {number[]} p0  Control point before p1.
- * @param {number[]} p1  Segment start.
- * @param {number[]} p2  Segment end.
- * @param {number[]} p3  Control point after p2.
- * @param {number}   t   Blend [0, 1].
+ * @param {number[]} p0   Segment start.
+ * @param {number[]} m0   Outgoing tangent at p0 (world-space, dp/dt scaled to segment).
+ * @param {number[]} p1   Segment end.
+ * @param {number[]} m1   Incoming tangent at p1 (world-space, dp/dt scaled to segment).
+ * @param {number}   t    Blend [0, 1].
  * @returns {number[]} out
  */
-export const catmullRomVec3 = (out, p0, p1, p2, p3, t) => {
-  const alpha = 0.5;
-  const dt0 = Math.pow(_dist3(p0,p1), alpha) || 1;
-  const dt1 = Math.pow(_dist3(p1,p2), alpha) || 1;
-  const dt2 = Math.pow(_dist3(p2,p3), alpha) || 1;
-  for (let i = 0; i < 3; i++) {
-    const t1_0 = (p1[i]-p0[i])/dt0 - (p2[i]-p0[i])/(dt0+dt1) + (p2[i]-p1[i])/dt1;
-    const t2_0 = (p2[i]-p1[i])/dt1 - (p3[i]-p1[i])/(dt1+dt2) + (p3[i]-p2[i])/dt2;
-    const m1=t1_0*dt1, m2=t2_0*dt1;
-    const a= 2*p1[i]-2*p2[i]+m1+m2;
-    const b=-3*p1[i]+3*p2[i]-2*m1-m2;
-    out[i] = a*t*t*t + b*t*t + m1*t + p1[i];
-  }
+export const hermiteVec3 = (out, p0, m0, p1, m1, t) => {
+  const t2=t*t, t3=t2*t;
+  const h00=2*t3-3*t2+1, h10=t3-2*t2+t, h01=-2*t3+3*t2, h11=t3-t2;
+  out[0]=h00*p0[0]+h10*m0[0]+h01*p1[0]+h11*m1[0];
+  out[1]=h00*p0[1]+h10*m0[1]+h01*p1[1]+h11*m1[1];
+  out[2]=h00*p0[2]+h10*m0[2]+h01*p1[2]+h11*m1[2];
   return out;
 };
+
+// Centripetal CR outgoing tangent at p1 for segment p1→p2, scaled by dt1.
+const _crTanOut = (out, p0, p1, p2, p3) => {
+  const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
+  for (let i=0;i<3;i++) out[i]=((p1[i]-p0[i])/dt0-(p2[i]-p0[i])/(dt0+dt1)+(p2[i]-p1[i])/dt1)*dt1;
+  return out;
+};
+
+// Centripetal CR incoming tangent at p2 for segment p1→p2, scaled by dt1.
+const _crTanIn = (out, p0, p1, p2, p3) => {
+  const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
+  for (let i=0;i<3;i++) out[i]=((p2[i]-p1[i])/dt1-(p3[i]-p1[i])/(dt1+dt2)+(p3[i]-p2[i])/dt2)*dt1;
+  return out;
+};
+
+// Module-level scratch — shared by eval() across all track instances (non-reentrant hot path).
+const _m0=[0,0,0], _m1=[0,0,0];
 
 /**
  * Linear interpolation between two vec3s.
@@ -378,7 +387,7 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
  */
 function _parseQuat(v) {
   if (!v) return null;
-  
+
   // raw [x,y,z,w] — plain array or typed array
   if ((Array.isArray(v) || ArrayBuffer.isView(v)) && v.length === 4) return [v[0], v[1], v[2], v[3]];
 
@@ -470,13 +479,15 @@ function _parseQuat(v) {
  *     Float32Array(16), plain Array, or { mat4 } wrapper.
  *     pos from col3, scl from column lengths, rot from normalised rotation block.
  *
- *   { pos, rot, scl }
+ *   { pos?, rot?, scl?, tanIn?, tanOut? }
  *     Explicit TRS.  pos and scl are vec3, rot accepts any form from _parseQuat.
  *     All fields are optional — missing pos/scl default to [0,0,0] / [1,1,1],
  *     missing rot defaults to identity.
+ *     tanIn/tanOut are optional vec3 tangents for Hermite interpolation.
+ *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
  * @param {Object} spec
- * @returns {{ pos:number[], rot:number[], scl:number[] }|null}
+ * @returns {{ pos:number[], rot:number[], scl:number[], tanIn:number[]|null, tanOut:number[]|null }|null}
  */
 function _parseSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
@@ -486,13 +497,17 @@ function _parseSpec(spec) {
     const m = (ArrayBuffer.isView(spec.mMatrix) || Array.isArray(spec.mMatrix))
       ? spec.mMatrix : (spec.mMatrix.mat4 ?? null);
     if (!m || m.length < 16) return null;
-    return mat4ToTransform({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }, m);
+    const kf = mat4ToTransform({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }, m);
+    kf.tanIn = null; kf.tanOut = null;
+    return kf;
   }
 
-  const pos = _parseVec3(spec.pos) || [0,0,0];
-  const rot = _parseQuat(spec.rot) || [0,0,0,1];
-  const scl = _parseVec3(spec.scl) || [1,1,1];
-  return { pos, rot, scl };
+  const pos    = _parseVec3(spec.pos)    || [0,0,0];
+  const rot    = _parseQuat(spec.rot)    || [0,0,0,1];
+  const scl    = _parseVec3(spec.scl)    || [1,1,1];
+  const tanIn  = _parseVec3(spec.tanIn)  || null;
+  const tanOut = _parseVec3(spec.tanOut) || null;
+  return { pos, rot, scl, tanIn, tanOut };
 }
 
 function _sameTransform(a, b) {
@@ -510,9 +525,12 @@ function _sameTransform(a, b) {
  *
  * Accepted forms:
  *
- *   { eye, center?, up? }
+ *   { eye, center?, up?, fov?, halfHeight?,
+ *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
  *     Explicit lookat.  center defaults to [0,0,0], up defaults to [0,1,0].
  *     Both are normalised/stored as-is.  eye must be a vec3.
+ *     eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite.
+ *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
  *   { vMatrix: mat4 }
  *     Column-major view matrix (world→eye).
@@ -528,7 +546,10 @@ function _sameTransform(a, b) {
  *     Float32Array(16), plain Array, or { mat4 } wrapper.
  *
  * @param {Object} spec
- * @returns {{ eye:number[], center:number[], up:number[] }|null}
+ * @returns {{ eye:number[], center:number[], up:number[],
+ *             fov:number|null, halfHeight:number|null,
+ *             eyeTanIn:number[]|null, eyeTanOut:number[]|null,
+ *             centerTanIn:number[]|null, centerTanOut:number[]|null }|null}
  */
 function _parseCameraSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
@@ -544,7 +565,8 @@ function _parseCameraSpec(spec) {
     const fx=-m[8], fy=-m[9], fz=-m[10];
     const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
     return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0],
-             fov:null, halfHeight:null };
+             fov:null, halfHeight:null,
+             eyeTanIn:null, eyeTanOut:null, centerTanIn:null, centerTanOut:null };
   }
 
   // { eMatrix } — eye matrix (eye→world); eye = col3, forward = -col2
@@ -556,21 +578,26 @@ function _parseCameraSpec(spec) {
     const fx=-m[8], fy=-m[9], fz=-m[10];
     const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
     return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0],
-             fov:null, halfHeight:null };
+             fov:null, halfHeight:null,
+             eyeTanIn:null, eyeTanOut:null, centerTanIn:null, centerTanOut:null };
   }
 
   // { eye, center?, up? } — explicit lookat (eye is a vec3, not a mat4)
   const eye    = _parseVec3(spec.eye);
   if (!eye) return null;
   const center = _parseVec3(spec.center) || [0,0,0];
-  const upRaw = spec.up ? _parseVec3(spec.up) : null;
-  const up    = upRaw || [0,1,0];
-  const ul    = Math.sqrt(up[0]*up[0]+up[1]*up[1]+up[2]*up[2]) || 1;
+  const upRaw  = spec.up ? _parseVec3(spec.up) : null;
+  const up     = upRaw || [0,1,0];
+  const ul     = Math.sqrt(up[0]*up[0]+up[1]*up[1]+up[2]*up[2]) || 1;
   return {
     eye, center,
     up: [up[0]/ul, up[1]/ul, up[2]/ul],
-    fov:        typeof spec.fov        === 'number' ? spec.fov        : null,
-    halfHeight: typeof spec.halfHeight === 'number' ? spec.halfHeight : null,
+    fov:         typeof spec.fov        === 'number' ? spec.fov        : null,
+    halfHeight:  typeof spec.halfHeight === 'number' ? spec.halfHeight : null,
+    eyeTanIn:    _parseVec3(spec.eyeTanIn)    || null,
+    eyeTanOut:   _parseVec3(spec.eyeTanOut)   || null,
+    centerTanIn: _parseVec3(spec.centerTanIn) || null,
+    centerTanOut:_parseVec3(spec.centerTanOut)|| null,
   };
 }
 
@@ -837,12 +864,18 @@ class Track {
 /**
  * Renderer-agnostic TRS keyframe track.
  *
- * Keyframe shape: { pos:[x,y,z], rot:[x,y,z,w], scl:[x,y,z] }
+ * Keyframe shape: { pos:[x,y,z], rot:[x,y,z,w], scl:[x,y,z],
+ *                   tanIn?:[x,y,z], tanOut?:[x,y,z] }
+ *
+ * tanIn  — incoming position tangent at this keyframe (Hermite mode).
+ * tanOut — outgoing position tangent at this keyframe (Hermite mode).
+ * When only one is supplied, the other mirrors it.
+ * When neither is supplied, centripetal Catmull-Rom tangents are auto-computed.
  *
  * add() accepts individual specs or a bulk array of specs:
  *
  *   { mMatrix }                           — full TRS from model matrix
- *   { pos?, rot?, scl? }                  — direct TRS; all fields optional
+ *   { pos?, rot?, scl?, tanIn?, tanOut? } — direct TRS; all fields optional
  *   { pos?, rot: [x,y,z,w] }             — explicit quaternion
  *   { pos?, rot: { axis, angle } }        — axis-angle
  *   { pos?, rot: { dir, up? } }           — look direction
@@ -855,16 +888,15 @@ class Track {
  * Missing fields default to: pos → [0,0,0], rot → [0,0,0,1], scl → [1,1,1].
  *
  * eval() writes { pos, rot, scl }:
- *   pos — Catmull-Rom (posInterp='catmullrom') or lerp
- *   rot — slerp (rotInterp='slerp') or nlerp
+ *   pos — Hermite (tanIn/tanOut per keyframe; auto-CR when absent) or linear or step
+ *   rot — slerp (rotInterp='slerp') or nlerp or step
  *   scl — lerp
  *
  * @example
  * const track = new PoseTrack()
- * track.add({ pos:[0,0,0] })                           // identity rot, uniform scl
- * track.add({ pos:[100,0,0], rot: { euler:[0, Math.PI/2, 0] } })
- * track.add({ rot: { axis:[0,1,0], angle: Math.PI } }) // pos defaults to [0,0,0]
- * track.add({ mMatrix: someModelMatrix })
+ * track.add({ pos:[0,0,0] })
+ * track.add({ pos:[100,0,0], tanOut:[0,50,0] })   // leave heading +Y
+ * track.add({ pos:[200,0,0] })
  * track.play({ loop: true })
  * // per frame:
  * track.tick()
@@ -876,14 +908,19 @@ export class PoseTrack extends Track {
     super();
     /**
      * Position interpolation mode.
-     * @type {'catmullrom'|'linear'}
+     * - 'hermite' — cubic Hermite; uses tanIn/tanOut per keyframe when present,
+     *               auto-computes centripetal Catmull-Rom tangents when absent (default)
+     * - 'linear'  — lerp
+     * - 'step'    — snap to k0 value; useful for discrete state changes
+     * @type {'hermite'|'linear'|'step'}
      */
-    this.posInterp = 'catmullrom';
+    this.posInterp = 'hermite';
     /**
      * Rotation interpolation mode.
      * - 'slerp'  — constant angular velocity (default)
      * - 'nlerp'  — normalised lerp; cheaper, slightly non-constant speed
-     * @type {'slerp'|'nlerp'}
+     * - 'step'   — snap to k0 quaternion; useful for discrete state changes
+     * @type {'slerp'|'nlerp'|'step'}
      */
     this.rotInterp = 'slerp';
     // Scratch for toMatrix() — avoids hot-path allocations
@@ -951,17 +988,29 @@ export class PoseTrack extends Track {
     const k0   = this.keyframes[seg];
     const k1   = this.keyframes[seg + 1];
 
-    // pos — Catmull-Rom or lerp
-    if (this.posInterp === 'catmullrom') {
-      const p0 = seg > 0      ? this.keyframes[seg - 1].pos : k0.pos;
-      const p3 = seg + 2 < n ? this.keyframes[seg + 2].pos : k1.pos;
-      catmullRomVec3(out.pos, p0, k0.pos, k1.pos, p3, t);
-    } else {
+    // pos — Hermite (auto-CR tangents when none stored), linear, or step
+    if (this.posInterp === 'step') {
+      out.pos[0]=k0.pos[0]; out.pos[1]=k0.pos[1]; out.pos[2]=k0.pos[2];
+    } else if (this.posInterp === 'linear') {
       lerpVec3(out.pos, k0.pos, k1.pos, t);
+    } else {
+      const p0 = seg > 0      ? this.keyframes[seg - 1].pos : k0.pos;
+      const p3 = seg + 2 < n ? this.keyframes[seg + 2].pos  : k1.pos;
+      // tanOut on k0: use stored, else symmetric from tanIn, else auto-CR
+      const m0 = k0.tanOut != null ? k0.tanOut
+               : k0.tanIn  != null ? k0.tanIn
+               : _crTanOut(_m0, p0, k0.pos, k1.pos, p3);
+      // tanIn on k1: use stored, else symmetric from tanOut, else auto-CR
+      const m1 = k1.tanIn  != null ? k1.tanIn
+               : k1.tanOut != null ? k1.tanOut
+               : _crTanIn(_m1, p0, k0.pos, k1.pos, p3);
+      hermiteVec3(out.pos, k0.pos, m0, k1.pos, m1, t);
     }
 
-    // rot — slerp or nlerp
-    if (this.rotInterp === 'nlerp') {
+    // rot — step, slerp, or nlerp
+    if (this.rotInterp === 'step') {
+      out.rot[0]=k0.rot[0]; out.rot[1]=k0.rot[1]; out.rot[2]=k0.rot[2]; out.rot[3]=k0.rot[3];
+    } else if (this.rotInterp === 'nlerp') {
       qNlerp(out.rot, k0.rot, k1.rot, t);
     } else {
       qSlerp(out.rot, k0.rot, k1.rot, t);
@@ -991,23 +1040,31 @@ export class PoseTrack extends Track {
 /**
  * Lookat camera keyframe track.
  *
- * Keyframe shape: { eye:[x,y,z], center:[x,y,z], up:[x,y,z], fov?:number, halfHeight?:number }
+ * Keyframe shape: { eye:[x,y,z], center:[x,y,z], up:[x,y,z],
+ *                   fov?:number, halfHeight?:number,
+ *                   eyeTanIn?:[x,y,z], eyeTanOut?:[x,y,z],
+ *                   centerTanIn?:[x,y,z], centerTanOut?:[x,y,z] }
  *
  * fov        — vertical fov (radians) for perspective cameras; null for ortho.
  * halfHeight — world-unit half-height of ortho frustum; null for perspective.
  * Both are optional and nullable. eval() lerps each only when both adjacent
  * keyframes carry a non-null value for that field.
  *
+ * eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite
+ * interpolation of the eye and center paths respectively.
+ * When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
+ *
  * Each field is independently interpolated — eye and center along their
  * own paths, up nlerped on the unit sphere. This correctly handles cameras
  * that always look at a fixed target (center stays at origin throughout)
  * as well as free-fly paths where center moves independently.
- * 
+ *
  * Missing fields default to: center → [0,0,0], up → [0,1,0].
  *
  * add() accepts individual specs or a bulk array of specs:
  *
- *   { eye, center?, up?, fov?, halfHeight? }
+ *   { eye, center?, up?, fov?, halfHeight?,
+ *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
  *                         explicit lookat; center defaults to [0,0,0], up to [0,1,0].
  *                         fov and halfHeight are mutually exclusive nullable scalars.
  *   { vMatrix: mat4 }      view matrix (world→eye); eye reconstructed via -R^T·t
@@ -1021,8 +1078,8 @@ export class PoseTrack extends Track {
  *   Use capturePose() (p5.tree bridge) when the real up hint is needed.
  *
  * eval() writes { eye, center, up, fov, halfHeight }:
- *   eye        — Catmull-Rom (eyeInterp='catmullrom') or lerp
- *   center     — Catmull-Rom (centerInterp='catmullrom') or lerp
+ *   eye        — Hermite (auto-CR when no tangents stored) or linear or step
+ *   center     — Hermite (auto-CR when no tangents stored) or linear or step
  *   up         — nlerp (normalize-after-lerp on unit sphere)
  *   fov        — lerp when both keyframes carry non-null fov; else null
  *   halfHeight — lerp when both keyframes carry non-null halfHeight; else null
@@ -1047,14 +1104,20 @@ export class CameraTrack extends Track {
     super();
     /**
      * Eye position interpolation mode.
-     * @type {'catmullrom'|'linear'}
+     * - 'hermite' — cubic Hermite; auto-CR tangents when none stored (default)
+     * - 'linear'  — lerp
+     * - 'step'    — snap to k0 eye
+     * @type {'hermite'|'linear'|'step'}
      */
-    this.eyeInterp = 'catmullrom';
+    this.eyeInterp = 'hermite';
     /**
      * Center (lookat target) interpolation mode.
-     * 'linear' suits fixed or predictably moving targets.
-     * 'catmullrom' gives smoother paths when center is also flying freely.
-     * @type {'catmullrom'|'linear'}
+     * 'linear' suits fixed or predictably moving targets (default).
+     * 'hermite' gives smoother paths when center is also flying freely.
+     * - 'hermite' — cubic Hermite; auto-CR tangents when none stored
+     * - 'linear'  — lerp
+     * - 'step'    — snap to k0 center
+     * @type {'hermite'|'linear'|'step'}
      */
     this.centerInterp = 'linear';
     // Scratch for toCamera() — avoids hot-path allocations
@@ -1127,22 +1190,38 @@ export class CameraTrack extends Track {
     const k0   = this.keyframes[seg];
     const k1   = this.keyframes[seg + 1];
 
-    // eye — Catmull-Rom or lerp
-    if (this.eyeInterp === 'catmullrom') {
-      const p0 = seg > 0      ? this.keyframes[seg - 1].eye : k0.eye;
-      const p3 = seg + 2 < n ? this.keyframes[seg + 2].eye : k1.eye;
-      catmullRomVec3(out.eye, p0, k0.eye, k1.eye, p3, t);
-    } else {
+    // eye — Hermite (auto-CR tangents when none stored), linear, or step
+    if (this.eyeInterp === 'step') {
+      out.eye[0]=k0.eye[0]; out.eye[1]=k0.eye[1]; out.eye[2]=k0.eye[2];
+    } else if (this.eyeInterp === 'linear') {
       lerpVec3(out.eye, k0.eye, k1.eye, t);
+    } else {
+      const p0 = seg > 0      ? this.keyframes[seg - 1].eye : k0.eye;
+      const p3 = seg + 2 < n ? this.keyframes[seg + 2].eye  : k1.eye;
+      const m0 = k0.eyeTanOut != null ? k0.eyeTanOut
+               : k0.eyeTanIn  != null ? k0.eyeTanIn
+               : _crTanOut(_m0, p0, k0.eye, k1.eye, p3);
+      const m1 = k1.eyeTanIn  != null ? k1.eyeTanIn
+               : k1.eyeTanOut != null ? k1.eyeTanOut
+               : _crTanIn(_m1, p0, k0.eye, k1.eye, p3);
+      hermiteVec3(out.eye, k0.eye, m0, k1.eye, m1, t);
     }
 
-    // center — Catmull-Rom or lerp (independent lookat target)
-    if (this.centerInterp === 'catmullrom') {
-      const c0 = seg > 0      ? this.keyframes[seg - 1].center : k0.center;
-      const c3 = seg + 2 < n ? this.keyframes[seg + 2].center : k1.center;
-      catmullRomVec3(out.center, c0, k0.center, k1.center, c3, t);
-    } else {
+    // center — Hermite, linear, or step (independent lookat target)
+    if (this.centerInterp === 'step') {
+      out.center[0]=k0.center[0]; out.center[1]=k0.center[1]; out.center[2]=k0.center[2];
+    } else if (this.centerInterp === 'linear') {
       lerpVec3(out.center, k0.center, k1.center, t);
+    } else {
+      const c0 = seg > 0      ? this.keyframes[seg - 1].center : k0.center;
+      const c3 = seg + 2 < n ? this.keyframes[seg + 2].center  : k1.center;
+      const m0 = k0.centerTanOut != null ? k0.centerTanOut
+               : k0.centerTanIn  != null ? k0.centerTanIn
+               : _crTanOut(_m0, c0, k0.center, k1.center, c3);
+      const m1 = k1.centerTanIn  != null ? k1.centerTanIn
+               : k1.centerTanOut != null ? k1.centerTanOut
+               : _crTanIn(_m1, c0, k0.center, k1.center, c3);
+      hermiteVec3(out.center, k0.center, m0, k1.center, m1, t);
     }
 
     // up — nlerp (normalize after lerp; correct for typical near-upright cameras)

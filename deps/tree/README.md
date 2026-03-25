@@ -58,11 +58,14 @@ track.eval(out)   // writes interpolated TRS into out
 Interpolation modes:
 
 ```js
-track.posInterp = 'catmullrom'  // default — centripetal Catmull-Rom
+track.posInterp = 'hermite'  // default — cubic Hermite; auto-computes centripetal
+                             //           Catmull-Rom tangents when none are stored
 track.posInterp = 'linear'
+track.posInterp = 'step'     // snap to k0; useful for discrete state changes
 
-track.rotInterp = 'slerp'       // default — constant angular velocity
-track.rotInterp = 'nlerp'       // normalised lerp; cheaper, slightly non-constant
+track.rotInterp = 'slerp'    // default — constant angular velocity
+track.rotInterp = 'nlerp'    // normalised lerp; cheaper, slightly non-constant speed
+track.rotInterp = 'step'     // snap to k0 quaternion
 ```
 
 Playback features: signed `rate` (negative reverses), `loop`, `pingPong`, `seek(t)` scrubbing, and lifecycle hooks (`onPlay`, `onEnd`, `onStop`). `_onActivate` / `_onDeactivate` are lib-space hooks for the host layer's draw-loop registry — not for user code.
@@ -70,9 +73,19 @@ Playback features: signed `rate` (negative reverses), `loop`, `pingPong`, `seek(
 `add()` accepts flexible specs. Top-level forms:
 
 ```js
-track.add({ pos, rot, scl })      // explicit TRS — rot accepts any form below
-track.add({ mMatrix: mat4 })      // decompose a column-major model matrix into TRS
-track.add([ spec, spec, ... ])    // bulk
+track.add({ pos, rot, scl })                      // explicit TRS — rot accepts any form below
+track.add({ pos, rot, scl, tanIn, tanOut })        // with Hermite tangents (vec3, optional)
+track.add({ mMatrix: mat4 })                       // decompose a column-major model matrix into TRS
+track.add([ spec, spec, ... ])                     // bulk
+```
+
+`tanIn` is the incoming position tangent at this keyframe; `tanOut` is the outgoing tangent. When only one is given, the other mirrors it. When neither is given, centripetal Catmull-Rom tangents are auto-computed from neighboring keyframes — identical to prior default behavior.
+
+```js
+track.add({ pos:[0,0,0] })                                      // auto tangents
+track.add({ pos:[100,0,0], tanOut:[0,50,0] })                   // leave heading +Y
+track.add({ pos:[200,0,0], tanIn:[0,50,0], tanOut:[-30,0,0] })  // arrive from +Y, leave heading -X
+track.add({ pos:[300,0,0] })                                    // auto tangents
 ```
 
 `rot` sub-forms — all normalised internally:
@@ -116,20 +129,25 @@ track.eval(out)
 Interpolation modes:
 
 ```js
-track.eyeInterp    = 'catmullrom'  // default
+track.eyeInterp    = 'hermite'  // default — auto-CR tangents when none stored
 track.eyeInterp    = 'linear'
+track.eyeInterp    = 'step'
 
-track.centerInterp = 'linear'      // default — suits fixed lookat targets
-track.centerInterp = 'catmullrom'  // smoother when center is also moving freely
+track.centerInterp = 'linear'   // default — suits fixed lookat targets
+track.centerInterp = 'hermite'  // smoother when center is also moving freely
+track.centerInterp = 'step'
 ```
 
 `add()` accepts:
 
 ```js
-track.add({ eye, center?, up?, fov?, halfHeight? })
+track.add({ eye, center?, up?, fov?, halfHeight?,
+            eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? })
                                    // fov — vertical fov (radians) for perspective
                                    // halfHeight — world-unit half-height for ortho
                                    // both nullable; omit to leave projection unchanged
+                                   // eyeTanIn/Out — Hermite tangents for eye path
+                                   // centerTanIn/Out — Hermite tangents for center path
 track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed
 track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
 track.add([ spec, spec, ... ])     // bulk
@@ -137,9 +155,7 @@ track.add([ spec, spec, ... ])     // bulk
 
 Note: both matrix forms default `up` to `[0,1,0]`. The matrix col1 (up_ortho) is intentionally not used — it differs from the hint for upright cameras and would shift orbitControl's orbit reference. Use `capturePose()` (p5.tree bridge) when the real up hint is needed.
 
-`fov` and `halfHeight` are lerped between keyframes only when both adjacent
-keyframes carry a non-null value for that field. Mixed or null entries pass
-`null` through — the bridge leaves the projection unchanged.
+`fov` and `halfHeight` are lerped between keyframes only when both adjacent keyframes carry a non-null value for that field. Mixed or null entries pass `null` through — the bridge leaves the projection unchanged.
 
 ---
 
@@ -241,7 +257,7 @@ qFromAxisAngle  qFromLookDir  qFromRotMat3x3  qFromMat4  qToMat4
 quatToAxisAngle
 ```
 
-**Spline / vector:** `catmullRomVec3`, `lerpVec3`
+**Spline / vector:** `hermiteVec3`, `lerpVec3`
 
 **Mat4:**
 ```
