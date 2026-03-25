@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/p5.tree?color=1f6feb)](https://www.npmjs.com/package/p5.tree)
 
-Render pipeline for [p5.js v2](https://beta.p5js.org/) — pose and camera interpolation, space transforms, frustum visibility, HUD, post-processing pipe, picking, and declarative control panels.
+Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera interpolation](https://en.wikipedia.org/wiki/Key_frame), [space transforms](https://wikis.khronos.org/opengl/Rendering_Pipeline_Overview), [frustum visibility](https://en.wikipedia.org/wiki/Hidden-surface_determination), [HUD](https://en.wikipedia.org/wiki/Head-up_display), [post-processing pipe](https://en.wikipedia.org/wiki/Video_post-processing#Uses_in_3D_rendering), [picking](https://webglfundamentals.org/webgl/lessons/webgl-picking.html), and [declarative control panels](https://github.com/dataarts/dat.gui).
 
 ![A non-Euclidean geometry cube with faces showcasing teapot, bunny, and Buddha models.](p5.tree.png)
 
@@ -37,12 +37,12 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — pose and camera inter
 
 # Tracks
 
-A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path), depending on whether a camera is passed.
+A unified factory creates either a **PoseTrack** (object animation) or a **CameraTrack** (camera keyframe path).
 
 ```js
-const track = createPoseTrack()                 // PoseTrack — animates any object
-const track = createCameraTrack(cam)            // CameraTrack — drives a p5.Camera
-const track = createCameraTrack(getCamera())    // CameraTrack on the default camera
+const track = createPoseTrack()       // PoseTrack — animates any object
+const track = createCameraTrack()     // CameraTrack — binds to the current camera
+const track = createCameraTrack(cam)  // CameraTrack — binds to a specific camera
 ```
 
 ## PoseTrack — object animation
@@ -120,12 +120,11 @@ track.rotInterp = 'step'     // snap to k0 quaternion
 Stores `{ eye, center, up }` lookat keyframes. Playback applies automatically each frame via `cam.camera()` — no draw-loop guard needed.
 
 ```js
-let cam, track
+let track
 
 function setup() {
   createCanvas(600, 400, WEBGL)
-  cam   = createCamera()
-  track = createCameraTrack(cam)
+  track = createCameraTrack()   // binds to the default camera
 
   track.add({ eye:[0,0,500], center:[0,0,0] })
   track.add({ eye:[300,-150,0], center:[0,0,0] })
@@ -135,7 +134,6 @@ function setup() {
 
 function draw() {
   background(20)
-  setCamera(cam)
   orbitControl()   // works freely when track is stopped
   axes(); grid()
 }
@@ -214,7 +212,7 @@ reset() → onStop → _onDeactivate
 ## Camera helpers
 
 ```js
-const cam = createCamera()
+const cam = createCamera()   // dedicated camera; pass to createCameraTrack(cam)
 const out = {}
 
 cam.capturePose(out)    // → { eye, center, up } — zero-alloc with pre-allocated out
@@ -567,7 +565,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.26'
+p5.Tree.VERSION   // '0.0.27'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -612,9 +610,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.26/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.esm.js)
 
 ---
 

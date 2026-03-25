@@ -9,7 +9,7 @@
  *
  *  fn.getCamera          Return the current p5 camera (curCamera).
  *  fn.createPoseTrack()        PoseTrack wired to the draw loop.
- *  fn.createCameraTrack(cam)   CameraTrack wired + auto-apply; cam required.
+ *  fn.createCameraTrack([cam]) CameraTrack wired + auto-apply; defaults to current camera.
  *
  *  p5.Renderer3D.rotateQuat   rotate by [x,y,z,w] quaternion
  *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
@@ -171,11 +171,6 @@ export function installTrack(p5, fn) {
   /**
    * Return the current p5 camera (curCamera).
    *
-   * Use with createCameraTrack() to bind a CameraTrack to the default camera:
-   * ```js
-   * const track = createCameraTrack(getCamera())
-   * ```
-   *
    * Returns null if called before createCanvas().
    *
    * @method getCamera
@@ -225,39 +220,43 @@ export function installTrack(p5, fn) {
    * Playback applies the interpolated lookat + projection automatically each frame.
    *
    * ```js
+   * // implicit — binds to the default camera
+   * const track = createCameraTrack()
+   *
+   * // explicit — same result
+   * const track = createCameraTrack(getCamera())
+   *
+   * // dedicated camera
    * const cam   = createCamera()
    * const track = createCameraTrack(cam)
+   * ```
    *
+   * ```js
    * track.add({ eye:[0,0,500], center:[0,0,0] })
    * track.add({ eye:[300,-150,0], center:[0,0,0] })
    * track.add()                          // capture bound camera (track.camera)
    * track.add({ camera: cam })           // capture any p5.Camera
-   * track.add({ camera: getCamera() })   // or from the default camera
    * track.play({ loop: true })
    *
    * // in draw(): no guard needed — applyPose fires automatically in predraw
-   * setCamera(cam)
-   * orbitControl()
-   * ```
-   *
-   * Use getCamera() to bind to the default camera:
-   * ```js
-   * const track = createCameraTrack(getCamera())
+   * orbitControl()   // works freely when track is stopped
    * ```
    *
    * Interpolation modes:
    * ```js
-   * track.eyeInterp    = 'linear'       // 'catmullrom' | 'linear'
-   * track.centerInterp = 'catmullrom'   // 'catmullrom' | 'linear'
+   * track.eyeInterp    = 'hermite'   // 'hermite' | 'linear' | 'step'
+   * track.centerInterp = 'linear'    // 'hermite' | 'linear' | 'step'
    * ```
    *
    * @method createCameraTrack
    * @memberof p5
-   * @param {p5.Camera} cam  Camera to drive. Use getCamera() for the default camera.
+   * @param {p5.Camera} [cam]  Camera to drive. Defaults to the current camera.
+   *                           Use createCamera() for a dedicated camera.
    * @returns {CameraTrack}
    */
   fn.createCameraTrack = function (cam) {
     const pInst = this;
+    cam = cam ?? this.getCamera() ?? null;
     const track  = new CameraTrack();
     const out    = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
 
@@ -268,7 +267,7 @@ export function installTrack(p5, fn) {
       tick() {
         if (!track.playing) return false;
         track.tick();
-        cam.applyPose(track.eval(out));
+        if (cam) cam.applyPose(track.eval(out));
         return track.playing;
       }
     };
@@ -276,7 +275,7 @@ export function installTrack(p5, fn) {
     track._onActivate   = () => registerPlayer(pInst, applyPlayer);
     track._onDeactivate = () => {
       unregisterPlayer(pInst, applyPlayer);
-      if (track.keyframes.length > 0) cam.applyPose(track.eval(out));
+      if (cam && track.keyframes.length > 0) cam.applyPose(track.eval(out));
     };
 
     return track;
