@@ -20,9 +20,9 @@
  *   target.seek(t)       Set normalised position [0, 1].
  *   target.time()        Returns normalised position [0, 1].
  *   target.playing       Boolean — true while playing.
- *   target.onPlay        Fires when playback starts (chained, not clobbered).
- *   target.onEnd         Fires on natural boundary — once mode (chained, not clobbered).
- *   target.onStop        Fires on explicit stop() / reset() (chained, not clobbered).
+ *   target._onPlay       Reserved lib-space slot — assigned by this panel.
+ *   target._onEnd        Reserved lib-space slot — assigned by this panel.
+ *   target._onStop       Reserved lib-space slot — assigned by this panel.
  *
  * Optional:
  *   target.add(d?)       Add keyframe at depth d [0..1] (near..far plane centre).
@@ -39,7 +39,7 @@
  *     createPanel(track, ...)      // panel opens showing "loop"  ✓
  *
  *     createPanel(track, ...)      // panel created first
- *     track.play({ loop: true })   // onPlay fires _syncFromTrack ✓
+ *     track.play({ loop: true })   // _onPlay fires _syncFromTrack ✓
  *
  * Layout (top → bottom)
  * ---------------------
@@ -58,7 +58,7 @@
  *   ui.collapsed       get/set boolean (requires collapsible + title)
  *   ui.parent(el)      Re-mount container into a new parent HTMLElement.
  *   ui.tick()          Sync seek slider, play button, and enabled state from target.
- *   ui.dispose()       Remove DOM, restore original hooks.
+ *   ui.dispose()       Remove DOM and clear lib-space hooks.
  */
 
 'use strict';
@@ -106,7 +106,7 @@ export function createTrackUI(target, opt) {
   // ── Seed _rate and _mode from live track state, fall back to opt ──────────
   //
   // This covers the play-before-createPanel ordering.
-  // The play-after-createPanel ordering is handled by _syncFromTrack in onPlay.
+  // The play-after-createPanel ordering is handled by _syncFromTrack in _onPlay.
 
   let _rate  = (typeof target.rate === 'number') ? target.rate
              : (opt.rate ?? 1);
@@ -326,33 +326,16 @@ export function createTrackUI(target, opt) {
 
   container.appendChild(body);
 
-  // ── Hook chaining ─────────────────────────────────────────────────────────
+  // ── Lib-space hooks ───────────────────────────────────────────────────────
+  //
+  // Assigned directly to target._onPlay / _onEnd / _onStop — reserved slots
+  // that the track fires alongside the public onPlay/onEnd/onStop hooks.
+  // User-space hooks (target.onPlay etc.) are untouched — no chaining, no
+  // saved references, no ordering fragility.
 
-  const _prevOnPlay = target.onPlay;
-  const _prevOnEnd  = target.onEnd;
-  const _prevOnStop = target.onStop;
-
-  target.onPlay = function () {
-    _syncPlayBtn();
-    _syncFromTrack();
-    if (typeof _prevOnPlay === 'function') {
-      try { _prevOnPlay.apply(this, arguments); } catch (_) {}
-    }
-  };
-
-  target.onEnd = function () {
-    _syncPlayBtn();
-    if (typeof _prevOnEnd === 'function') {
-      try { _prevOnEnd.apply(this, arguments); } catch (_) {}
-    }
-  };
-
-  target.onStop = function () {
-    _syncPlayBtn();
-    if (typeof _prevOnStop === 'function') {
-      try { _prevOnStop.apply(this, arguments); } catch (_) {}
-    }
-  };
+  target._onPlay = () => { _syncPlayBtn(); _syncFromTrack(); };
+  target._onEnd  = () => { _syncPlayBtn(); };
+  target._onStop = () => { _syncPlayBtn(); };
 
   // ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -363,17 +346,14 @@ export function createTrackUI(target, opt) {
 
   /**
    * Pull rate and mode from live track state into UI controls.
-   * Called at onPlay time to handle play-after-createPanel ordering,
-   * and at init time (via seeded _rate/_mode) for play-before-createPanel.
+   * Called from _onPlay to handle the play-after-createPanel ordering.
    */
   function _syncFromTrack() {
-    // rate
     if (typeof target.rate === 'number' && target.rate !== _rate) {
       _rate = target.rate;
       if (rateSlider) rateSlider.value = _rate;
       if (rateLabel)  rateLabel.textContent = `rate: ${_rate.toFixed(2)}`;
     }
-    // mode
     const liveMode = target.pingPong ? 'pingPong' : target.loop ? 'loop' : 'once';
     if (liveMode !== _mode) {
       _mode = liveMode;
@@ -443,9 +423,9 @@ export function createTrackUI(target, opt) {
   };
 
   ui.dispose = () => {
-    target.onPlay = _prevOnPlay;
-    target.onEnd  = _prevOnEnd;
-    target.onStop = _prevOnStop;
+    target._onPlay = null;
+    target._onEnd  = null;
+    target._onStop = null;
     container.parentNode && container.parentNode.removeChild(container);
   };
 

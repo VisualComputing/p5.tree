@@ -102,6 +102,10 @@ function _centerAtDepth(pInst, d) {
  * The wrapper exposes the transport contract (_createTrackUI duck-type):
  *   play, stop, seek, time, playing, reset, info, add (optional)
  *
+ * Lib-space hook slots (_onPlay, _onEnd, _onStop) are forwarded to the
+ * underlying track via property getters/setters so that trackUI's assignments
+ * reach the object that actually fires the hooks.
+ *
  * For CameraTrack: apply is already wired in createCameraTrack; the wrapper only
  *   handles snap (1-kf), seek-while-stopped, and + button capture.
  *   Depth slider is suppressed (not meaningful for camera tracks).
@@ -148,6 +152,23 @@ function _wrapTrack(track, cam, isCameraTrack, pInst) {
   };
   if (typeof track.reset === 'function') w.reset = () => track.reset();
   if (typeof track.info  === 'function') w.info  = () => track.info();
+
+  // Forward lib-space hook slots to the underlying track.
+  // trackUI assigns w._onPlay / _onEnd / _onStop; track.play() fires track._onPlay.
+  // Without this forwarding the panel never receives playback events from
+  // track.play() called externally (e.g. via keyPressed).
+  Object.defineProperty(w, '_onPlay', {
+    get() { return track._onPlay; },
+    set(v) { track._onPlay = v; },
+  });
+  Object.defineProperty(w, '_onEnd', {
+    get() { return track._onEnd; },
+    set(v) { track._onEnd = v; },
+  });
+  Object.defineProperty(w, '_onStop', {
+    get() { return track._onStop; },
+    set(v) { track._onStop = v; },
+  });
 
   if (cam !== null && typeof track.add === 'function') {
     if (isCameraTrack) {
@@ -270,7 +291,7 @@ export function installPanel(p5, fn) {
       const shader = opt.target;
       // p5 wires _renderer into the shader on the first shader() call inside draw();
       // guard against predraw ticks firing before the shader is activated.
-      opt.target   = (name, value) => {
+      opt.target = (name, value) => {
         if (shader._renderer) shader.setUniform(name, value);
       };
     }

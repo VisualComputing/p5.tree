@@ -28,20 +28,22 @@
  *  add() / eval() for their respective data shape.
  *
  * ── Hook architecture ─────────────────────────────────────────────────────────
- *  _onActivate / _onDeactivate  — lib-space (underscore, set by host layer)
- *    Fire on playing transitions: false→true / true→false.
+ *  Lib-space hooks (underscore prefix — reserved for host layer / UI layer):
+ *    _onActivate / _onDeactivate  — fire on playing transitions false→true / true→false.
+ *    _onPlay / _onEnd / _onStop   — mirror the user-space hooks; used by the UI layer
+ *                                   so it can sync without chaining the public slots.
  *
- *  onPlay / onEnd / onStop      — user-space (public)
+ *  User-space hooks (public):
  *    onPlay : fires in play()  on false→true transition.
  *    onEnd  : fires in tick()  at natural boundary (once mode only).
  *    onStop : fires in stop() / reset() — explicit deactivation.
  *    onEnd and onStop are mutually exclusive per event.
  *
  *  Firing order:
- *    play()  → onPlay → _onActivate
- *    tick()  → onEnd  → _onDeactivate
- *    stop()  → onStop → _onDeactivate
- *    reset() → onStop → _onDeactivate
+ *    play()  → onPlay → _onPlay → _onActivate
+ *    tick()  → onEnd  → _onEnd  → _onDeactivate
+ *    stop()  → onStop → _onStop → _onDeactivate
+ *    reset() → onStop → _onStop → _onDeactivate
  *
  * ── Playback semantics (rate) ─────────────────────────────────────────────────
  *  rate > 0   forward
@@ -644,6 +646,10 @@ class Track {
     // Lib-space hooks (set by host layer, e.g. p5 bridge)
     /** @type {Function|null} */ this._onActivate   = null;
     /** @type {Function|null} */ this._onDeactivate = null;
+    // Lib-space event mirrors — set by UI layer (trackUI), never touched by user code
+    /** @type {Function|null} */ this._onPlay = null;
+    /** @type {Function|null} */ this._onEnd  = null;
+    /** @type {Function|null} */ this._onStop = null;
   }
 
   /** Playback rate. Assigning never starts/stops playback. @type {number} */
@@ -691,6 +697,7 @@ class Track {
     this.playing = true;
     if (!wasPlaying) {
       if (typeof this.onPlay === 'function') { try { this.onPlay(this); } catch (_) {} }
+      this._onPlay?.();
       this._onActivate?.();
     }
     return this;
@@ -706,6 +713,7 @@ class Track {
     this.playing = false;
     if (wasPlaying) {
       if (typeof this.onStop === 'function') { try { this.onStop(this); } catch (_) {} }
+      this._onStop?.();
       this._onDeactivate?.();
       if (rewind && this.keyframes.length > 1) this.seek(this._rate < 0 ? 1 : 0);
     }
@@ -721,6 +729,7 @@ class Track {
     this.playing = false;
     if (wasPlaying) {
       if (typeof this.onStop === 'function') { try { this.onStop(this); } catch (_) {} }
+      this._onStop?.();
       this._onDeactivate?.();
     }
     this.keyframes.length = 0;
@@ -831,6 +840,7 @@ class Track {
       this._setCursorFromScalar(0);
       this.playing = false;
       if (typeof this.onEnd === 'function') { try { this.onEnd(this); } catch (_) {} }
+      this._onEnd?.();
       this._onDeactivate?.();
       return false;
     }
@@ -838,6 +848,7 @@ class Track {
       this._setCursorFromScalar(total);
       this.playing = false;
       if (typeof this.onEnd === 'function') { try { this.onEnd(this); } catch (_) {} }
+      this._onEnd?.();
       this._onDeactivate?.();
       return false;
     }
