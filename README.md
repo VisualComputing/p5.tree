@@ -399,6 +399,12 @@ const ui = createPanel(track, {
   color: 'white'
 })
 
+// Suppress + button
+createPanel(track, { camera: null, x: 10, y: 10 })
+
+// Suppress reset button (e.g. when keyframes are hardcoded and cannot be re-added)
+createPanel(track, { reset: false, x: 10, y: 10 })
+
 // call every frame
 ui.tick()
 ```
@@ -412,7 +418,8 @@ ui.tick()
 | `loop`      | track.loop     | Initial loop mode.                                 |
 | `pingPong`  | track.pingPong | Initial pingPong mode.                             |
 | `depth`     | `0.5`          | Initial + button depth [0..1].                     |
-| `camera`    | curCamera      | Camera for + button. `null` suppresses it.         |
+| `camera`    | track.camera (CameraTrack), curCamera (PoseTrack) | Camera for + button. `null` suppresses it. |
+| `reset`     | `true`         | Show reset button. `false` suppresses it.          |
 
 Lifecycle hooks can be passed directly in opt:
 
@@ -565,7 +572,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.27'
+p5.Tree.VERSION   // '0.0.28'
 ```
 
 **Visibility testing** — frustum culling against the current camera:
@@ -610,9 +617,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.27/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.esm.js)
 
 ---
 

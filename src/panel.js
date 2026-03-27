@@ -117,14 +117,17 @@ function _centerAtDepth(pInst, d) {
  * @param {p5.Camera|null} cam
  * @param {boolean} isCameraTrack
  * @param {p5} pInst
+ * @param {boolean} showReset  When false, w.reset is omitted and _createPanel
+ *   suppresses the reset button. Use when keyframes are immutable by design.
  * @returns {Object}
  */
-function _wrapTrack(track, cam, isCameraTrack, pInst) {
+function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
   const _snapOut = isCameraTrack
     ? { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
     : { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] };
 
   const _captureOut = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+  const _addOut     = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
 
   function _applySnap() {
     if (isCameraTrack && cam && track.keyframes.length > 0) cam.applyPose(track.eval(_snapOut));
@@ -150,8 +153,8 @@ function _wrapTrack(track, cam, isCameraTrack, pInst) {
     seek:  (t) => { track.seek(t); _applySnap(); },
     time:  ()  => track.time(),
   };
-  if (typeof track.reset === 'function') w.reset = () => track.reset();
-  if (typeof track.info  === 'function') w.info  = () => track.info();
+  if (showReset && typeof track.reset === 'function') w.reset = () => track.reset();
+  if (typeof track.info === 'function') w.info = () => track.info();
 
   // Forward lib-space hook slots to the underlying track.
   // trackUI assigns w._onPlay / _onEnd / _onStop; track.play() fires track._onPlay.
@@ -172,7 +175,10 @@ function _wrapTrack(track, cam, isCameraTrack, pInst) {
 
   if (cam !== null && typeof track.add === 'function') {
     if (isCameraTrack) {
-      w.add = () => track.add(cam.capturePose());
+      w.add = () => {
+        cam.capturePose(_addOut);
+        track.add(_addOut, { deduplicate: false });
+      };
     } else {
       w.add = (d) => {
         const pos = _centerAtDepth(pInst, typeof d === 'number' ? d : 0.5) || [0,0,0];
@@ -215,8 +221,11 @@ export function installPanel(p5, fn) {
    * // PoseTrack — explicit camera override
    * createPanel(track, { camera: cam2, x: 10, y: 10 })
    *
-   * // PoseTrack — suppress + button
+   * // Suppress + button (camera: null)
    * createPanel(track, { camera: null, x: 10, y: 10 })
+   *
+   * // Suppress reset button
+   * createPanel(track, { reset: false, x: 10, y: 10 })
    * ```
    *
    * **Param panel** (shader uniforms, scene parameters):
@@ -241,7 +250,10 @@ export function installPanel(p5, fn) {
    *   Layout and behaviour options.
    * @param {p5.Camera|null} [opt.camera]
    *   Track panels only. Override camera for + button.
-   *   null suppresses the + button. Defaults to curCamera.
+   *   null suppresses the + button. Defaults to track.camera for CameraTrack,
+   *   curCamera for PoseTrack.
+   * @param {boolean} [opt.reset=true]
+   *   Track panels only. Set false to suppress the reset button.
    * @param {Object|Function} [opt.target]
    *   Param panels only. Value sink: p5 shader, (name,val)=>..., or {set}.
    * @param {(HTMLElement|p5.Element)} [opt.parent]
@@ -264,10 +276,13 @@ export function installPanel(p5, fn) {
       if (typeof opt.onEnd  === 'function') { track.onEnd  = opt.onEnd;  delete opt.onEnd;  }
       if (typeof opt.onStop === 'function') { track.onStop = opt.onStop; delete opt.onStop; }
 
+      const showReset = opt.reset !== false;
+      delete opt.reset;
+
       // Resolve camera for + button.
       let cam;
       if ('camera' in opt) {
-        cam = opt.camera === null        ? null
+        cam = opt.camera === null             ? null
             : opt.camera instanceof p5.Camera ? opt.camera
             : (pInst._renderer?.states?.curCamera ?? null);
       } else if (isCameraTrack) {
@@ -280,7 +295,7 @@ export function installPanel(p5, fn) {
       // Depth slider not meaningful for camera tracks.
       if (isCameraTrack && !('depth' in opt)) opt.depth = false;
 
-      const panel = _createPanel(_wrapTrack(track, cam, isCameraTrack, pInst), opt);
+      const panel = _createPanel(_wrapTrack(track, cam, isCameraTrack, pInst, showReset), opt);
       registerPlayer(pInst, { tick() { panel.tick(); return true; } });
       return panel;
     }
