@@ -596,12 +596,12 @@ shader.setUniform('u_resolution', resolution())
 ```
 
 ```js
-offset(img)
+texelSize(img)
 // Returns texel size: [1 / width, 1 / height].
 // Accepts p5.Image, p5.Framebuffer, p5.Graphics,
 // or any object with { width, height }.
 
-shader.setUniform('texOffset', offset(myFbo))
+shader.setUniform('texOffset', texelSize(myFbo))
 ```
 
 ## Visibility testing

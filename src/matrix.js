@@ -518,7 +518,7 @@ export function installMatrix(p5, fn) {
   };
   fn.resolution = function () { return this._renderer.resolution(); };
 
-  // ── offset ────────────────────────────────────────────────────────────────
+  // ── texelSize ─────────────────────────────────────────────────────────────
 
   /**
    * Texel size of an image-like object: [1/width, 1/height].
@@ -527,12 +527,12 @@ export function installMatrix(p5, fn) {
    * texture. Works with `p5.Image`, `p5.Framebuffer`, `p5.Graphics`,
    * and any duck-typed object with `.width` / `.height` properties.
    *
-   * @method offset
+   * @method texelSize
    * @memberof p5
    * @param {{ width:number, height:number }} img  Image-like source.
    * @returns {number[]} [1/w, 1/h].
    */
-  fn.offset = function (img) {
+  fn.texelSize = function (img) {
     return [1 / img.width, 1 / img.height];
   };
 
