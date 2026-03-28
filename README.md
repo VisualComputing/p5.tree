@@ -27,6 +27,8 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [GPU color-ID picking](#gpu-color-id-picking)
     -   [CPU proximity picking](#cpu-proximity-picking)
 -   [Utilities](#utilities)
+    -   [Shader helpers](#shader-helpers)
+    -   [Visibility testing](#visibility-testing)
 -   [Gizmos](#gizmos)
 -   [Releases](#releases)
 -   [Usage](#usage)
@@ -212,13 +214,19 @@ reset() → onStop → _onDeactivate
 ## Camera helpers
 
 ```js
-const cam = createCamera()   // dedicated camera; pass to createCameraTrack(cam)
-const out = {}
+getCamera()                    // current p5.Camera (curCamera)
+cam.capturePose([out])         // → { eye, center, up, fov, halfHeight }
+cam.applyPose(pose)            // write pose back to camera
 
-cam.capturePose(out)    // → { eye, center, up } — zero-alloc with pre-allocated out
-cam.applyPose(pose)     // set camera from { eye, center, up }
+cameraParams([out], [opts])    // → { pos, center, up } in world space
+// out inner vecs: number[] or Float32Array(3) — p5.Vector not supported
+// opts: { eMatrix?, pMatrix?, vMatrix? } — forwarded to mapLocation/mapDirection
 
-getCamera()             // → current active p5.Camera (or null before setup)
+// zero-alloc usage
+const camOut = { pos: new Float32Array(3), center: new Float32Array(3), up: new Float32Array(3) }
+const e = new Float32Array(16)
+eMatrix(e)
+cameraParams(camOut, { eMatrix: e })
 ```
 
 ---
@@ -572,16 +580,46 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.28'
+p5.Tree.VERSION   // '0.0.29'
 ```
 
-**Visibility testing** — frustum culling against the current camera:
+## Shader helpers
 
 ```js
-visibility({ corner1, corner2 })    // box
-visibility({ center, radius })      // sphere
-visibility({ center })              // point
-// → p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
+resolution()
+// Returns physical canvas size in pixels:
+// [pixelDensity * width, pixelDensity * height].
+// Use as `u_resolution` when working with gl_FragCoord.xy.
+// Not required for createFilterShader() — filter shaders receive `canvasSize` automatically.
+
+shader.setUniform('u_resolution', resolution())
+```
+
+```js
+offset(img)
+// Returns texel size: [1 / width, 1 / height].
+// Accepts p5.Image, p5.Framebuffer, p5.Graphics,
+// or any object with { width, height }.
+
+shader.setUniform('texOffset', offset(myFbo))
+```
+
+## Visibility testing
+
+Frustum culling against the current camera:
+
+```js
+visibility({ corner1, corner2 })   // axis-aligned box
+visibility({ center, radius })     // sphere
+visibility({ center })             // point
+```
+
+Returns:
+
+```js
+p5.Tree.VISIBLE
+p5.Tree.SEMIVISIBLE
+p5.Tree.INVISIBLE
 ```
 
 ---
@@ -617,9 +655,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.28/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.esm.js)
 
 ---
 

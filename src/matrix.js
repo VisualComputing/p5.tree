@@ -497,4 +497,99 @@ export function installMatrix(p5, fn) {
     return corePixelRatio(proj, this.height, eyeZ, _ndcZ);
   };
   fn.pixelRatio = function (worldPos, opts) { return this._renderer.pixelRatio(worldPos, opts); };
+  
+  // ── resolution ────────────────────────────────────────────────────────────
+
+  /**
+   * Physical canvas resolution in pixels: [pixelDensity × width, pixelDensity × height].
+   *
+   * Use to set a `u_resolution` uniform on shaders that use `gl_FragCoord.xy`
+   * for full-canvas effects (portals, post-effects). Not needed for filter
+   * shaders created with `createFilterShader()` — those receive `canvasSize`
+   * and `texelSize` automatically.
+   *
+   * @method resolution
+   * @memberof p5
+   * @returns {number[]} [w, h] in physical pixels.
+   */
+  p5.Renderer3D.prototype.resolution = function () {
+    const pd = this._pInst.pixelDensity();
+    return [pd * this.width, pd * this.height];
+  };
+  fn.resolution = function () { return this._renderer.resolution(); };
+
+  // ── offset ────────────────────────────────────────────────────────────────
+
+  /**
+   * Texel size of an image-like object: [1/width, 1/height].
+   *
+   * Pass to convolution or multi-tap shaders that sample neighbours of a
+   * texture. Works with `p5.Image`, `p5.Framebuffer`, `p5.Graphics`,
+   * and any duck-typed object with `.width` / `.height` properties.
+   *
+   * @method offset
+   * @memberof p5
+   * @param {{ width:number, height:number }} img  Image-like source.
+   * @returns {number[]} [1/w, 1/h].
+   */
+  fn.offset = function (img) {
+    return [1 / img.width, 1 / img.height];
+  };
+
+  // ── cameraParams ──────────────────────────────────────────────────────────
+
+  /**
+   * Read the current camera state as a `{ pos, center, up }` object.
+   *
+   * Returns the camera world position, a point one unit ahead along the
+   * look direction, and the up direction — all in world space.
+   *
+   * Pass a pre-allocated `out` for zero-alloc hot paths; omit it for a
+   * fresh plain-array object (debug convenience).
+   *
+   * Inner vecs accept `number[]` or `Float32Array(3)` — written by index.
+   * `p5.Vector` is **not** supported for inner fields.
+   *
+   * `opts` is forwarded verbatim to `mapLocation` / `mapDirection` —
+   * supply `{ eMatrix }` when you have already computed the eye matrix
+   * this frame to avoid recomputation.
+   *
+   * ```js
+   * // debug — allocates
+   * console.log(cameraParams())
+   *
+   * // hot-path — zero alloc
+   * const camOut = { pos: new Float32Array(3),
+   *                  center: new Float32Array(3),
+   *                  up: new Float32Array(3) }
+   * const e = new Float32Array(16)
+   * // in draw():
+   * eMatrix(e)
+   * cameraParams(camOut, { eMatrix: e })
+   * ```
+   *
+   * @method cameraParams
+   * @memberof p5
+   * @param {{ pos:number[]|Float32Array,
+   *           center:number[]|Float32Array,
+   *           up:number[]|Float32Array }} [out]
+   * @param {{
+   *   eMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   pMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   vMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   * }} [opts]
+   * @returns {typeof out}
+   */
+  p5.Renderer3D.prototype.cameraParams = function (out, opts) {
+    out  = out  || { pos: [0,0,0], center: [0,0,0], up: [0,0,0] };
+    opts = opts || {};
+    this.mapLocation(out.pos, opts);
+    this.mapDirection(out.center, opts);            // writes forward into center (temp)
+    out.center[0] = out.pos[0] + out.center[0];
+    out.center[1] = out.pos[1] + out.center[1];
+    out.center[2] = out.pos[2] + out.center[2];
+    this.mapDirection(out.up, p5.Tree.j, opts);
+    return out;
+  };
+  fn.cameraParams = function (out, opts) { return this._renderer.cameraParams(out, opts); };
 }
