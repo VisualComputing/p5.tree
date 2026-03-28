@@ -130,7 +130,8 @@ function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
   const _addOut     = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
 
   function _applySnap() {
-    if (isCameraTrack && cam && track.keyframes.length > 0) cam.applyPose(track.eval(_snapOut));
+    const applyCam = isCameraTrack ? track.camera : null;
+    if (applyCam && track.keyframes.length > 0) applyCam.applyPose(track.eval(_snapOut));
   }
 
   // Chain onEnd so the final keyframe lands exactly when playback ends.
