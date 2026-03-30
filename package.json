@@ -49,7 +49,7 @@
     "p5": "^2.2.3"
   },
   "dependencies": {
-    "@nakednous/tree": "^0.0.10",
+    "@nakednous/tree": "^0.0.11",
     "@nakednous/ui": "^0.0.7"
   },
   "devDependencies": {
