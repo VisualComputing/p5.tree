@@ -68,7 +68,7 @@ track.rotInterp = 'nlerp'    // normalised lerp; cheaper, slightly non-constant 
 track.rotInterp = 'step'     // snap to k0 quaternion
 ```
 
-Playback features: signed `rate` (negative reverses), `loop`, `pingPong`, `seek(t)` scrubbing, and lifecycle hooks (`onPlay`, `onEnd`, `onStop`). `_onActivate` / `_onDeactivate` are lib-space hooks for the host layer's draw-loop registry — not for user code.
+Playback features: signed `rate` (negative reverses), `loop`, `bounce`, `seek(t)` scrubbing, and lifecycle hooks (`onPlay`, `onEnd`, `onStop`). `_onActivate` / `_onDeactivate` are lib-space hooks for the host layer's draw-loop registry — not for user code.
 
 `add()` accepts flexible specs. Top-level forms:
 
@@ -164,7 +164,7 @@ Note: both matrix forms default `up` to `[0,1,0]`. The matrix col1 (up_ortho) is
 Both `PoseTrack` and `CameraTrack` extend `Track`, which holds all transport machinery:
 
 ```js
-track.play({ duration, loop, pingPong, rate, onPlay, onEnd, onStop })
+track.play({ duration, loop, bounce, rate, onPlay, onEnd, onStop })
 track.stop([rewind])   // rewind=true seeks to origin on stop
 track.reset()          // clear all keyframes and stop
 track.seek(t)          // normalised position [0, 1]
@@ -177,11 +177,23 @@ track.remove(i)        // remove keyframe at index
 
 track.playing          // boolean
 track.loop             // boolean
-track.pingPong         // boolean
+track.bounce           // boolean
 track.rate             // get/set — never starts/stops playback
 track.duration         // frames per segment
 track.keyframes        // raw array
 ```
+
+**Loop modes:**
+
+| `loop` | `bounce` | behaviour |
+|--------|----------|-----------|
+| false  | —        | once — stop at end (fires `onEnd`) |
+| true   | false    | repeat — wrap back to start |
+| true   | true     | bounce — reverse direction at each boundary |
+
+`bounce: true` always sets `loop: true`. `loop: false` always clears `bounce`.
+The internal `_dir` field (±1) tracks bounce travel direction — `rate` is never
+mutated at boundaries.
 
 Hook firing order:
 ```
