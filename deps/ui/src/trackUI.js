@@ -11,7 +11,18 @@
  *   The rate slider adjusts speed while playing but never starts or stops.
  *   rate === 0 is treated as "frozen" — playback state is unchanged.
  *   The seek slider scrubs position without affecting the playing flag.
- *   The mode select changes loop/pingPong/once without starting playback.
+ *   The loop checkbox and bounce checkbox change looping behaviour without
+ *   starting playback.
+ *
+ * Loop modes
+ * ----------
+ *   once     — stop at end (loop unchecked)
+ *   repeat   — wrap back to start (loop checked, bounce unchecked)
+ *   bounce   — bounce at boundaries (loop checked, bounce checked)
+ *
+ *   bounce implies loop.  The bounce checkbox sits to the right of loop on
+ *   the same row — it is hidden (visibility:hidden) when loop is unchecked
+ *   but preserves its value so it restores when loop is re-checked.
  *
  * Target contract (duck-typed)
  * ----------------------------
@@ -31,15 +42,14 @@
  *
  * State initialisation
  * --------------------
- *   _rate and _mode are seeded from the live track state (target.rate,
- *   target.loop, target.pingPong) with opt values as fallback.  This means
- *   both orderings work correctly:
+ *   _rate is seeded once at creation from the live track state (target.rate)
+ *   with opt.rate as fallback.  After creation rate is fully UI-owned — the
+ *   panel never reads rate back from the track.  This prevents spurious slider
+ *   snaps when external play() calls omit rate (e.g. play({ bounce: true })).
  *
- *     track.play({ loop: true })   // before createPanel
- *     createPanel(track, ...)      // panel opens showing "loop"  ✓
- *
- *     createPanel(track, ...)      // panel created first
- *     track.play({ loop: true })   // _onPlay fires _syncFromTrack ✓
+ *   _loop and _bounce are seeded the same way and additionally polled from
+ *   the track every tick() while playing, so external play() calls that change
+ *   loop/bounce mode are always reflected.
  *
  * Layout (top → bottom)
  * ---------------------
@@ -48,7 +58,8 @@
  *   Row 1b — depth:     depth slider        (when target supports add)
  *   Row 2  — seek:      seek slider         (hidden when keyframes ≤ 1)
  *   Row 3  — rate:      rate label + slider (when showProps)
- *   Row 4  — mode:      mode label + select (when showProps, always last)
+ *   Row 4  — loop + bounce: loop checkbox, then bounce to its right
+ *             (bounce uses visibility:hidden when loop unchecked — row never resizes)
  *   Row 5  — info:      time / keyframe     (when showInfo)
  *
  * Returned API
@@ -65,7 +76,7 @@
 
 import {
   createContainer, createSlider, createButton,
-  createSelect, createLabel, mount
+  createCheckbox, createLabel, mount
 } from './dom.js';
 
 /**
@@ -74,11 +85,11 @@ import {
  * @param {Object} target    PoseTrack (or duck-compatible object).
  * @param {Object} [opt]     Options.
  * @param {boolean} [opt.seek=true]       Show seek slider.
- * @param {boolean} [opt.props=true]      Show rate slider + mode select.
+ * @param {boolean} [opt.props=true]      Show rate slider + loop controls.
  * @param {boolean} [opt.info=false]      Show time/keyframe readout.
  * @param {number}  [opt.rate=1]          Initial rate (overridden by target.rate if set).
- * @param {boolean} [opt.loop=false]      Initial loop mode (overridden by target.loop).
- * @param {boolean} [opt.pingPong=false]  Initial pingPong mode (overrides loop).
+ * @param {boolean} [opt.loop=false]      Initial loop state (overridden by target.loop).
+ * @param {boolean} [opt.bounce=false]  Initial bounce state (overridden by target.bounce).
  * @param {number}  [opt.depth=0.5]       Initial add-pose depth [0..1]: 0 = near, 1 = far.
  * @param {number}  [opt.x=0]            Container left (px).
  * @param {number}  [opt.y=0]            Container top (px).
@@ -103,17 +114,15 @@ export function createTrackUI(target, opt) {
   const rateSliderW  = opt.rateWidth  ?? sliderW;
   const depthSliderW = opt.depthWidth ?? sliderW;
 
-  // ── Seed _rate and _mode from live track state, fall back to opt ──────────
+  // ── Seed _rate, _loop, _bounce from live track state, fall back to opt ──
   //
-  // This covers the play-before-createPanel ordering.
-  // The play-after-createPanel ordering is handled by _syncFromTrack in _onPlay.
+  // _bounce is UI-owned: the core clears it when loop is disabled, but the
+  // UI preserves it so it restores when loop is re-checked.
 
-  let _rate  = (typeof target.rate === 'number') ? target.rate
-             : (opt.rate ?? 1);
-  let _mode  = (target.pingPong || opt.pingPong) ? 'pingPong'
-             : (target.loop     || opt.loop)     ? 'loop'
-             : 'once';
-  let _depth = (typeof opt.depth === 'number') ? opt.depth : 0.5;
+  let _rate     = (typeof target.rate === 'number') ? target.rate : (opt.rate ?? 1);
+  let _loop     = !!(target.loop     || opt.loop);
+  let _bounce = !!(target.bounce || opt.bounce);
+  let _depth    = (typeof opt.depth === 'number') ? opt.depth : 0.5;
 
   const container = createContainer('track-ui');
   container.style.left = `${opt.x ?? 0}px`;
@@ -128,8 +137,8 @@ export function createTrackUI(target, opt) {
   function _playOpts() {
     return {
       rate:     _rate,
-      loop:     _mode === 'loop' || _mode === 'pingPong',
-      pingPong: _mode === 'pingPong'
+      loop:     _loop,
+      bounce: _loop && _bounce,
     };
   }
 
@@ -283,36 +292,50 @@ export function createTrackUI(target, opt) {
     body.appendChild(rateRow);
   }
 
-  // ── Row 4 — mode select ───────────────────────────────────────────────────
+  // ── Row 4 — loop + bounce checkboxes on one row ──────────────────────────
+  //
+  // bounce sits to the right of loop on the same row.
+  // visibility:hidden/visible (not display:none) keeps row width stable —
+  // the panel never grows or shrinks when bounce appears or disappears.
 
-  let modeSelect;
+  let loopInp, bounceWrap, bounceInp;
+
   if (showProps) {
-    const modeRow = document.createElement('div');
-    modeRow.className = 'p5t-mode';
-    modeRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;';
+    const loopRow = document.createElement('div');
+    loopRow.className = 'p5t-loop';
+    loopRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;';
 
-    const modeLabel = createLabel('mode:');
-    modeLabel.style.minWidth = '72px';
+    const loopLabel = createLabel('loop:');
+    loopLabel.style.minWidth = '40px';
 
-    modeSelect = createSelect(
-      [{ label: 'once',     value: 'once'     },
-       { label: 'loop',     value: 'loop'     },
-       { label: 'pingPong', value: 'pingPong' }],
-      _mode,
-      v => {
-        _mode = v;
-        if (target.playing) {
-          target.play({
-            loop:     _mode === 'loop' || _mode === 'pingPong',
-            pingPong: _mode === 'pingPong'
-          });
-        }
-      }
-    );
+    const loopCheck = createCheckbox('', _loop, v => {
+      _loop = v;
+      _syncBounceVis();
+      if (target.playing) target.play(_playOpts());
+    });
+    loopInp = loopCheck.firstChild;
 
-    modeRow.appendChild(modeLabel);
-    modeRow.appendChild(modeSelect);
-    body.appendChild(modeRow);
+    const bounceLabel = createLabel('bounce:');
+    bounceLabel.style.marginLeft = '10px';
+
+    const bounceCheck = createCheckbox('', _bounce, v => {
+      _bounce = v;
+      if (target.playing) target.play(_playOpts());
+    });
+    bounceInp = bounceCheck.firstChild;
+
+    // wrap label+checkbox together so visibility applies to both at once
+    bounceWrap = document.createElement('span');
+    bounceWrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+    bounceWrap.appendChild(bounceLabel);
+    bounceWrap.appendChild(bounceCheck);
+
+    loopRow.appendChild(loopLabel);
+    loopRow.appendChild(loopCheck);
+    loopRow.appendChild(bounceWrap);
+    body.appendChild(loopRow);
+
+    _syncBounceVis();
   }
 
   // ── Row 5 — info label (optional) ────────────────────────────────────────
@@ -327,13 +350,8 @@ export function createTrackUI(target, opt) {
   container.appendChild(body);
 
   // ── Lib-space hooks ───────────────────────────────────────────────────────
-  //
-  // Assigned directly to target._onPlay / _onEnd / _onStop — reserved slots
-  // that the track fires alongside the public onPlay/onEnd/onStop hooks.
-  // User-space hooks (target.onPlay etc.) are untouched — no chaining, no
-  // saved references, no ordering fragility.
 
-  target._onPlay = () => { _syncPlayBtn(); _syncFromTrack(); };
+  target._onPlay = () => { _syncPlayBtn(); };
   target._onEnd  = () => { _syncPlayBtn(); };
   target._onStop = () => { _syncPlayBtn(); };
 
@@ -344,21 +362,10 @@ export function createTrackUI(target, opt) {
     btnPlay.textContent = target.playing ? '\u23F8' : '\u25B6';
   }
 
-  /**
-   * Pull rate and mode from live track state into UI controls.
-   * Called from _onPlay to handle the play-after-createPanel ordering.
-   */
-  function _syncFromTrack() {
-    if (typeof target.rate === 'number' && target.rate !== _rate) {
-      _rate = target.rate;
-      if (rateSlider) rateSlider.value = _rate;
-      if (rateLabel)  rateLabel.textContent = `rate: ${_rate.toFixed(2)}`;
-    }
-    const liveMode = target.pingPong ? 'pingPong' : target.loop ? 'loop' : 'once';
-    if (liveMode !== _mode) {
-      _mode = liveMode;
-      if (modeSelect) modeSelect.value = _mode;
-    }
+  /** Show/hide bounce row based on _loop. */
+  /** Show/hide bounce controls without affecting row width (visibility not display). */
+  function _syncBounceVis() {
+    if (bounceWrap) bounceWrap.style.visibility = _loop ? 'visible' : 'hidden';
   }
 
   function _updateEnabledState() {
@@ -420,6 +427,22 @@ export function createTrackUI(target, opt) {
     _syncPlayBtn();
     _updateEnabledState();
     if (showInfo) _updateInfo();
+
+    // Poll loop/bounce from track — covers external play() calls.
+    // Only when playing: when stopped the UI owns these values.
+    if (showProps && target.playing) {
+      const liveLoop = !!target.loop;
+      const livePP   = !!target.bounce;
+      if (liveLoop !== _loop) {
+        _loop = liveLoop;
+        if (loopInp) loopInp.checked = _loop;
+        _syncBounceVis();
+      }
+      if (livePP !== _bounce) {
+        _bounce = livePP;
+        if (bounceInp) bounceInp.checked = _bounce;
+      }
+    }
   };
 
   ui.dispose = () => {

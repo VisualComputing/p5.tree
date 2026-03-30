@@ -144,7 +144,7 @@ function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
   const w = {
     get playing()  { return track.playing; },
     get loop()     { return track.loop; },
-    get pingPong() { return track.pingPong; },
+    get bounce() { return track.bounce; },
     get rate()     { return track.rate; },
     play:  (o) => {
       track.play(o);

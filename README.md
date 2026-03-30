@@ -180,7 +180,7 @@ track.centerInterp = 'step'
 All tracks share the same transport API:
 
 ```js
-track.play({ duration, loop, pingPong, rate, onPlay, onEnd, onStop })
+track.play({ duration, loop, bounce, rate, onPlay, onEnd, onStop })
 track.stop([rewind])   // rewind=true seeks to origin
 track.reset()          // clear all keyframes and stop
 track.seek(t)          // t ∈ [0, 1]
@@ -194,12 +194,24 @@ track.remove(i)        // remove keyframe at index
 | Option     | Default | Description                                    |
 |------------|---------|------------------------------------------------|
 | `duration` | `30`    | Frames per segment.                            |
-| `loop`     | `false` | Wrap at boundaries.                            |
-| `pingPong` | `false` | Bounce at boundaries.                          |
+| `loop`     | `false` | Repeat — wrap back to start at end.            |
+| `bounce`   | `false` | Bounce at boundaries (implies `loop: true`).   |
 | `rate`     | `1`     | Playback speed (negative reverses direction).  |
 | `onPlay`   | —       | Fires when playback starts.                    |
 | `onEnd`    | —       | Fires at natural end (once mode only).         |
 | `onStop`   | —       | Fires on explicit `stop()` or `reset()`.       |
+
+**Loop modes:**
+
+| `loop` | `bounce` | behaviour |
+|--------|----------|-----------|
+| false  | —        | once — stop at end (fires `onEnd`) |
+| true   | false    | repeat — wrap back to start |
+| true   | true     | bounce — reverse direction at each boundary |
+
+`bounce: true` always sets `loop: true`. `loop: false` always clears `bounce`.
+The transport panel shows both as checkboxes on the same row — bounce is hidden
+(value preserved) when loop is unchecked.
 
 Hook firing order:
 ```
@@ -209,7 +221,7 @@ stop()  → onStop → _onDeactivate
 reset() → onStop → _onDeactivate
 ```
 
-`track.playing`, `track.loop`, `track.pingPong`, `track.rate`, `track.duration`, `track.keyframes` — readable at any time.
+`track.playing`, `track.loop`, `track.bounce`, `track.rate`, `track.duration`, `track.keyframes` — readable at any time.
 
 ## Camera helpers
 
@@ -420,11 +432,11 @@ ui.tick()
 | Option      | Default        | Description                                        |
 |-------------|----------------|----------------------------------------------------|
 | `seek`      | `true`         | Show seek slider.                                  |
-| `props`     | `true`         | Show rate slider + mode select.                    |
+| `props`     | `true`         | Show rate slider + loop controls.                  |
 | `info`      | `false`        | Show time/keyframe readout.                        |
 | `rate`      | track.rate     | Initial rate.                                      |
-| `loop`      | track.loop     | Initial loop mode.                                 |
-| `pingPong`  | track.pingPong | Initial pingPong mode.                             |
+| `loop`      | track.loop     | Initial loop state.                                |
+| `bounce`    | track.bounce   | Initial bounce state.                              |
 | `depth`     | `0.5`          | Initial + button depth [0..1].                     |
 | `camera`    | track.camera (CameraTrack), curCamera (PoseTrack) | Camera for + button. `null` suppresses it. |
 | `reset`     | `true`         | Show reset button. `false` suppresses it.          |

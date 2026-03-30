@@ -177,7 +177,7 @@ ui.tick()
 | `time()`      | ✓        | Returns normalised position `[0, 1]`.     |
 | `playing`     | ✓        | Boolean — true while playing.             |
 | `loop`        | ✓        | Boolean — read at panel creation time.    |
-| `pingPong`    | ✓        | Boolean — read at panel creation time.    |
+| `bounce`      | ✓        | Boolean — read at panel creation time.    |
 | `rate`        | ✓        | Number — read at panel creation time.     |
 | `onPlay`      | ✓        | Hook — chained, not clobbered.            |
 | `onEnd`       | ✓        | Hook — chained, not clobbered.            |
@@ -188,32 +188,42 @@ ui.tick()
 
 ### Transport model
 
-The Play/Pause button is the **sole** control that starts or stops playback. The rate slider adjusts speed without starting or stopping. The seek slider scrubs position without affecting `playing`. The mode select changes `loop`/`pingPong`/`once` without starting playback.
+The Play/Pause button is the **sole** control that starts or stops playback. The rate slider adjusts speed without starting or stopping. The seek slider scrubs position without affecting `playing`. The loop and bounce checkboxes change looping behaviour without starting playback.
+
+**Loop modes:**
+
+| loop | bounce | behaviour |
+|------|--------|-----------|
+| ☐    | —      | once — stop at end |
+| ☑    | ☐      | repeat — wrap back to start |
+| ☑    | ☑      | bounce at boundaries |
+
+`bounce` implies `loop`. Both sit on the same row — bounce uses `visibility:hidden` when loop is unchecked so the panel never resizes. Bounce value is preserved while hidden.
 
 ### State initialisation
 
-The panel seeds its initial `rate` and `mode` from the live track state (`target.rate`, `target.loop`, `target.pingPong`), falling back to opt values. This means both orderings work correctly:
+`rate` is seeded once at creation from the live track state (falling back to `opt.rate`) and is fully UI-owned thereafter — the panel never reads rate back from the track. `loop` and `bounce` are seeded the same way and additionally polled from the track every `tick()` while playing, so external `play()` calls are always reflected:
 
 ```js
-// play before createPanel — panel opens showing the live mode
+// play before createPanel — panel opens with correct state
 track.play({ loop: true })
-createPanel(track, ...)     // mode select shows "loop" ✓
+createPanel(track, ...)     // loop checkbox checked ✓
 
-// createPanel before play — panel syncs on the first play() call
+// createPanel before play — polled on next tick while playing
 createPanel(track, ...)
-track.play({ loop: true })  // mode select updates to "loop" ✓
+track.play({ bounce: true }) // both loop + bounce checked ✓
 ```
 
 ### Layout (top → bottom)
 
 ```
   Title row  — optional, becomes collapse toggle when collapsible=true
-  [ + ]  [ ▶/⏸ ]  [ ↺ ]       — add / play-pause / reset
-  depth: ──────────────         — placement depth (0 = near, 1 = far)
-  seek:  ──────────────         — scrub position [0, 1]
-  rate:  ──────────────         — signed speed (negative reverses)
-  mode:  [ once | loop | pingPong ]
-  t: 0.412  seg 1/3  kf 4       — info readout
+  [ + ]  [ ▶/⏸ ]  [ ↺ ]        — add / play-pause / reset
+  depth: ──────────────        — placement depth (0 = near, 1 = far)
+  seek:  ──────────────        — scrub position [0, 1]
+  rate:  ──────────────        — signed speed (negative reverses)
+  loop: [ ☐ ]  bounce: [ ☐ ]   — loop; bounce to the right (hidden when loop ☐)
+  t: 0.412  seg 1/3  kf 4      — info readout
 ```
 
 ### Transport options
@@ -221,11 +231,11 @@ track.play({ loop: true })  // mode select updates to "loop" ✓
 | Option        | Default         | Description                                                      |
 |---------------|-----------------|------------------------------------------------------------------|
 | `seek`        | `true`          | Show seek slider.                                                |
-| `props`       | `true`          | Show rate slider + mode select.                                  |
+| `props`       | `true`          | Show rate slider + loop controls.                                |
 | `info`        | `false`         | Show time/keyframe readout.                                      |
-| `rate`        | `target.rate`   | Initial rate (seeded from live track state, falls back to `1`).  |
-| `loop`        | `target.loop`   | Initial loop mode (seeded from live track state).                |
-| `pingPong`    | `target.pingPong` | Initial pingPong mode (seeded from live track state).          |
+| `rate`        | `target.rate`   | Initial rate (seeded once; UI-owned after creation).             |
+| `loop`        | `target.loop`   | Initial loop state (seeded from live track state).               |
+| `bounce`      | `target.bounce` | Initial bounce state (seeded from live track; polled while playing). |
 | `depth`       | `0.5`           | Initial add-pose depth [0..1].                                   |
 | `title`       | —               | Optional title row.                                              |
 | `collapsible` | `false`         | Title row becomes a collapse toggle.                             |

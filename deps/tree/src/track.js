@@ -45,7 +45,16 @@
  *    stop()  → onStop → _onStop → _onDeactivate
  *    reset() → onStop → _onStop → _onDeactivate
  *
- * ── Playback semantics (rate) ─────────────────────────────────────────────────
+ * ── Loop modes ────────────────────────────────────────────────────────────────
+ *  once     loop=false, bounce=false  — stop at end (fires onEnd)
+ *  repeat   loop=true,  bounce=false  — wrap back to start
+ *  bounce loop=true,  bounce=true   — bounce at boundaries
+ *
+ *  Exclusivity enforced in play():
+ *    bounce: true  → loop is also set true
+ *    loop: false     → bounce is also cleared
+ *
+ * ── Playback semantics (rate + _dir) ─────────────────────────────────────────
  *  rate > 0   forward
  *  rate < 0   backward
  *  rate === 0 frozen: tick() no-op; playing unchanged
@@ -53,6 +62,12 @@
  *  play() is the sole setter of playing = true.
  *  stop() is the sole setter of playing = false.
  *  Assigning rate never starts or stops playback.
+ *
+ *  _dir (internal, ±1) tracks the current bounce travel direction.
+ *  tick() advances by rate * _dir and flips _dir at boundaries.
+ *  rate always holds the user-set value — it is never mutated by bounce.
+ *  _dir is reset to 1 only in reset() (keyframes cleared) — stop/replay
+ *  preserves the current travel direction.
  *
  * ── One-keyframe behaviour ────────────────────────────────────────────────────
  *  play() with exactly one keyframe snaps eval() to that keyframe without
@@ -627,7 +642,7 @@ class Track {
     /** Loop at boundaries. @type {boolean} */
     this.loop      = false;
     /** Ping-pong bounce (takes precedence over loop). @type {boolean} */
-    this.pingPong  = false;
+    this.bounce  = false;
     /** Frames per segment (≥1). @type {number} */
     this.duration  = 30;
     /** Current segment index. @type {number} */
@@ -637,6 +652,10 @@ class Track {
 
     // Internal rate — never directly starts/stops playback
     this._rate = 1;
+    // Internal bounce direction: +1 forward, -1 backward.
+    // Flipped by tick() at boundaries. Never exposed publicly.
+    // rate always holds the user-set value — only _dir changes.
+    this._dir  = 1;
 
     // User-space hooks
     /** @type {Function|null} */ this.onPlay = null;
@@ -662,7 +681,7 @@ class Track {
   /**
    * Start or update playback.
    * @param {number|Object} [rateOrOpts]  Numeric rate or options object:
-   *   { rate, duration, loop, pingPong, onPlay, onEnd, onStop }
+   *   { rate, duration, loop, bounce, onPlay, onEnd, onStop }
    * @returns {Track} this
    */
   play(rateOrOpts) {
@@ -678,9 +697,9 @@ class Track {
       this._rate = rateOrOpts;
     } else if (rateOrOpts && typeof rateOrOpts === 'object') {
       const o = rateOrOpts;
-      if (_isNum(o.duration))             this.duration = Math.max(1, o.duration | 0);
-      if ('loop'     in o)                this.loop     = !!o.loop;
-      if ('pingPong' in o)                this.pingPong = !!o.pingPong;
+      if (_isNum(o.duration))             this.duration  = Math.max(1, o.duration | 0);
+      if ('loop'     in o) { this.loop     = !!o.loop;     if (!this.loop)     this.bounce = false; }
+      if ('bounce' in o) { this.bounce = !!o.bounce; if (this.bounce)  this.loop     = true;  }
       if (typeof o.onPlay === 'function') this.onPlay   = o.onPlay;
       if (typeof o.onEnd  === 'function') this.onEnd    = o.onEnd;
       if (typeof o.onStop === 'function') this.onStop   = o.onStop;
@@ -715,7 +734,7 @@ class Track {
       if (typeof this.onStop === 'function') { try { this.onStop(this); } catch (_) {} }
       this._onStop?.();
       this._onDeactivate?.();
-      if (rewind && this.keyframes.length > 1) this.seek(this._rate < 0 ? 1 : 0);
+      if (rewind && this.keyframes.length > 1) this.seek(this._rate * this._dir < 0 ? 1 : 0);
     }
     return this;
   }
@@ -733,7 +752,7 @@ class Track {
       this._onDeactivate?.();
     }
     this.keyframes.length = 0;
-    this.seg = 0; this.f = 0;
+    this.seg = 0; this.f = 0; this._dir = 1;
     return this;
   }
 
@@ -795,7 +814,7 @@ class Track {
       f:         this.f,
       playing:   this.playing,
       loop:      this.loop,
-      pingPong:  this.pingPong,
+      bounce:  this.bounce,
       rate:      this._rate,
       duration:  this.duration,
       time:      this.segments > 0 ? this.time() : 0
@@ -818,15 +837,15 @@ class Track {
     const dur   = Math.max(1, this.duration | 0);
     const total = nSeg * dur;
     const s     = _clampS(this.seg * dur + this.f, 0, total);
-    const next  = s + this._rate;
+    const next  = s + this._rate * this._dir;
 
-    if (this.pingPong) {
+    if (this.bounce) {
       let pos = next, flips = 0;
       while (pos < 0 || pos > total) {
         if (pos < 0) { pos = -pos; flips++; }
         else         { pos = 2 * total - pos; flips++; }
       }
-      if (flips & 1) this._rate = -this._rate;
+      if (flips & 1) this._dir = -this._dir;
       this._setCursorFromScalar(pos);
       return true;
     }
