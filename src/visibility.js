@@ -27,6 +27,8 @@ import {
   pointVisibility, sphereVisibility, boxVisibility,
 } from '@nakednous/tree';
 
+import { getNdcZ } from './matrix.js';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level working buffers — never returned to caller
 // ═══════════════════════════════════════════════════════════════════════════
@@ -56,7 +58,7 @@ export function computePlanes(renderer, eRaw) {
   const view = _viewMat4(renderer);
   const e    = eRaw ?? (mat4Invert(_eye, view), _eye);
   const proj = _projMat4(renderer);
-  const ndcZ = -1;
+  const ndcZ = getNdcZ();
   frustumPlanes(
     _planes,
     e[12], e[13], e[14],

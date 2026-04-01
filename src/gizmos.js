@@ -17,6 +17,8 @@ import {
   projLeft, projRight, projTop, projBottom,
 } from '@nakednous/tree';
 
+import { getNdcZ } from './matrix.js';
+
 import { computePlanes } from './visibility.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -262,7 +264,7 @@ export function installGizmos(p5, fn) {
     const vRaw = _rawMat4(vMatrix) ?? _viewMat4(this);
 
     const isOrtho = projIsOrtho(pRaw);
-    const ndcZ    = -1;
+    const ndcZ    = getNdcZ();
     const apex    = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
     const n = -projNear(pRaw, ndcZ), f = -projFar(pRaw);
     const l =  projLeft(pRaw, ndcZ), r  = projRight(pRaw, ndcZ);
