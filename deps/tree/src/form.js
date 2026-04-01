@@ -1,13 +1,13 @@
 /**
  * @file Matrix construction from geometric specs and partial decomposition.
- * @module tree/build
+ * @module tree/form
  * @license AGPL-3.0-only
  *
  * Constructs mat4s from higher-level specs: TRS transforms, orthonormal
  * bases, lookat parameters, projection parameters, and special-purpose
  * matrices (bias, reflection).
  *
- * Design invariant: build.js has no dependency on query.js. Construction
+ * Design invariant: form.js has no dependency on query.js. Construction
  * from specs requires only scalar arithmetic and quaternion conversions.
  * Callers compose the resulting matrices using query.js (mat4Mul etc.).
  *
@@ -130,9 +130,9 @@ export function mat4EyeMatrix(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
  * No struct allocation — all components passed as plain numbers.
  *
  * @param {Float32Array|number[]} out  16-element destination.
- * @param {number} tx,ty,tz   Translation.
+ * @param {number} tx,ty,tz      Translation.
  * @param {number} qx,qy,qz,qw  Rotation quaternion [x,y,z,w].
- * @param {number} sx,sy,sz   Scale.
+ * @param {number} sx,sy,sz      Scale.
  * @returns {Float32Array|number[]} out
  */
 export function mat4FromTRS(out, tx,ty,tz, qx,qy,qz,qw, sx,sy,sz) {
@@ -185,10 +185,10 @@ export function mat4FromScale(out, sx,sy,sz) {
  * near maps to ndcZMin, far maps to +1.
  *
  * @param {Float32Array|number[]} out  16-element destination.
- * @param {number} fov     Vertical field of view (radians).
- * @param {number} aspect  Width / height.
- * @param {number} near    Near plane distance (positive).
- * @param {number} far     Far plane distance (positive, > near).
+ * @param {number} fov      Vertical field of view (radians).
+ * @param {number} aspect   Width / height.
+ * @param {number} near     Near plane distance (positive).
+ * @param {number} far      Far plane distance (positive, > near).
  * @param {number} ndcZMin  -1 (WEBGL) or 0 (WEBGPU).
  * @returns {Float32Array|number[]} out
  */
@@ -279,10 +279,10 @@ export function mat4Frustum(out, left, right, bottom, top, near, far, ndcZMin) {
  * @returns {Float32Array|number[]} out
  */
 export function mat4Bias(out, ndcZMin) {
-  const sz = (1 - ndcZMin) * 0.5;
-  const tz = (1 + ndcZMin) * 0.5;
-  out[0]=0.5; out[1]=0;   out[2]=0;  out[3]=0;
-  out[4]=0;   out[5]=0.5; out[6]=0;  out[7]=0;
+  const sz = 1 / (1 - ndcZMin);
+  const tz = -ndcZMin / (1 - ndcZMin);
+  out[0]=0.5; out[1]=0;   out[2]=0;   out[3]=0;
+  out[4]=0;   out[5]=0.5; out[6]=0;   out[7]=0;
   out[8]=0;   out[9]=0;   out[10]=sz; out[11]=0;
   out[12]=0.5; out[13]=0.5; out[14]=tz; out[15]=1;
   return out;

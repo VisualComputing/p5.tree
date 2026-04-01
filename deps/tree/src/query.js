@@ -4,12 +4,12 @@
  * @license AGPL-3.0-only
  *
  * The operative layer — receives existing matrices and extracts information.
- * Contrast with build.js which constructs matrices from specs.
+ * Contrast with form.js which constructs matrices from specs.
  *
- *   build.js  — you have specs, you want a matrix
+ *   form.js  — you have specs, you want a matrix
  *   query.js  — you have a matrix, you want information
  *
- * No dependency on build.js. Operating on matrices requires no knowledge
+ * No dependency on form.js. Operating on matrices requires no knowledge
  * of how they were constructed.
  *
  * Storage: column-major Float32Array / ArrayLike<number>.

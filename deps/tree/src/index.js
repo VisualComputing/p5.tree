@@ -5,7 +5,7 @@
  */
 export * from './constants.js';
 export * from './quat.js';
-export * from './build.js';
+export * from './form.js';
 export * from './query.js';
 export * from './track.js';
 export * from './visibility.js';

@@ -8,7 +8,7 @@
  * All functions follow the out-first, zero-allocation contract.
  * Conversion functions bridge between quaternion and matrix representations
  * but do not perform any higher-level graphics operations — those belong
- * in build.js (matrix construction from specs) or track.js (animation).
+ * in form.js (matrix construction from specs) or track.js (animation).
  */
 
 'use strict';
