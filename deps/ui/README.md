@@ -179,9 +179,9 @@ ui.tick()
 | `loop`        | ✓        | Boolean — read at panel creation time.    |
 | `bounce`      | ✓        | Boolean — read at panel creation time.    |
 | `rate`        | ✓        | Number — read at panel creation time.     |
-| `onPlay`      | ✓        | Hook — chained, not clobbered.            |
-| `onEnd`       | ✓        | Hook — chained, not clobbered.            |
-| `onStop`      | ✓        | Hook — chained, not clobbered.            |
+| `_onPlay`     | ✓        | Lib-space hook — assigned by this panel.  |
+| `_onEnd`      | ✓        | Lib-space hook — assigned by this panel.  |
+| `_onStop`     | ✓        | Lib-space hook — assigned by this panel.  |
 | `add(depth?)` | optional | Add a keyframe. Enables the `+` button.   |
 | `reset()`     | optional | Clear all keyframes. Enables `↺`.         |
 | `info()`      | optional | Returns `{ keyframes, segments, ... }`.   |
@@ -190,15 +190,16 @@ ui.tick()
 
 The Play/Pause button is the **sole** control that starts or stops playback. The rate slider adjusts speed without starting or stopping. The seek slider scrubs position without affecting `playing`. The loop and bounce checkboxes change looping behaviour without starting playback.
 
-**Loop modes:**
+**Loop modes** — `loop` and `bounce` are fully independent:
 
 | loop | bounce | behaviour |
 |------|--------|-----------|
-| ☐    | —      | once — stop at end |
+| ☐    | ☐      | play once — stop at end |
 | ☑    | ☐      | repeat — wrap back to start |
-| ☑    | ☑      | bounce at boundaries |
+| ☑    | ☑      | bounce forever at boundaries |
+| ☐    | ☑      | bounce once — flip at far boundary, stop at origin |
 
-`bounce` implies `loop`. Both sit on the same row — bounce uses `visibility:hidden` when loop is unchecked so the panel never resizes. Bounce value is preserved while hidden.
+Both checkboxes are always visible and independent of each other.
 
 ### State initialisation
 
@@ -207,11 +208,11 @@ The Play/Pause button is the **sole** control that starts or stops playback. The
 ```js
 // play before createPanel — panel opens with correct state
 track.play({ loop: true })
-createPanel(track, ...)     // loop checkbox checked ✓
+createPanel(track, ...)      // loop checkbox checked ✓
 
 // createPanel before play — polled on next tick while playing
 createPanel(track, ...)
-track.play({ bounce: true }) // both loop + bounce checked ✓
+track.play({ bounce: true }) // bounce checkbox checked ✓
 ```
 
 ### Layout (top → bottom)
@@ -222,32 +223,32 @@ track.play({ bounce: true }) // both loop + bounce checked ✓
   depth: ──────────────        — placement depth (0 = near, 1 = far)
   seek:  ──────────────        — scrub position [0, 1]
   rate:  ──────────────        — signed speed (negative reverses)
-  loop: [ ☐ ]  bounce: [ ☐ ]   — loop; bounce to the right (hidden when loop ☐)
+  loop: [ ☐ ]  bounce: [ ☐ ]   — independent checkboxes, always visible
   t: 0.412  seg 1/3  kf 4      — info readout
 ```
 
 ### Transport options
 
-| Option        | Default         | Description                                                      |
-|---------------|-----------------|------------------------------------------------------------------|
-| `seek`        | `true`          | Show seek slider.                                                |
-| `props`       | `true`          | Show rate slider + loop controls.                                |
-| `info`        | `false`         | Show time/keyframe readout.                                      |
-| `rate`        | `target.rate`   | Initial rate (seeded once; UI-owned after creation).             |
-| `loop`        | `target.loop`   | Initial loop state (seeded from live track state).               |
+| Option        | Default         | Description                                                          |
+|---------------|-----------------|----------------------------------------------------------------------|
+| `seek`        | `true`          | Show seek slider.                                                    |
+| `props`       | `true`          | Show rate slider + loop controls.                                    |
+| `info`        | `false`         | Show time/keyframe readout.                                          |
+| `rate`        | `target.rate`   | Initial rate (seeded once; UI-owned after creation).                 |
+| `loop`        | `target.loop`   | Initial loop state (seeded from live track; polled while playing).   |
 | `bounce`      | `target.bounce` | Initial bounce state (seeded from live track; polled while playing). |
-| `depth`       | `0.5`           | Initial add-pose depth [0..1].                                   |
-| `title`       | —               | Optional title row.                                              |
-| `collapsible` | `false`         | Title row becomes a collapse toggle.                             |
-| `collapsed`   | `false`         | Start collapsed (implies collapsible).                           |
-| `x`           | `0`             | Container left (px).                                             |
-| `y`           | `0`             | Container top (px).                                              |
-| `width`       | `120`           | Slider width (px).                                               |
-| `rateWidth`   | `width`         | Rate slider width override (px).                                 |
-| `depthWidth`  | `width`         | Depth slider width override (px).                                |
-| `color`       | —               | Container text color.                                            |
-| `hidden`      | `false`         | Start hidden.                                                    |
-| `parent`      | `document.body` | Mount target (`HTMLElement`).                                    |
+| `depth`       | `0.5`           | Initial add-pose depth [0..1].                                       |
+| `title`       | —               | Optional title row.                                                  |
+| `collapsible` | `false`         | Title row becomes a collapse toggle.                                 |
+| `collapsed`   | `false`         | Start collapsed (implies collapsible).                               |
+| `x`           | `0`             | Container left (px).                                                 |
+| `y`           | `0`             | Container top (px).                                                  |
+| `width`       | `120`           | Slider width (px).                                                   |
+| `rateWidth`   | `width`         | Rate slider width override (px).                                     |
+| `depthWidth`  | `width`         | Depth slider width override (px).                                    |
+| `color`       | —               | Container text color.                                                |
+| `hidden`      | `false`         | Start hidden.                                                        |
+| `parent`      | `document.body` | Mount target (`HTMLElement`).                                        |
 
 ### Panel API
 
@@ -257,7 +258,7 @@ ui.visible         // get/set boolean
 ui.collapsed       // get/set boolean (requires collapsible + title)
 ui.parent(el)      // re-mount into a new HTMLElement
 ui.tick()          // sync seek slider, play button, enabled state — call every frame
-ui.dispose()       // remove DOM, restore original hook chain
+ui.dispose()       // remove DOM and clear lib-space hooks
 ```
 
 ---

@@ -33,6 +33,15 @@ import * as tree from '@nakednous/tree'
 
 The dependency direction is strict: `@nakednous/tree` never imports from the bridge or the DOM layer. This is what lets the same `PoseTrack` that drives a camera path also animate any object — headless, server-side, or in a future renderer.
 
+Source is organised into four focused modules:
+
+```
+form.js  — you have specs, you want a matrix
+query.js — you have a matrix, you want information
+quat.js  — quaternion algebra and mat4/mat3 conversions
+track.js — spline math and keyframe animation state machines
+```
+
 ---
 
 ## What it does
@@ -79,7 +88,7 @@ track.add({ mMatrix: mat4 })                       // decompose a column-major m
 track.add([ spec, spec, ... ])                     // bulk
 ```
 
-`tanIn` is the incoming position tangent at this keyframe; `tanOut` is the outgoing tangent. When only one is given, the other mirrors it. When neither is given, centripetal Catmull-Rom tangents are auto-computed from neighboring keyframes — identical to prior default behavior.
+`tanIn` is the incoming position tangent at this keyframe; `tanOut` is the outgoing tangent. When only one is given, the other mirrors it. When neither is given, centripetal Catmull-Rom tangents are auto-computed from neighboring keyframes.
 
 ```js
 track.add({ pos:[0,0,0] })                                      // auto tangents
@@ -138,7 +147,7 @@ track.centerInterp = 'hermite'  // smoother when center is also moving freely
 track.centerInterp = 'step'
 ```
 
-`add()` accepts:
+`add()` accepts explicit lookat specs or a bulk array:
 
 ```js
 track.add({ eye, center?, up?, fov?, halfHeight?,
@@ -148,12 +157,10 @@ track.add({ eye, center?, up?, fov?, halfHeight?,
                                    // both nullable; omit to leave projection unchanged
                                    // eyeTanIn/Out — Hermite tangents for eye path
                                    // centerTanIn/Out — Hermite tangents for center path
-track.add({ vMatrix: mat4 })       // view matrix (world→eye); eye reconstructed
-track.add({ eMatrix: mat4 })       // eye matrix (eye→world); eye read from col3
 track.add([ spec, spec, ... ])     // bulk
 ```
 
-Note: both matrix forms default `up` to `[0,1,0]`. The matrix col1 (up_ortho) is intentionally not used — it differs from the hint for upright cameras and would shift orbitControl's orbit reference. Use `capturePose()` (p5.tree bridge) when the real up hint is needed.
+For matrix-based capture use `PoseTrack.add({ mMatrix: eMatrix })` for full-fidelity TRS including roll, or `cam.capturePose()` (p5.tree bridge) for lookat-style capture.
 
 `fov` and `halfHeight` are lerped between keyframes only when both adjacent keyframes carry a non-null value for that field. Mixed or null entries pass `null` through — the bridge leaves the projection unchanged.
 
@@ -183,17 +190,16 @@ track.duration         // frames per segment
 track.keyframes        // raw array
 ```
 
-**Loop modes:**
+**Loop modes** — `loop` and `bounce` are fully independent flags:
 
 | `loop` | `bounce` | behaviour |
 |--------|----------|-----------|
-| false  | —        | once — stop at end (fires `onEnd`) |
+| false  | false    | play once — stop at end (fires `onEnd`) |
 | true   | false    | repeat — wrap back to start |
-| true   | true     | bounce — reverse direction at each boundary |
+| true   | true     | bounce forever — reverse direction at each boundary |
+| false  | true     | bounce once — flip at far boundary, stop at origin |
 
-`bounce: true` always sets `loop: true`. `loop: false` always clears `bounce`.
-The internal `_dir` field (±1) tracks bounce travel direction — `rate` is never
-mutated at boundaries.
+The internal `_dir` field (±1) tracks bounce travel direction — `rate` is never mutated at boundaries.
 
 Hook firing order:
 ```
@@ -260,7 +266,7 @@ Three-state result: `VISIBLE` (fully inside), `SEMIVISIBLE` (intersecting), `INV
 
 Exported individually for use in hot paths.
 
-**Quaternions** — `[x,y,z,w]` w-last:
+**Quaternions** — `[x,y,z,w]` w-last (`quat.js`):
 
 ```
 qSet  qCopy  qDot  qNormalize  qNegate  qMul
@@ -271,15 +277,34 @@ quatToAxisAngle
 
 **Spline / vector:** `hermiteVec3`, `lerpVec3`
 
-**Mat4:**
+**Mat4 arithmetic** (`query.js`):
 ```
-mat4Mul  mat4Invert  mat4Transpose  mat4MulPoint
+mat4Mul  mat4Invert  mat4Transpose  mat4MulPoint  mat4MulDir
 mat3NormalFromMat4  mat4Location  mat3Direction
+mat4PV  mat4MV
 ```
 
-**TRS ↔ mat4:** `transformToMat4`, `mat4ToTransform`
+**TRS ↔ mat4 (track.js):** `transformToMat4`, `mat4ToTransform`
 
-**Projection queries** (read from a projection mat4 — no renderer needed):
+**Matrix construction from specs** (`form.js`):
+```
+mat4FromBasis        — rigid frame from orthonormal basis + translation
+mat4LookAt           — view matrix (world→eye) from lookat params
+mat4EyeMatrix        — eye matrix (eye→world) from lookat params
+mat4FromTRS          — column-major mat4 from flat TRS scalars
+mat4FromTranslation  — translation-only mat4
+mat4FromScale        — scale-only mat4
+mat4Perspective      — perspective projection
+mat4Ortho            — orthographic projection
+mat4Frustum          — off-centre perspective projection
+mat4Bias             — NDC→texture/UV remap [0,1] for shadow mapping
+mat4Reflect          — reflection across a plane
+mat4ToTranslation    — extract translation (col 3)
+mat4ToScale          — extract scale (column lengths)
+mat4ToRotation       — extract rotation as unit quaternion
+```
+
+**Projection queries** — read scalars from an existing projection mat4 (`query.js`):
 ```
 projIsOrtho  projNear  projFar  projFov  projHfov
 projLeft  projRight  projTop  projBottom
@@ -287,7 +312,7 @@ projLeft  projRight  projTop  projBottom
 
 **Pixel ratio:** `pixelRatio(proj, vpH, eyeZ, ndcZMin)` — world-units-per-pixel at a given depth, handles both perspective and orthographic.
 
-**Pick matrix:** `applyPickMatrix(proj, px, py, W, H)` — mutates a projection mat4 in-place so that pixel `(px, py)` maps to the full NDC square. Used by the p5.tree GPU color-ID picking implementation. Convention-independent (perspective and orthographic).
+**Pick matrix:** `mat4Pick(proj, px, py, W, H)` — mutates a projection mat4 in-place so that pixel `(px, py)` maps to the full NDC square. Used by the p5.tree GPU color-ID picking implementation. Convention-independent (perspective and orthographic).
 
 ---
 

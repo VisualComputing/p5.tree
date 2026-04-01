@@ -141,7 +141,7 @@ function draw() {
 }
 ```
 
-`add()` accepts multiple forms:
+`add()` accepts explicit lookat specs or a bulk array:
 
 ```js
 track.add({ eye, center?, up?, fov?, halfHeight?,
@@ -149,19 +149,17 @@ track.add({ eye, center?, up?, fov?, halfHeight?,
                                // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
                                // eyeTanIn/Out — Hermite tangents for eye path
                                // centerTanIn/Out — Hermite tangents for center path
-track.add({ vMatrix: mat4 })   // view matrix (world→eye); eye reconstructed via -R^T·t
-track.add({ eMatrix: mat4 })   // eye matrix (eye→world); eye read from col3
 track.add(cam.capturePose())   // capture live camera state (zero-alloc with pre-allocated out)
 track.add()                    // shortcut — captures track's bound camera
 track.add([ spec, spec, ... ]) // bulk
 ```
 
+For matrix-based capture use `track.add({ mMatrix: eMatrix })` on a `PoseTrack` for full-fidelity TRS including roll, or `cam.capturePose()` for lookat-style capture.
+
 `fov` (radians) animates perspective field of view.
 `halfHeight` (world units) animates the vertical extent of an ortho frustum —
 width is derived from aspect ratio at apply time, preserving image proportions.
-Both fields are captured automatically by `track.add()` and `track.add({ camera: cam })`.
-
-`vMatrix` and `eMatrix` both default `up` to `[0,1,0]`. Pass `cam.capturePose()` when the real up hint needs preserving.
+Both fields are captured automatically by `track.add()` and `cam.capturePose()`.
 
 Interpolation modes:
 
@@ -191,27 +189,26 @@ track.set(i, spec)     // replace keyframe at index
 track.remove(i)        // remove keyframe at index
 ```
 
-| Option     | Default | Description                                    |
-|------------|---------|------------------------------------------------|
-| `duration` | `30`    | Frames per segment.                            |
-| `loop`     | `false` | Repeat — wrap back to start at end.            |
-| `bounce`   | `false` | Bounce at boundaries (implies `loop: true`).   |
-| `rate`     | `1`     | Playback speed (negative reverses direction).  |
-| `onPlay`   | —       | Fires when playback starts.                    |
-| `onEnd`    | —       | Fires at natural end (once mode only).         |
-| `onStop`   | —       | Fires on explicit `stop()` or `reset()`.       |
+| Option     | Default | Description                                   |
+|------------|---------|-----------------------------------------------|
+| `duration` | `30`    | Frames per segment.                           |
+| `loop`     | `false` | Repeat — wrap back to start at end.           |
+| `bounce`   | `false` | Bounce at boundaries (independent of `loop`). |
+| `rate`     | `1`     | Playback speed (negative reverses direction). |
+| `onPlay`   | —       | Fires when playback starts.                   |
+| `onEnd`    | —       | Fires at natural end (once mode only).        |
+| `onStop`   | —       | Fires on explicit `stop()` or `reset()`.      |
 
-**Loop modes:**
+**Loop modes** — `loop` and `bounce` are fully independent flags:
 
 | `loop` | `bounce` | behaviour |
 |--------|----------|-----------|
-| false  | —        | once — stop at end (fires `onEnd`) |
+| false  | false    | play once — stop at end (fires `onEnd`) |
 | true   | false    | repeat — wrap back to start |
-| true   | true     | bounce — reverse direction at each boundary |
+| true   | true     | bounce forever — reverse direction at each boundary |
+| false  | true     | bounce once — flip at far boundary, stop at origin |
 
-`bounce: true` always sets `loop: true`. `loop: false` always clears `bounce`.
-The transport panel shows both as checkboxes on the same row — bounce is hidden
-(value preserved) when loop is unchecked.
+The internal `_dir` field (±1) tracks bounce travel direction — `rate` is never mutated at boundaries.
 
 Hook firing order:
 ```
@@ -226,19 +223,9 @@ reset() → onStop → _onDeactivate
 ## Camera helpers
 
 ```js
-getCamera()                    // current p5.Camera (curCamera)
-cam.capturePose([out])         // → { eye, center, up, fov, halfHeight }
-cam.applyPose(pose)            // write pose back to camera
-
-cameraParams([out], [opts])    // → { pos, center, up } in world space
-// out inner vecs: number[] or Float32Array(3) — p5.Vector not supported
-// opts: { eMatrix?, pMatrix?, vMatrix? } — forwarded to mapLocation/mapDirection
-
-// zero-alloc usage
-const camOut = { pos: new Float32Array(3), center: new Float32Array(3), up: new Float32Array(3) }
-const e = new Float32Array(16)
-eMatrix(e)
-cameraParams(camOut, { eMatrix: e })
+getCamera()              // current p5.Camera (curCamera)
+cam.capturePose([out])   // → { eye, center, up, fov, halfHeight }
+cam.applyPose(pose)      // write pose back to camera
 ```
 
 ---
@@ -282,6 +269,8 @@ mat4Mul(out, A, B)          // out = A · B  (column-major)
 mat4Invert(out, src)        // out = inv(src), null if singular
 mat4MulPoint(out, m, point) // out = m · [x,y,z,1] perspective-divided
                             // point: Float32Array | ArrayLike | p5.Vector
+mat4MulDir(out, m, dx,dy,dz) // out = 3×3 block of m applied to direction
+                             // no translation, no perspective divide
 ```
 
 **Zero-allocation draw-loop pattern:**
@@ -592,19 +581,19 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.29'
+p5.Tree.VERSION   // '0.0.30'
 ```
 
 ## Shader helpers
 
 ```js
-resolution()
+screenSize()
 // Returns physical canvas size in pixels:
 // [pixelDensity * width, pixelDensity * height].
 // Use as `u_resolution` when working with gl_FragCoord.xy.
 // Not required for createFilterShader() — filter shaders receive `canvasSize` automatically.
 
-shader.setUniform('u_resolution', resolution())
+shader.setUniform('u_resolution', screenSize())
 ```
 
 ```js
@@ -667,9 +656,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.29/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.30/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.30/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.30/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.30/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.30/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.30/dist/p5.tree.esm.js)
 
 ---
 
