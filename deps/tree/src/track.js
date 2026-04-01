@@ -1,12 +1,17 @@
 /**
- * @file Pure quaternion/spline math + track state machines.
+ * @file Spline math and keyframe animation state machines.
  * @module tree/track
  * @license AGPL-3.0-only
  *
- * Zero dependencies.  No p5, DOM, WebGL, or WebGPU usage.
+ * Quaternion algebra is provided by quat.js — this module imports and uses
+ * it but does not define it. Spline helpers (hermiteVec3, lerpVec3) and
+ * TRS↔mat4 conversions (transformToMat4, mat4ToTransform) remain here
+ * because they are tightly coupled to the PoseTrack keyframe shape.
+ *
+ * Zero dependencies on p5, DOM, WebGL, or WebGPU.
  *
  * ── Exports ──────────────────────────────────────────────────────────────────
- *  Quaternion helpers
+ *  Quaternion helpers  (re-exported from quat.js)
  *    qSet qCopy qDot qNormalize qNegate qMul qSlerp qNlerp
  *    qFromAxisAngle qFromLookDir qFromRotMat3x3 qFromMat4 qToMat4
  *    quatToAxisAngle
@@ -48,11 +53,11 @@
  * ── Loop modes ────────────────────────────────────────────────────────────────
  *  once     loop=false, bounce=false  — stop at end (fires onEnd)
  *  repeat   loop=true,  bounce=false  — wrap back to start
- *  bounce loop=true,  bounce=true   — bounce at boundaries
+ *  bounce   loop=true,  bounce=true   — bounce at boundaries
  *
  *  Exclusivity enforced in play():
  *    bounce: true  → loop is also set true
- *    loop: false     → bounce is also cleared
+ *    loop: false   → bounce is also cleared
  *
  * ── Playback semantics (rate + _dir) ─────────────────────────────────────────
  *  rate > 0   forward
@@ -76,174 +81,16 @@
 
 'use strict';
 
-// =========================================================================
-// S1  Quaternion helpers  (flat [x, y, z, w], w-last)
-// =========================================================================
+export {
+  qSet, qCopy, qDot, qNormalize, qNegate, qMul,
+  qSlerp, qNlerp,
+  qFromAxisAngle, qFromLookDir, qFromRotMat3x3, qFromMat4,
+  quatToAxisAngle,
+} from './quat.js';
 
-/** Set all four components. @returns {number[]} out */
-export const qSet = (out, x, y, z, w) => {
-  out[0] = x; out[1] = y; out[2] = z; out[3] = w; return out;
-};
-
-/** Copy quaternion a into out. @returns {number[]} out */
-export const qCopy = (out, a) => {
-  out[0] = a[0]; out[1] = a[1]; out[2] = a[2]; out[3] = a[3]; return out;
-};
-
-/** Dot product of two quaternions. */
-export const qDot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
-
-/** Normalise quaternion in-place. @returns {number[]} out */
-export const qNormalize = (out) => {
-  const l = Math.sqrt(out[0]*out[0]+out[1]*out[1]+out[2]*out[2]+out[3]*out[3]) || 1;
-  out[0]/=l; out[1]/=l; out[2]/=l; out[3]/=l; return out;
-};
-
-/** Negate quaternion (same rotation, different hemisphere). @returns {number[]} out */
-export const qNegate = (out, a) => {
-  out[0]=-a[0]; out[1]=-a[1]; out[2]=-a[2]; out[3]=-a[3]; return out;
-};
-
-/** Hamilton product out = a * b. @returns {number[]} out */
-export const qMul = (out, a, b) => {
-  const ax=a[0],ay=a[1],az=a[2],aw=a[3], bx=b[0],by=b[1],bz=b[2],bw=b[3];
-  out[0]=aw*bx+ax*bw+ay*bz-az*by;
-  out[1]=aw*by-ax*bz+ay*bw+az*bx;
-  out[2]=aw*bz+ax*by-ay*bx+az*bw;
-  out[3]=aw*bw-ax*bx-ay*by-az*bz;
-  return out;
-};
-
-/** Spherical linear interpolation. @returns {number[]} out */
-export const qSlerp = (out, a, b, t) => {
-  let bx=b[0],by=b[1],bz=b[2],bw=b[3];
-  let d = a[0]*bx+a[1]*by+a[2]*bz+a[3]*bw;
-  if (d < 0) { bx=-bx; by=-by; bz=-bz; bw=-bw; d=-d; }
-  let f0, f1;
-  if (1-d > 1e-10) {
-    const th=Math.acos(d), st=Math.sin(th);
-    f0=Math.sin((1-t)*th)/st; f1=Math.sin(t*th)/st;
-  } else {
-    f0=1-t; f1=t;
-  }
-  out[0]=a[0]*f0+bx*f1; out[1]=a[1]*f0+by*f1;
-  out[2]=a[2]*f0+bz*f1; out[3]=a[3]*f0+bw*f1;
-  return qNormalize(out);
-};
-
-/**
- * Normalised linear interpolation (nlerp).
- * Cheaper than slerp; slightly non-constant angular velocity.
- * Handles antipodal quats by flipping b when dot < 0.
- * @returns {number[]} out
- */
-export const qNlerp = (out, a, b, t) => {
-  let bx=b[0],by=b[1],bz=b[2],bw=b[3];
-  if (a[0]*bx+a[1]*by+a[2]*bz+a[3]*bw < 0) { bx=-bx; by=-by; bz=-bz; bw=-bw; }
-  out[0]=a[0]+t*(bx-a[0]); out[1]=a[1]+t*(by-a[1]);
-  out[2]=a[2]+t*(bz-a[2]); out[3]=a[3]+t*(bw-a[3]);
-  return qNormalize(out);
-};
-
-/**
- * Build a quaternion from axis-angle.
- * @param {number[]} out
- * @param {number} ax @param {number} ay @param {number} az  Axis (need not be unit).
- * @param {number} angle  Radians.
- * @returns {number[]} out
- */
-export const qFromAxisAngle = (out, ax, ay, az, angle) => {
-  const half = angle * 0.5;
-  const s    = Math.sin(half);
-  const len  = Math.sqrt(ax*ax + ay*ay + az*az) || 1;
-  out[0] = s * ax / len; out[1] = s * ay / len; out[2] = s * az / len;
-  out[3] = Math.cos(half);
-  return out;
-};
-
-/**
- * Build a quaternion from a look direction (−Z forward) and optional up (default +Y).
- * @param {number[]} out
- * @param {number[]} dir  Forward direction [x,y,z].
- * @param {number[]} [up] Up vector [x,y,z].
- * @returns {number[]} out
- */
-export const qFromLookDir = (out, dir, up) => {
-  let fx=dir[0],fy=dir[1],fz=dir[2];
-  const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
-  fx/=fl; fy/=fl; fz/=fl;
-  let ux=up?up[0]:0, uy=up?up[1]:1, uz=up?up[2]:0;
-  let rx=uy*fz-uz*fy, ry=uz*fx-ux*fz, rz=ux*fy-uy*fx;
-  const rl=Math.sqrt(rx*rx+ry*ry+rz*rz)||1;
-  rx/=rl; ry/=rl; rz/=rl;
-  ux=fy*rz-fz*ry; uy=fz*rx-fx*rz; uz=fx*ry-fy*rx;
-  return qFromRotMat3x3(out, rx,ry,rz, ux,uy,uz, -fx,-fy,-fz);
-};
-
-/**
- * Build a quaternion from a 3×3 rotation matrix (9 row-major scalars).
- * @returns {number[]} out (normalised)
- */
-export const qFromRotMat3x3 = (out, m00,m01,m02, m10,m11,m12, m20,m21,m22) => {
-  const tr = m00+m11+m22;
-  if (tr > 0) {
-    const s=0.5/Math.sqrt(tr+1);
-    out[3]=0.25/s; out[0]=(m21-m12)*s; out[1]=(m02-m20)*s; out[2]=(m10-m01)*s;
-  } else if (m00>m11 && m00>m22) {
-    const s=2*Math.sqrt(1+m00-m11-m22);
-    out[3]=(m21-m12)/s; out[0]=0.25*s; out[1]=(m01+m10)/s; out[2]=(m02+m20)/s;
-  } else if (m11>m22) {
-    const s=2*Math.sqrt(1+m11-m00-m22);
-    out[3]=(m02-m20)/s; out[0]=(m01+m10)/s; out[1]=0.25*s; out[2]=(m12+m21)/s;
-  } else {
-    const s=2*Math.sqrt(1+m22-m00-m11);
-    out[3]=(m10-m01)/s; out[0]=(m02+m20)/s; out[1]=(m12+m21)/s; out[2]=0.25*s;
-  }
-  return qNormalize(out);
-};
-
-/**
- * Extract a unit quaternion from the upper-left 3×3 of a column-major mat4.
- * @param {number[]} out
- * @param {Float32Array|number[]} m  Column-major mat4.
- * @returns {number[]} out
- */
-export const qFromMat4 = (out, m) =>
-  qFromRotMat3x3(out, m[0],m[4],m[8], m[1],m[5],m[9], m[2],m[6],m[10]);
-
-/**
- * Write a quaternion into the rotation block of a column-major mat4.
- * Translation and perspective rows/cols are set to identity values.
- * @param {Float32Array|number[]} out  16-element array.
- * @param {number[]} q  [x,y,z,w].
- * @returns {Float32Array|number[]} out
- */
-export const qToMat4 = (out, q) => {
-  const x=q[0],y=q[1],z=q[2],w=q[3];
-  const x2=x+x,y2=y+y,z2=z+z;
-  const xx=x*x2,xy=x*y2,xz=x*z2,yy=y*y2,yz=y*z2,zz=z*z2,wx=w*x2,wy=w*y2,wz=w*z2;
-  out[0]=1-(yy+zz); out[1]=xy+wz;     out[2]=xz-wy;     out[3]=0;
-  out[4]=xy-wz;     out[5]=1-(xx+zz); out[6]=yz+wx;     out[7]=0;
-  out[8]=xz+wy;     out[9]=yz-wx;     out[10]=1-(xx+yy); out[11]=0;
-  out[12]=0;        out[13]=0;        out[14]=0;          out[15]=1;
-  return out;
-};
-
-/**
- * Decompose a unit quaternion into { axis:[x,y,z], angle } (radians).
- * @param {number[]} q  [x,y,z,w].
- * @param {Object}  [out]
- * @returns {{ axis: number[], angle: number }}
- */
-export const quatToAxisAngle = (q, out) => {
-  out = out || {};
-  const x=q[0],y=q[1],z=q[2],w=q[3];
-  const sinHalf = Math.sqrt(x*x+y*y+z*z);
-  if (sinHalf < 1e-8) { out.axis=[0,1,0]; out.angle=0; return out; }
-  out.angle = 2*Math.atan2(sinHalf, w);
-  out.axis  = [x/sinHalf, y/sinHalf, z/sinHalf];
-  return out;
-};
+import {
+  qSlerp, qNlerp, qMul, qFromAxisAngle, qFromLookDir, qFromRotMat3x3, qToMat4,
+} from './quat.js';
 
 // =========================================================================
 // S2  Spline / vector helpers
@@ -276,14 +123,13 @@ export const hermiteVec3 = (out, p0, m0, p1, m1, t) => {
 
 // Centripetal CR outgoing tangent at p1 for segment p1→p2, scaled by dt1.
 const _crTanOut = (out, p0, p1, p2, p3) => {
-  const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
+  const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1;
   for (let i=0;i<3;i++) out[i]=((p1[i]-p0[i])/dt0-(p2[i]-p0[i])/(dt0+dt1)+(p2[i]-p1[i])/dt1)*dt1;
   return out;
 };
 
-// Centripetal CR incoming tangent at p2 for segment p1→p2, scaled by dt1.
 const _crTanIn = (out, p0, p1, p2, p3) => {
-  const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
+  const dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
   for (let i=0;i<3;i++) out[i]=((p2[i]-p1[i])/dt1-(p3[i]-p1[i])/(dt1+dt2)+(p3[i]-p2[i])/dt2)*dt1;
   return out;
 };
@@ -371,33 +217,13 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
  *
  * Accepted forms:
  *
- *   [x,y,z,w]
- *     Raw quaternion array.
- *
- *   { axis:[x,y,z], angle }
- *     Axis-angle.  Axis need not be unit.
- *
- *   { dir:[x,y,z], up?:[x,y,z] }
- *     Object orientation — forward direction (−Z) with optional up hint.
- *
- *   { eMatrix: mat4 }
- *     Extract rotation block from an eye (eye→world) matrix.
- *     Column-major Float32Array(16), plain Array, or { mat4 } wrapper.
- *
- *   { mat3: mat3 }
- *     Column-major 3×3 rotation matrix — Float32Array(9) or plain Array.
- *
- *   { euler:[rx,ry,rz], order?:'YXZ' }
- *     Intrinsic Euler angles (radians).  Angles are indexed by order position:
- *     e[0] rotates around order[0] axis, e[1] around order[1], e[2] around order[2].
- *     Supported orders: YXZ (default), XYZ, ZYX, ZXY, XZY, YZX.
- *     Note: intrinsic ABC = extrinsic CBA with the same angles — to use
- *     extrinsic order ABC, reverse the string and use intrinsic CBA.
- *
- *   { from:[x,y,z], to:[x,y,z] }
- *     Shortest-arc rotation from one direction onto another.
- *     Both vectors are normalised internally.
- *     Antiparallel input: 180° rotation around a perpendicular axis.
+ *   [x,y,z,w]                        — raw quaternion array
+ *   { axis:[x,y,z], angle }          — axis-angle
+ *   { dir:[x,y,z], up?:[x,y,z] }    — forward direction (−Z) with optional up
+ *   { eMatrix: mat4 }                — rotation block of an eye matrix
+ *   { mat3: mat3 }                   — column-major 3×3 rotation matrix
+ *   { euler:[rx,ry,rz], order? }     — intrinsic Euler (default order: YXZ)
+ *   { from:[x,y,z], to:[x,y,z] }    — shortest-arc rotation
  *
  * @param {*} v
  * @returns {number[]|null}  [x,y,z,w] or null if unparseable.
@@ -405,46 +231,48 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
 function _parseQuat(v) {
   if (!v) return null;
 
-  // raw [x,y,z,w] — plain array or typed array
-  if ((Array.isArray(v) || ArrayBuffer.isView(v)) && v.length === 4) return [v[0], v[1], v[2], v[3]];
+  // Raw array [x,y,z,w]
+  if (Array.isArray(v) && v.length === 4) return [v[0],v[1],v[2],v[3]];
+  if (ArrayBuffer.isView(v) && v.length >= 4) return [v[0],v[1],v[2],v[3]];
+
+  if (typeof v !== 'object') return null;
 
   // { axis, angle }
-  if (v.axis && typeof v.angle === 'number') {
-    const a = Array.isArray(v.axis) ? v.axis : [v.axis.x||0, v.axis.y||0, v.axis.z||0];
-    return qFromAxisAngle([0,0,0,1], a[0],a[1],a[2], v.angle);
+  if (v.axis != null && v.angle != null) {
+    const ax = Array.isArray(v.axis) ? v.axis : [v.axis.x||0, v.axis.y||0, v.axis.z||0];
+    return qFromAxisAngle([0,0,0,1], ax[0],ax[1],ax[2], v.angle);
   }
 
   // { dir, up? }
-  if (v.dir) {
+  if (v.dir != null) {
     const d = Array.isArray(v.dir) ? v.dir : [v.dir.x||0, v.dir.y||0, v.dir.z||0];
     const u = v.up ? (Array.isArray(v.up) ? v.up : [v.up.x||0, v.up.y||0, v.up.z||0]) : null;
     return qFromLookDir([0,0,0,1], d, u);
   }
 
-  // { eMatrix } — rotation block from eye (eye→world) matrix, col-major mat4
+  // { eMatrix }
   if (v.eMatrix != null) {
     const m = (ArrayBuffer.isView(v.eMatrix) || Array.isArray(v.eMatrix))
       ? v.eMatrix : (v.eMatrix.mat4 ?? null);
-    if (m && m.length >= 16) return qFromMat4([0,0,0,1], m);
+    if (!m || m.length < 16) return null;
+    return qFromRotMat3x3([0,0,0,1], m[0],m[4],m[8], m[1],m[5],m[9], m[2],m[6],m[10]);
   }
 
-  // { mat3 } — column-major 3×3 rotation matrix
-  // col0=[m0,m1,m2], col1=[m3,m4,m5], col2=[m6,m7,m8]
-  // row-major for qFromRotMat3x3: row0=[m0,m3,m6], row1=[m1,m4,m7], row2=[m2,m5,m8]
+  // { mat3 }
   if (v.mat3 != null) {
-    const m = v.mat3;
-    if ((ArrayBuffer.isView(m) || Array.isArray(m)) && m.length >= 9)
-      return qFromRotMat3x3([0,0,0,1], m[0],m[3],m[6], m[1],m[4],m[7], m[2],m[5],m[8]);
+    const m = (ArrayBuffer.isView(v.mat3) || Array.isArray(v.mat3))
+      ? v.mat3 : null;
+    if (!m || m.length < 9) return null;
+    return qFromRotMat3x3([0,0,0,1], m[0],m[3],m[6], m[1],m[4],m[7], m[2],m[5],m[8]);
   }
 
-  // { euler, order? } — intrinsic Euler angles (radians), default order YXZ
+  // { euler, order? }
   if (v.euler != null) {
     const e = v.euler;
     if (!Array.isArray(e) || e.length < 3) return null;
-    const order = (typeof v.order === 'string' && _EULER_ORDERS.has(v.order))
-      ? v.order : 'YXZ';
+    const order = (v.order && _EULER_ORDERS.has(v.order)) ? v.order : 'YXZ';
     const q = [0,0,0,1];
-    const s = [0,0,0,1]; // scratch — reused each step
+    const s = [0,0,0,1];
     for (let i = 0; i < 3; i++) {
       const ax = _EULER_AXES[order[i]];
       qMul(q, q, qFromAxisAngle(s, ax[0],ax[1],ax[2], e[i]));
@@ -452,7 +280,7 @@ function _parseQuat(v) {
     return q;
   }
 
-  // { from, to } — shortest-arc rotation from one direction onto another
+  // { from, to }
   if (v.from != null && v.to != null) {
     const f = Array.isArray(v.from) ? v.from : [v.from.x||0, v.from.y||0, v.from.z||0];
     const t = Array.isArray(v.to)   ? v.to   : [v.to.x||0,   v.to.y||0,   v.to.z||0];
@@ -461,22 +289,14 @@ function _parseQuat(v) {
     const fx=f[0]/fl, fy=f[1]/fl, fz=f[2]/fl;
     const tx=t[0]/tl, ty=t[1]/tl, tz=t[2]/tl;
     const dot = fx*tx + fy*ty + fz*tz;
-    // parallel — identity
     if (dot >= 1 - 1e-8) return [0,0,0,1];
-    // antiparallel — 180° around any perpendicular axis
     if (dot <= -1 + 1e-8) {
-      // cross(from, X=[1,0,0]) = [0, fz, -fy]
       let px=0, py=fz, pz=-fy;
       let pl = Math.sqrt(px*px+py*py+pz*pz);
-      if (pl < 1e-8) {
-        // from ≈ ±X; try cross(from, Z=[0,0,1]) = [fy, -fx, 0]
-        px=fy; py=-fx; pz=0;
-        pl = Math.sqrt(px*px+py*py+pz*pz);
-      }
+      if (pl < 1e-8) { px=fy; py=-fx; pz=0; pl = Math.sqrt(px*px+py*py+pz*pz); }
       if (pl < 1e-8) return [0,0,0,1];
       return qFromAxisAngle([0,0,0,1], px/pl,py/pl,pz/pl, Math.PI);
     }
-    // general case — axis = normalize(cross(from, to))
     let ax=fy*tz-fz*ty, ay=fz*tx-fx*tz, az=fx*ty-fy*tx;
     const al = Math.sqrt(ax*ax+ay*ay+az*az) || 1;
     return qFromAxisAngle([0,0,0,1], ax/al,ay/al,az/al,
@@ -494,14 +314,12 @@ function _parseQuat(v) {
  *   { mMatrix }
  *     Decompose a column-major mat4 into TRS via mat4ToTransform.
  *     Float32Array(16), plain Array, or { mat4 } wrapper.
- *     pos from col3, scl from column lengths, rot from normalised rotation block.
  *
  *   { pos?, rot?, scl?, tanIn?, tanOut? }
  *     Explicit TRS.  pos and scl are vec3, rot accepts any form from _parseQuat.
  *     All fields are optional — missing pos/scl default to [0,0,0] / [1,1,1],
  *     missing rot defaults to identity.
  *     tanIn/tanOut are optional vec3 tangents for Hermite interpolation.
- *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
  * @param {Object} spec
  * @returns {{ pos:number[], rot:number[], scl:number[], tanIn:number[]|null, tanOut:number[]|null }|null}
@@ -545,22 +363,12 @@ function _sameTransform(a, b) {
  *   { eye, center?, up?, fov?, halfHeight?,
  *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
  *     Explicit lookat.  center defaults to [0,0,0], up defaults to [0,1,0].
- *     Both are normalised/stored as-is.  eye must be a vec3.
  *     eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite.
  *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
- *   { vMatrix: mat4 }
- *     Column-major view matrix (world→eye).
- *     eye reconstructed via -R^T·t; center = eye + forward·1; up = [0,1,0].
- *     The matrix's up_ortho (col1) is intentionally NOT used as up —
- *     passing it to cam.camera() shifts orbitControl's orbit reference.
- *     Float32Array(16), plain Array, or { mat4 } wrapper.
- *
- *   { eMatrix: mat4 }
- *     Column-major eye matrix (eye→world, i.e. inverse view).
- *     eye read directly from col3; center = eye + forward·1; up = [0,1,0].
- *     Simpler extraction than vMatrix; prefer this form when eMatrix is available.
- *     Float32Array(16), plain Array, or { mat4 } wrapper.
+ *   Removed forms (task 2):
+ *     { vMatrix } and { eMatrix } — use PoseTrack.add({ mMatrix: eMatrix }) for
+ *     full-fidelity capture including roll, or cam.capturePose() for lookat-style.
  *
  * @param {Object} spec
  * @returns {{ eye:number[], center:number[], up:number[],
@@ -571,36 +379,8 @@ function _sameTransform(a, b) {
 function _parseCameraSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
 
-  // { vMatrix } — view matrix (world→eye); reconstruct eye via -R^T·t
-  if (spec.vMatrix != null) {
-    const m = (ArrayBuffer.isView(spec.vMatrix) || Array.isArray(spec.vMatrix))
-      ? spec.vMatrix : (spec.vMatrix.mat4 ?? null);
-    if (!m || m.length < 16) return null;
-    const ex = -(m[0]*m[12] + m[4]*m[13] + m[8]*m[14]);
-    const ey = -(m[1]*m[12] + m[5]*m[13] + m[9]*m[14]);
-    const ez = -(m[2]*m[12] + m[6]*m[13] + m[10]*m[14]);
-    const fx=-m[8], fy=-m[9], fz=-m[10];
-    const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
-    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0],
-             fov:null, halfHeight:null,
-             eyeTanIn:null, eyeTanOut:null, centerTanIn:null, centerTanOut:null };
-  }
-
-  // { eMatrix } — eye matrix (eye→world); eye = col3, forward = -col2
-  if (spec.eMatrix != null) {
-    const m = (ArrayBuffer.isView(spec.eMatrix) || Array.isArray(spec.eMatrix))
-      ? spec.eMatrix : (spec.eMatrix.mat4 ?? null);
-    if (!m || m.length < 16) return null;
-    const ex=m[12], ey=m[13], ez=m[14];
-    const fx=-m[8], fy=-m[9], fz=-m[10];
-    const fl=Math.sqrt(fx*fx+fy*fy+fz*fz)||1;
-    return { eye:[ex,ey,ez], center:[ex+fx/fl,ey+fy/fl,ez+fz/fl], up:[0,1,0],
-             fov:null, halfHeight:null,
-             eyeTanIn:null, eyeTanOut:null, centerTanIn:null, centerTanOut:null };
-  }
-
-  // { eye, center?, up? } — explicit lookat (eye is a vec3, not a mat4)
-  const eye    = _parseVec3(spec.eye);
+  // { eye, center?, up? } — explicit lookat
+  const eye = _parseVec3(spec.eye);
   if (!eye) return null;
   const center = _parseVec3(spec.center) || [0,0,0];
   const upRaw  = spec.up ? _parseVec3(spec.up) : null;
@@ -642,7 +422,7 @@ class Track {
     /** Loop at boundaries. @type {boolean} */
     this.loop      = false;
     /** Ping-pong bounce (takes precedence over loop). @type {boolean} */
-    this.bounce  = false;
+    this.bounce    = false;
     /** Frames per segment (≥1). @type {number} */
     this.duration  = 30;
     /** Current segment index. @type {number} */
@@ -653,8 +433,6 @@ class Track {
     // Internal rate — never directly starts/stops playback
     this._rate = 1;
     // Internal bounce direction: +1 forward, -1 backward.
-    // Flipped by tick() at boundaries. Never exposed publicly.
-    // rate always holds the user-set value — only _dir changes.
     this._dir  = 1;
 
     // User-space hooks
@@ -698,8 +476,8 @@ class Track {
     } else if (rateOrOpts && typeof rateOrOpts === 'object') {
       const o = rateOrOpts;
       if (_isNum(o.duration))             this.duration  = Math.max(1, o.duration | 0);
-      if ('loop'     in o) { this.loop     = !!o.loop;     if (!this.loop)     this.bounce = false; }
-      if ('bounce' in o) { this.bounce = !!o.bounce; if (this.bounce)  this.loop     = true;  }
+      if ('loop'   in o) { this.loop   = !!o.loop;   if (!this.loop)   this.bounce = false; }
+      if ('bounce' in o) { this.bounce = !!o.bounce; if (this.bounce)  this.loop   = true;  }
       if (typeof o.onPlay === 'function') this.onPlay   = o.onPlay;
       if (typeof o.onEnd  === 'function') this.onEnd    = o.onEnd;
       if (typeof o.onStop === 'function') this.onStop   = o.onStop;
@@ -814,7 +592,7 @@ class Track {
       f:         this.f,
       playing:   this.playing,
       loop:      this.loop,
-      bounce:  this.bounce,
+      bounce:    this.bounce,
       rate:      this._rate,
       duration:  this.duration,
       time:      this.segments > 0 ? this.time() : 0
@@ -901,47 +679,16 @@ class Track {
  * tanOut — outgoing position tangent at this keyframe (Hermite mode).
  * When only one is supplied, the other mirrors it.
  * When neither is supplied, centripetal Catmull-Rom tangents are auto-computed.
- *
- * add() accepts individual specs or a bulk array of specs:
- *
- *   { mMatrix }                           — full TRS from model matrix
- *   { pos?, rot?, scl?, tanIn?, tanOut? } — direct TRS; all fields optional
- *   { pos?, rot: [x,y,z,w] }             — explicit quaternion
- *   { pos?, rot: { axis, angle } }        — axis-angle
- *   { pos?, rot: { dir, up? } }           — look direction
- *   { pos?, rot: { eMatrix: mat4 } }      — rotation from eye matrix
- *   { pos?, rot: { mat3 } }               — column-major 3×3 rotation matrix
- *   { pos?, rot: { euler, order? } }      — intrinsic Euler angles (default YXZ)
- *   { pos?, rot: { from, to } }           — shortest-arc between two directions
- *   [ spec, spec, ... ]                   — bulk
- *
- * Missing fields default to: pos → [0,0,0], rot → [0,0,0,1], scl → [1,1,1].
- *
- * eval() writes { pos, rot, scl }:
- *   pos — Hermite (tanIn/tanOut per keyframe; auto-CR when absent) or linear or step
- *   rot — slerp (rotInterp='slerp') or nlerp or step
- *   scl — lerp
- *
- * @example
- * const track = new PoseTrack()
- * track.add({ pos:[0,0,0] })
- * track.add({ pos:[100,0,0], tanOut:[0,50,0] })   // leave heading +Y
- * track.add({ pos:[200,0,0] })
- * track.play({ loop: true })
- * // per frame:
- * track.tick()
- * const out = { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }
- * track.eval(out)
  */
 export class PoseTrack extends Track {
   constructor() {
     super();
     /**
      * Position interpolation mode.
-     * - 'hermite' — cubic Hermite; uses tanIn/tanOut per keyframe when present,
-     *               auto-computes centripetal Catmull-Rom tangents when absent (default)
+     * - 'hermite' — cubic Hermite; auto-computes centripetal Catmull-Rom tangents
+     *               when none are stored (default)
      * - 'linear'  — lerp
-     * - 'step'    — snap to k0 value; useful for discrete state changes
+     * - 'step'    — snap to k0; useful for discrete state changes
      * @type {'hermite'|'linear'|'step'}
      */
     this.posInterp = 'hermite';
@@ -1026,11 +773,9 @@ export class PoseTrack extends Track {
     } else {
       const p0 = seg > 0      ? this.keyframes[seg - 1].pos : k0.pos;
       const p3 = seg + 2 < n ? this.keyframes[seg + 2].pos  : k1.pos;
-      // tanOut on k0: use stored, else symmetric from tanIn, else auto-CR
       const m0 = k0.tanOut != null ? k0.tanOut
                : k0.tanIn  != null ? k0.tanIn
                : _crTanOut(_m0, p0, k0.pos, k1.pos, p3);
-      // tanIn on k1: use stored, else symmetric from tanOut, else auto-CR
       const m1 = k1.tanIn  != null ? k1.tanIn
                : k1.tanOut != null ? k1.tanOut
                : _crTanIn(_m1, p0, k0.pos, k1.pos, p3);
@@ -1084,83 +829,34 @@ export class PoseTrack extends Track {
  * interpolation of the eye and center paths respectively.
  * When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
- * Each field is independently interpolated — eye and center along their
- * own paths, up nlerped on the unit sphere. This correctly handles cameras
- * that always look at a fixed target (center stays at origin throughout)
- * as well as free-fly paths where center moves independently.
- *
  * Missing fields default to: center → [0,0,0], up → [0,1,0].
  *
  * add() accepts individual specs or a bulk array of specs:
  *
  *   { eye, center?, up?, fov?, halfHeight?,
  *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
- *                         explicit lookat; center defaults to [0,0,0], up to [0,1,0].
- *                         fov and halfHeight are mutually exclusive nullable scalars.
- *   { vMatrix: mat4 }      view matrix (world→eye); eye reconstructed via -R^T·t
- *   { eMatrix: mat4 }      eye matrix (eye→world); eye read from col3 directly
- *   [ spec, spec, ... ]    bulk
  *
- * Note on up for matrix forms:
- *   up is always [0,1,0].  The matrix's col1 (up_ortho) is intentionally
- *   not used — it differs from the hint [0,1,0] for upright cameras and
- *   passing it to cam.camera() shifts orbitControl's orbit reference.
- *   Use capturePose() (p5.tree bridge) when the real up hint is needed.
- *
- * eval() writes { eye, center, up, fov, halfHeight }:
- *   eye        — Hermite (auto-CR when no tangents stored) or linear or step
- *   center     — Hermite (auto-CR when no tangents stored) or linear or step
- *   up         — nlerp (normalize-after-lerp on unit sphere)
- *   fov        — lerp when both keyframes carry non-null fov; else null
- *   halfHeight — lerp when both keyframes carry non-null halfHeight; else null
- *
- * @example
- * const track = new CameraTrack()
- * track.add({ eye:[0,0,500] })                 // center defaults to [0,0,0]
- * track.add({ eye:[300,-150,0], center:[0,0,0] })
- * track.add({ eMatrix: myEyeMatrix })
- * track.add({ vMatrix: myViewMatrix })
- * track.play({ loop: true })
- * // per frame:
- * track.tick()
- * const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] }
- * track.eval(out)
- * cam.camera(out.eye[0],out.eye[1],out.eye[2],
- *            out.center[0],out.center[1],out.center[2],
- *            out.up[0],out.up[1],out.up[2])
+ * To capture a matrix-based pose, use PoseTrack.add({ mMatrix: eMatrix })
+ * for full-fidelity including roll, or cam.capturePose() for lookat-style.
  */
 export class CameraTrack extends Track {
   constructor() {
     super();
     /**
-     * Eye position interpolation mode.
-     * - 'hermite' — cubic Hermite; auto-CR tangents when none stored (default)
-     * - 'linear'  — lerp
-     * - 'step'    — snap to k0 eye
+     * Eye-path interpolation mode.
      * @type {'hermite'|'linear'|'step'}
      */
     this.eyeInterp = 'hermite';
     /**
-     * Center (lookat target) interpolation mode.
-     * 'linear' suits fixed or predictably moving targets (default).
-     * 'hermite' gives smoother paths when center is also flying freely.
-     * - 'hermite' — cubic Hermite; auto-CR tangents when none stored
-     * - 'linear'  — lerp
-     * - 'step'    — snap to k0 center
+     * Center-path interpolation mode.
      * @type {'hermite'|'linear'|'step'}
      */
     this.centerInterp = 'linear';
-    // Scratch for toCamera() — avoids hot-path allocations
-    this._eye    = [0,0,0];
-    this._center = [0,0,0];
-    this._up     = [0,1,0];
   }
 
   /**
    * Append one or more camera keyframes. Adjacent duplicates are skipped by default.
-   *
    * @param {Object|Object[]} spec
-   *   { eye, center?, up? }  or  { vMatrix: mat4 }  or  { eMatrix: mat4 }  or  an array of either.
    * @param {{ deduplicate?: boolean }} [opts]
    */
   add(spec, opts) {
@@ -1178,7 +874,7 @@ export class CameraTrack extends Track {
   }
 
   /**
-   * Replace (or append at end) the keyframe at index.
+   * Replace (or append at end) the camera keyframe at index.
    * @param {number} index
    * @param {Object} spec
    * @returns {boolean}
@@ -1240,9 +936,7 @@ export class CameraTrack extends Track {
     // center — Hermite, linear, or step (independent lookat target)
     if (this.centerInterp === 'step') {
       out.center[0]=k0.center[0]; out.center[1]=k0.center[1]; out.center[2]=k0.center[2];
-    } else if (this.centerInterp === 'linear') {
-      lerpVec3(out.center, k0.center, k1.center, t);
-    } else {
+    } else if (this.centerInterp === 'hermite') {
       const c0 = seg > 0      ? this.keyframes[seg - 1].center : k0.center;
       const c3 = seg + 2 < n ? this.keyframes[seg + 2].center  : k1.center;
       const m0 = k0.centerTanOut != null ? k0.centerTanOut
@@ -1252,21 +946,21 @@ export class CameraTrack extends Track {
                : k1.centerTanOut != null ? k1.centerTanOut
                : _crTanIn(_m1, c0, k0.center, k1.center, c3);
       hermiteVec3(out.center, k0.center, m0, k1.center, m1, t);
+    } else {
+      lerpVec3(out.center, k0.center, k1.center, t);
     }
 
-    // up — nlerp (normalize after lerp; correct for typical near-upright cameras)
-    const ux = k0.up[0] + t*(k1.up[0]-k0.up[0]);
-    const uy = k0.up[1] + t*(k1.up[1]-k0.up[1]);
-    const uz = k0.up[2] + t*(k1.up[2]-k0.up[2]);
-    const ul = Math.sqrt(ux*ux+uy*uy+uz*uz) || 1;
-    out.up[0]=ux/ul; out.up[1]=uy/ul; out.up[2]=uz/ul;
+    // up — nlerp on unit sphere
+    lerpVec3(out.up, k0.up, k1.up, t);
+    const ul=Math.sqrt(out.up[0]*out.up[0]+out.up[1]*out.up[1]+out.up[2]*out.up[2])||1;
+    out.up[0]/=ul; out.up[1]/=ul; out.up[2]/=ul;
 
-    // fov — lerp (perspective); null when either keyframe lacks it
-    out.fov        = (k0.fov        !== null && k1.fov        !== null)
-      ? k0.fov        + t * (k1.fov        - k0.fov)        : null;
-    // halfHeight — lerp (ortho); null when either keyframe lacks it
-    out.halfHeight = (k0.halfHeight !== null && k1.halfHeight !== null)
-      ? k0.halfHeight + t * (k1.halfHeight - k0.halfHeight) : null;
+    // fov / halfHeight — lerp when both keyframes carry non-null values
+    out.fov = (k0.fov != null && k1.fov != null)
+      ? k0.fov + t * (k1.fov - k0.fov) : (k0.fov ?? k1.fov ?? null);
+    out.halfHeight = (k0.halfHeight != null && k1.halfHeight != null)
+      ? k0.halfHeight + t * (k1.halfHeight - k0.halfHeight)
+      : (k0.halfHeight ?? k1.halfHeight ?? null);
 
     return out;
   }
