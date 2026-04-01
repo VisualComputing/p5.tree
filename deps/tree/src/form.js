@@ -13,7 +13,7 @@
  *
  * Lookat constructors live here because a camera is just a frame — the eye
  * matrix is the camera object's model matrix, not a camera-specific concept.
- * There is no camera module; mat4LookAt and mat4EyeMatrix are frame
+ * There is no camera module; mat4View and mat4Eye are frame
  * constructions that happen to use lookat parameterisation.
  *
  * Projection constructors live here because they construct matrices from
@@ -71,7 +71,7 @@ export function mat4FromBasis(out, rx,ry,rz, ux,uy,uz, fx,fy,fz, tx,ty,tz) {
  * @param {number} ux,uy,uz   World up hint (need not be unit).
  * @returns {Float32Array|number[]} out
  */
-export function mat4LookAt(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
+export function mat4View(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
   // z = normalize(eye - center)  (camera +Z away from target)
   let zx=ex-cx, zy=ey-cy, zz=ez-cz;
   const zl=Math.sqrt(zx*zx+zy*zy+zz*zz)||1;
@@ -96,7 +96,7 @@ export function mat4LookAt(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
 /**
  * Eye matrix (eye→world) from lookat parameters.
  * Transpose of the rotation block + direct translation column.
- * Same inputs as mat4LookAt.
+ * Same inputs as mat4View.
  *
  * @param {Float32Array|number[]} out  16-element destination.
  * @param {number} ex,ey,ez   Eye (camera) position.
@@ -104,8 +104,8 @@ export function mat4LookAt(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
  * @param {number} ux,uy,uz   World up hint (need not be unit).
  * @returns {Float32Array|number[]} out
  */
-export function mat4EyeMatrix(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
-  // Same basis computation as mat4LookAt.
+export function mat4Eye(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
+  // Same basis computation as mat4View.
   let zx=ex-cx, zy=ey-cy, zz=ez-cz;
   const zl=Math.sqrt(zx*zx+zy*zy+zz*zz)||1;
   zx/=zl; zy/=zl; zz/=zl;

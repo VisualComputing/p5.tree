@@ -289,8 +289,8 @@ mat4PV  mat4MV
 **Matrix construction from specs** (`form.js`):
 ```
 mat4FromBasis        — rigid frame from orthonormal basis + translation
-mat4LookAt           — view matrix (world→eye) from lookat params
-mat4EyeMatrix        — eye matrix (eye→world) from lookat params
+mat4View           — view matrix (world→eye) from lookat params
+mat4Eye        — eye matrix (eye→world) from lookat params
 mat4FromTRS          — column-major mat4 from flat TRS scalars
 mat4FromTranslation  — translation-only mat4
 mat4FromScale        — scale-only mat4
