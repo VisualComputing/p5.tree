@@ -51,13 +51,12 @@
  *    reset() → onStop → _onStop → _onDeactivate
  *
  * ── Loop modes ────────────────────────────────────────────────────────────────
- *  once     loop=false, bounce=false  — stop at end (fires onEnd)
- *  repeat   loop=true,  bounce=false  — wrap back to start
- *  bounce   loop=true,  bounce=true   — bounce at boundaries
+ *  loop:false, bounce:false  — play once, stop at end (fires onEnd)
+ *  loop:true,  bounce:false  — repeat, wrap back to start
+ *  loop:true,  bounce:true   — bounce forever at boundaries
+ *  loop:false, bounce:true   — bounce once: flip at far boundary, stop at origin
  *
- *  Exclusivity enforced in play():
- *    bounce: true  → loop is also set true
- *    loop: false   → bounce is also cleared
+ *  bounce and loop are fully independent flags — no exclusivity enforced.
  *
  * ── Playback semantics (rate + _dir) ─────────────────────────────────────────
  *  rate > 0   forward
@@ -434,6 +433,8 @@ class Track {
     this._rate = 1;
     // Internal bounce direction: +1 forward, -1 backward.
     this._dir  = 1;
+    // Scratch: true once _dir has been flipped in bounce-once mode.
+    this._bounced = false;
 
     // User-space hooks
     /** @type {Function|null} */ this.onPlay = null;
@@ -476,8 +477,8 @@ class Track {
     } else if (rateOrOpts && typeof rateOrOpts === 'object') {
       const o = rateOrOpts;
       if (_isNum(o.duration))             this.duration  = Math.max(1, o.duration | 0);
-      if ('loop'   in o) { this.loop   = !!o.loop;   if (!this.loop)   this.bounce = false; }
-      if ('bounce' in o) { this.bounce = !!o.bounce; if (this.bounce)  this.loop   = true;  }
+      if ('loop'   in o) this.loop   = !!o.loop;
+      if ('bounce' in o) this.bounce = !!o.bounce;
       if (typeof o.onPlay === 'function') this.onPlay   = o.onPlay;
       if (typeof o.onEnd  === 'function') this.onEnd    = o.onEnd;
       if (typeof o.onStop === 'function') this.onStop   = o.onStop;
@@ -493,6 +494,7 @@ class Track {
     const wasPlaying = this.playing;
     this.playing = true;
     if (!wasPlaying) {
+      this._bounced = false;
       if (typeof this.onPlay === 'function') { try { this.onPlay(this); } catch (_) {} }
       this._onPlay?.();
       this._onActivate?.();
@@ -509,6 +511,7 @@ class Track {
     const wasPlaying = this.playing;
     this.playing = false;
     if (wasPlaying) {
+      this._bounced = false;
       if (typeof this.onStop === 'function') { try { this.onStop(this); } catch (_) {} }
       this._onStop?.();
       this._onDeactivate?.();
@@ -530,7 +533,7 @@ class Track {
       this._onDeactivate?.();
     }
     this.keyframes.length = 0;
-    this.seg = 0; this.f = 0; this._dir = 1;
+    this.seg = 0; this.f = 0; this._dir = 1; this._bounced = false;
     return this;
   }
 
@@ -617,7 +620,8 @@ class Track {
     const s     = _clampS(this.seg * dur + this.f, 0, total);
     const next  = s + this._rate * this._dir;
 
-    if (this.bounce) {
+    // ── loop:true, bounce:true — bounce forever ───────────────────────────
+    if (this.loop && this.bounce) {
       let pos = next, flips = 0;
       while (pos < 0 || pos > total) {
         if (pos < 0) { pos = -pos; flips++; }
@@ -628,11 +632,36 @@ class Track {
       return true;
     }
 
+    // ── loop:false, bounce:true — bounce once, stop at origin ────────────
+    if (!this.loop && this.bounce) {
+      if (next >= total) {
+        // far boundary: reflect and flip direction once
+        this._setCursorFromScalar(Math.min(total, 2 * total - next));
+        this._dir = -this._dir;
+        this._bounced = true;
+        return true;
+      }
+      if (next <= 0) {
+        // origin: stop (whether we bounced or started backward)
+        this._setCursorFromScalar(0);
+        this.playing = false;
+        this._dir = 1; this._bounced = false;
+        if (typeof this.onEnd === 'function') { try { this.onEnd(this); } catch (_) {} }
+        this._onEnd?.();
+        this._onDeactivate?.();
+        return false;
+      }
+      this._setCursorFromScalar(next);
+      return true;
+    }
+
+    // ── loop:true, bounce:false — repeat forever ──────────────────────────
     if (this.loop) {
       this._setCursorFromScalar(((next % total) + total) % total);
       return true;
     }
 
+    // ── loop:false, bounce:false — play once, stop at boundary ───────────
     if (next <= 0) {
       this._setCursorFromScalar(0);
       this.playing = false;

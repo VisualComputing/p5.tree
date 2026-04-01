@@ -258,22 +258,33 @@ export function mat4Frustum(out, left, right, bottom, top, near, far, ndcZMin) {
 // =========================================================================
 
 /**
- * Bias matrix: remaps NDC z from [−1,1] to [0,1] for shadow mapping.
+ * Bias matrix: remaps xyz from NDC to texture/UV space [0,1].
+ * xy always remap from [−1,1]; z remaps from [ndcZMin,1].
+ * Used to transform light-space NDC coordinates for shadow map sampling.
  *
- * Column-major:
+ * Column-major (WebGL, ndcZMin=−1):
  *   [ 0.5  0    0    0.5 ]
  *   [ 0    0.5  0    0.5 ]
  *   [ 0    0    0.5  0.5 ]
  *   [ 0    0    0    1   ]
  *
+ * Column-major (WebGPU, ndcZMin=0):
+ *   [ 0.5  0    0    0.5 ]
+ *   [ 0    0.5  0    0.5 ]
+ *   [ 0    0    1    0   ]
+ *   [ 0    0    0    1   ]
+ *
  * @param {Float32Array|number[]} out  16-element destination.
+ * @param {number} ndcZMin  WEBGL (−1) or WEBGPU (0).
  * @returns {Float32Array|number[]} out
  */
-export function mat4Bias(out) {
-  out[0]=0.5; out[1]=0;   out[2]=0;   out[3]=0;
-  out[4]=0;   out[5]=0.5; out[6]=0;   out[7]=0;
-  out[8]=0;   out[9]=0;   out[10]=0.5; out[11]=0;
-  out[12]=0.5; out[13]=0.5; out[14]=0.5; out[15]=1;
+export function mat4Bias(out, ndcZMin) {
+  const sz = (1 - ndcZMin) * 0.5;
+  const tz = (1 + ndcZMin) * 0.5;
+  out[0]=0.5; out[1]=0;   out[2]=0;  out[3]=0;
+  out[4]=0;   out[5]=0.5; out[6]=0;  out[7]=0;
+  out[8]=0;   out[9]=0;   out[10]=sz; out[11]=0;
+  out[12]=0.5; out[13]=0.5; out[14]=tz; out[15]=1;
   return out;
 }
 

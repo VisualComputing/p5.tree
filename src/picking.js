@@ -32,7 +32,7 @@
 
 'use strict';
 
-import { applyPickMatrix } from '@nakednous/tree';
+import { mat4Pick } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level zero-alloc buffers
@@ -175,7 +175,7 @@ export function installPicking(p5, fn) {
 
     const proj = states.uPMatrix.mat4;
     for (let i = 0; i < 16; i++) proj[i] = _pickProjSave[i];
-    applyPickMatrix(proj, px, py, p.width, p.height);
+    mat4Pick(proj, px, py, p.width, p.height);
 
     // ── 5. Pick render state ────────────────────────────────────────────────
     p.background(0);   // clear to id 0 (background / miss)

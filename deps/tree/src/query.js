@@ -713,7 +713,7 @@ export function pixelRatio(proj, vpH, eyeZ, ndcZMin) {
  * @param {number} H   Canvas height (CSS pixels).
  * @returns {Float32Array} proj (same reference)
  */
-export function applyPickMatrix(proj, px, py, W, H) {
+export function mat4Pick(proj, px, py, W, H) {
   const cx =  2 * (px + 0.5) / W - 1;
   const cy = -2 * (py + 0.5) / H + 1;
   const sx = W;

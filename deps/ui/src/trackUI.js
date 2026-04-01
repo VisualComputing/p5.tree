@@ -16,13 +16,13 @@
  *
  * Loop modes
  * ----------
- *   once     — stop at end (loop unchecked)
- *   repeat   — wrap back to start (loop checked, bounce unchecked)
- *   bounce   — bounce at boundaries (loop checked, bounce checked)
+ *   loop:false, bounce:false  — play once, stop at end
+ *   loop:true,  bounce:false  — repeat, wrap back to start
+ *   loop:true,  bounce:true   — bounce forever at boundaries
+ *   loop:false, bounce:true   — bounce once: flip at far boundary, stop at origin
  *
- *   bounce implies loop.  The bounce checkbox sits to the right of loop on
- *   the same row — it is hidden (visibility:hidden) when loop is unchecked
- *   but preserves its value so it restores when loop is re-checked.
+ *   bounce and loop are independent — no exclusivity enforced.
+ *   Both checkboxes are always visible.
  *
  * Target contract (duck-typed)
  * ----------------------------
@@ -58,8 +58,7 @@
  *   Row 1b — depth:     depth slider        (when target supports add)
  *   Row 2  — seek:      seek slider         (hidden when keyframes ≤ 1)
  *   Row 3  — rate:      rate label + slider (when showProps)
- *   Row 4  — loop + bounce: loop checkbox, then bounce to its right
- *             (bounce uses visibility:hidden when loop unchecked — row never resizes)
+ *   Row 4  — loop + bounce: both checkboxes always visible, independent
  *   Row 5  — info:      time / keyframe     (when showInfo)
  *
  * Returned API
@@ -89,7 +88,7 @@ import {
  * @param {boolean} [opt.info=false]      Show time/keyframe readout.
  * @param {number}  [opt.rate=1]          Initial rate (overridden by target.rate if set).
  * @param {boolean} [opt.loop=false]      Initial loop state (overridden by target.loop).
- * @param {boolean} [opt.bounce=false]  Initial bounce state (overridden by target.bounce).
+ * @param {boolean} [opt.bounce=false]    Initial bounce state (overridden by target.bounce).
  * @param {number}  [opt.depth=0.5]       Initial add-pose depth [0..1]: 0 = near, 1 = far.
  * @param {number}  [opt.x=0]            Container left (px).
  * @param {number}  [opt.y=0]            Container top (px).
@@ -115,14 +114,11 @@ export function createTrackUI(target, opt) {
   const depthSliderW = opt.depthWidth ?? sliderW;
 
   // ── Seed _rate, _loop, _bounce from live track state, fall back to opt ──
-  //
-  // _bounce is UI-owned: the core clears it when loop is disabled, but the
-  // UI preserves it so it restores when loop is re-checked.
 
-  let _rate     = (typeof target.rate === 'number') ? target.rate : (opt.rate ?? 1);
-  let _loop     = !!(target.loop     || opt.loop);
+  let _rate   = (typeof target.rate === 'number') ? target.rate : (opt.rate ?? 1);
+  let _loop   = !!(target.loop   || opt.loop);
   let _bounce = !!(target.bounce || opt.bounce);
-  let _depth    = (typeof opt.depth === 'number') ? opt.depth : 0.5;
+  let _depth  = (typeof opt.depth === 'number') ? opt.depth : 0.5;
 
   const container = createContainer('track-ui');
   container.style.left = `${opt.x ?? 0}px`;
@@ -136,9 +132,9 @@ export function createTrackUI(target, opt) {
   /** Assemble play() options from current UI state. */
   function _playOpts() {
     return {
-      rate:     _rate,
-      loop:     _loop,
-      bounce: _loop && _bounce,
+      rate:   _rate,
+      loop:   _loop,
+      bounce: _bounce,
     };
   }
 
@@ -292,13 +288,11 @@ export function createTrackUI(target, opt) {
     body.appendChild(rateRow);
   }
 
-  // ── Row 4 — loop + bounce checkboxes on one row ──────────────────────────
+  // ── Row 4 — loop + bounce checkboxes ─────────────────────────────────────
   //
-  // bounce sits to the right of loop on the same row.
-  // visibility:hidden/visible (not display:none) keeps row width stable —
-  // the panel never grows or shrinks when bounce appears or disappears.
+  // Both are always visible and independent — no visibility toggling.
 
-  let loopInp, bounceWrap, bounceInp;
+  let loopInp, bounceInp;
 
   if (showProps) {
     const loopRow = document.createElement('div');
@@ -310,7 +304,6 @@ export function createTrackUI(target, opt) {
 
     const loopCheck = createCheckbox('', _loop, v => {
       _loop = v;
-      _syncBounceVis();
       if (target.playing) target.play(_playOpts());
     });
     loopInp = loopCheck.firstChild;
@@ -324,18 +317,11 @@ export function createTrackUI(target, opt) {
     });
     bounceInp = bounceCheck.firstChild;
 
-    // wrap label+checkbox together so visibility applies to both at once
-    bounceWrap = document.createElement('span');
-    bounceWrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
-    bounceWrap.appendChild(bounceLabel);
-    bounceWrap.appendChild(bounceCheck);
-
     loopRow.appendChild(loopLabel);
     loopRow.appendChild(loopCheck);
-    loopRow.appendChild(bounceWrap);
+    loopRow.appendChild(bounceLabel);
+    loopRow.appendChild(bounceCheck);
     body.appendChild(loopRow);
-
-    _syncBounceVis();
   }
 
   // ── Row 5 — info label (optional) ────────────────────────────────────────
@@ -360,12 +346,6 @@ export function createTrackUI(target, opt) {
   function _syncPlayBtn() {
     if (!btnPlay) return;
     btnPlay.textContent = target.playing ? '\u23F8' : '\u25B6';
-  }
-
-  /** Show/hide bounce row based on _loop. */
-  /** Show/hide bounce controls without affecting row width (visibility not display). */
-  function _syncBounceVis() {
-    if (bounceWrap) bounceWrap.style.visibility = _loop ? 'visible' : 'hidden';
   }
 
   function _updateEnabledState() {
@@ -431,15 +411,14 @@ export function createTrackUI(target, opt) {
     // Poll loop/bounce from track — covers external play() calls.
     // Only when playing: when stopped the UI owns these values.
     if (showProps && target.playing) {
-      const liveLoop = !!target.loop;
-      const livePP   = !!target.bounce;
+      const liveLoop   = !!target.loop;
+      const liveBounce = !!target.bounce;
       if (liveLoop !== _loop) {
         _loop = liveLoop;
         if (loopInp) loopInp.checked = _loop;
-        _syncBounceVis();
       }
-      if (livePP !== _bounce) {
-        _bounce = livePP;
+      if (liveBounce !== _bounce) {
+        _bounce = liveBounce;
         if (bounceInp) bounceInp.checked = _bounce;
       }
     }
