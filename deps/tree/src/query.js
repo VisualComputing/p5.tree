@@ -71,59 +71,43 @@ export function mat4Mul(out, A, B) {
 
 /** out = inverse(src).  Returns null if singular. */
 export function mat4Invert(out, src) {
-  const s=src;
-  const a00=s[0],a01=s[1],a02=s[2],a03=s[3],
-        a10=s[4],a11=s[5],a12=s[6],a13=s[7],
-        a20=s[8],a21=s[9],a22=s[10],a23=s[11],
-        a30=s[12],a31=s[13],a32=s[14],a33=s[15];
-  const b00=a00*a11-a01*a10,b01=a00*a12-a02*a10,
-        b02=a00*a13-a03*a10,b03=a01*a12-a02*a11,
-        b04=a01*a13-a03*a11,b05=a02*a13-a03*a12,
-        b06=a20*a31-a21*a30,b07=a20*a32-a22*a30,
-        b08=a20*a33-a23*a30,b09=a21*a32-a22*a31,
-        b10=a21*a33-a23*a31,b11=a22*a33-a23*a32;
-  let det=b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;
+  const s0=src[0],s1=src[1],s2=src[2],s3=src[3],
+        s4=src[4],s5=src[5],s6=src[6],s7=src[7],
+        s8=src[8],s9=src[9],s10=src[10],s11=src[11],
+        s12=src[12],s13=src[13],s14=src[14],s15=src[15];
+  const b0=s0*s5-s1*s4, b1=s0*s6-s2*s4, b2=s0*s7-s3*s4,
+        b3=s1*s6-s2*s5, b4=s1*s7-s3*s5, b5=s2*s7-s3*s6,
+        b6=s8*s13-s9*s12, b7=s8*s14-s10*s12, b8=s8*s15-s11*s12,
+        b9=s9*s14-s10*s13, b10=s9*s15-s11*s13, b11=s10*s15-s11*s14;
+  let det=b0*b11-b1*b10+b2*b9+b3*b8-b4*b7+b5*b6;
   if (Math.abs(det) < 1e-12) return null;
-  det=1/det;
-  out[0]=(a11*b11-a12*b10+a13*b09)*det;
-  out[1]=(a02*b10-a01*b11-a03*b09)*det;
-  out[2]=(a31*b05-a32*b04+a33*b03)*det;
-  out[3]=(a22*b04-a21*b05-a23*b03)*det;
-  out[4]=(a12*b08-a10*b11-a13*b07)*det;
-  out[5]=(a00*b11-a02*b08+a03*b07)*det;
-  out[6]=(a32*b02-a30*b05-a33*b01)*det;
-  out[7]=(a20*b05-a22*b02+a23*b01)*det;
-  out[8]=(a10*b10-a11*b08+a13*b06)*det;
-  out[9]=(a01*b08-a00*b10-a03*b06)*det;
-  out[10]=(a30*b04-a31*b02+a33*b00)*det;
-  out[11]=(a21*b02-a20*b04-a23*b00)*det;
-  out[12]=(a11*b07-a10*b09-a12*b06)*det;
-  out[13]=(a00*b09-a01*b07+a02*b06)*det;
-  out[14]=(a31*b01-a30*b03-a32*b00)*det;
-  out[15]=(a20*b03-a21*b01+a22*b00)*det;
+  det = 1/det;
+  out[0]=(s5*b11-s6*b10+s7*b9)*det;
+  out[1]=(s2*b10-s1*b11-s3*b9)*det;
+  out[2]=(s13*b5-s14*b4+s15*b3)*det;
+  out[3]=(s10*b4-s9*b5-s11*b3)*det;
+  out[4]=(s6*b8-s4*b11-s7*b7)*det;
+  out[5]=(s0*b11-s2*b8+s3*b7)*det;
+  out[6]=(s14*b2-s12*b5-s15*b1)*det;
+  out[7]=(s8*b5-s10*b2+s11*b1)*det;
+  out[8]=(s4*b10-s5*b8+s7*b6)*det;
+  out[9]=(s1*b8-s0*b10-s3*b6)*det;
+  out[10]=(s12*b4-s13*b2+s15*b0)*det;
+  out[11]=(s9*b2-s8*b4-s11*b0)*det;
+  out[12]=(s5*b7-s4*b9-s6*b6)*det;
+  out[13]=(s0*b9-s1*b7+s2*b6)*det;
+  out[14]=(s13*b1-s12*b3-s14*b0)*det;
+  out[15]=(s8*b3-s9*b1+s10*b0)*det;
   return out;
 }
 
-/** out = transpose(src) */
-export function mat4Transpose(out, src) {
-  if (out === src) {
-    let t;
-    t=src[1];out[1]=src[4];out[4]=t;
-    t=src[2];out[2]=src[8];out[8]=t;
-    t=src[3];out[3]=src[12];out[12]=t;
-    t=src[6];out[6]=src[9];out[9]=t;
-    t=src[7];out[7]=src[13];out[13]=t;
-    t=src[11];out[11]=src[14];out[14]=t;
-  } else {
-    out[0]=src[0];out[1]=src[4];out[2]=src[8];out[3]=src[12];
-    out[4]=src[1];out[5]=src[5];out[6]=src[9];out[7]=src[13];
-    out[8]=src[2];out[9]=src[6];out[10]=src[10];out[11]=src[14];
-    out[12]=src[3];out[13]=src[7];out[14]=src[11];out[15]=src[15];
-  }
-  return out;
-}
-
-/** out[0..8] = inverseTranspose(upper3×3(src))  (normal matrix) */
+/**
+ * Normal matrix: inverseTranspose(upper-left 3×3 of M).
+ * Degeneracy (det≈0): writes zeros and returns out.
+ * @param {Float32Array|number[]} out  9-element destination.
+ * @param {Float32Array|number[]} src  16-element mat4.
+ * @returns {Float32Array|number[]} out
+ */
 export function mat3NormalFromMat4(out, src) {
   const a00=src[0],a01=src[1],a02=src[2],
         a10=src[4],a11=src[5],a12=src[6],
@@ -187,7 +171,7 @@ export function projIsOrtho(p) { return p[15] !== 0; }
 
 /**
  * Near plane distance.
- * @param {ArrayLike<number>} p  Projection Mat4.
+ * @param {ArrayLike<number>} p  Projection mat4.
  * @param {number} ndcZMin  WEBGL (−1) or WEBGPU (0).
  */
 export function projNear(p, ndcZMin) {
@@ -305,13 +289,13 @@ export function mat3Direction(out, from, to) {
 //
 // Matrices bag m:
 //   {
-//     pMatrix:    Float32Array(16)  — projection (eye → clip)
-//     vMatrix:    Float32Array(16)  — view        (world → eye)
-//     eMatrix?:   Float32Array(16)  — eye         (eye → world, inv view); lazy
-//     pvMatrix?:  Float32Array(16)  — P · V;      lazy
-//     ipvMatrix?: Float32Array(16)  — inv(P · V); lazy
-//     fromFrame?: Float32Array(16)  — MATRIX source frame (custom space)
-//     toFrameInv?:Float32Array(16)  — inv(MATRIX dest frame)
+//     mat4Proj:    Float32Array(16)  — projection (eye → clip)
+//     mat4View:    Float32Array(16)  — view        (world → eye)
+//     mat4Eye?:    Float32Array(16)  — eye         (eye → world, inv view); lazy
+//     mat4PV?:     Float32Array(16)  — P · V;      lazy
+//     mat4PVInv?:  Float32Array(16)  — inv(P · V); lazy
+//     fromFrame?:  Float32Array(16)  — MATRIX source frame (custom space)
+//     toFrameInv?: Float32Array(16)  — inv(MATRIX dest frame)
 //   }
 //
 
@@ -370,10 +354,10 @@ function _ndcToScreen(out, nx, ny, nz, vp, ndcZMin) {
 }
 
 function _ensurePV(m) {
-  if (m.pvMatrix) return m.pvMatrix;
-  m.pvMatrix = new Float32Array(16);
-  mat4Mul(m.pvMatrix, m.pMatrix, m.vMatrix);
-  return m.pvMatrix;
+  if (m.mat4PV) return m.mat4PV;
+  m.mat4PV = new Float32Array(16);
+  mat4Mul(m.mat4PV, m.mat4Proj, m.mat4View);
+  return m.mat4PV;
 }
 
 /**
@@ -384,7 +368,7 @@ function _ensurePV(m) {
  * @param {string} from        Source space constant.
  * @param {string} to          Target space constant.
  * @param {object} m           Matrices bag:
- *   { pMatrix, vMatrix, eMatrix?, pvMatrix?, ipvMatrix?, fromFrame?, toFrameInv? }
+ *   { mat4Proj, mat4View, mat4Eye?, mat4PV?, mat4PVInv?, fromFrame?, toFrameInv? }
  * @param {Vec4}   vp          Viewport [x, y, width, height].
  * @param {number} ndcZMin     WEBGL (−1) or WEBGPU (0).
  */
@@ -393,13 +377,13 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
   if (from === WORLD && to === SCREEN)
     return _worldToScreen(out, px,py,pz, _ensurePV(m), vp, ndcZMin);
   if (from === SCREEN && to === WORLD)
-    return _screenToWorld(out, px,py,pz, m.ipvMatrix, vp, ndcZMin);
+    return _screenToWorld(out, px,py,pz, m.mat4PVInv, vp, ndcZMin);
 
   // WORLD ↔ NDC
   if (from === WORLD && to === NDC)
     return _worldToNDC(out, px,py,pz, _ensurePV(m));
   if (from === NDC && to === WORLD)
-    return _ndcToWorld(out, px,py,pz, m.ipvMatrix);
+    return _ndcToWorld(out, px,py,pz, m.mat4PVInv);
 
   // SCREEN ↔ NDC
   if (from === SCREEN && to === NDC)
@@ -409,36 +393,36 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
 
   // WORLD ↔ EYE
   if (from === WORLD && to === EYE)
-    return mat4MulPoint(out, m.vMatrix, px,py,pz);
+    return mat4MulPoint(out, m.mat4View, px,py,pz);
   if (from === EYE && to === WORLD)
-    return mat4MulPoint(out, m.eMatrix, px,py,pz);
+    return mat4MulPoint(out, m.mat4Eye, px,py,pz);
 
   // EYE ↔ SCREEN
   if (from === EYE && to === SCREEN) {
-    const e = m.eMatrix;
+    const e = m.mat4Eye;
     const ex=e[0]*px+e[4]*py+e[8]*pz+e[12],
           ey=e[1]*px+e[5]*py+e[9]*pz+e[13],
           ez=e[2]*px+e[6]*py+e[10]*pz+e[14];
     return _worldToScreen(out, ex,ey,ez, _ensurePV(m), vp, ndcZMin);
   }
   if (from === SCREEN && to === EYE) {
-    _screenToWorld(out, px,py,pz, m.ipvMatrix, vp, ndcZMin);
+    _screenToWorld(out, px,py,pz, m.mat4PVInv, vp, ndcZMin);
     const wx=out[0],wy=out[1],wz=out[2];
-    return mat4MulPoint(out, m.vMatrix, wx,wy,wz);
+    return mat4MulPoint(out, m.mat4View, wx,wy,wz);
   }
 
   // EYE ↔ NDC
   if (from === EYE && to === NDC) {
-    const e = m.eMatrix;
+    const e = m.mat4Eye;
     const ex=e[0]*px+e[4]*py+e[8]*pz+e[12],
           ey=e[1]*px+e[5]*py+e[9]*pz+e[13],
           ez=e[2]*px+e[6]*py+e[10]*pz+e[14];
     return _worldToNDC(out, ex,ey,ez, _ensurePV(m));
   }
   if (from === NDC && to === EYE) {
-    _ndcToWorld(out, px,py,pz, m.ipvMatrix);
+    _ndcToWorld(out, px,py,pz, m.mat4PVInv);
     const wx=out[0],wy=out[1],wz=out[2];
-    return mat4MulPoint(out, m.vMatrix, wx,wy,wz);
+    return mat4MulPoint(out, m.mat4View, wx,wy,wz);
   }
 
   // MATRIX (custom frame) ↔ WORLD
@@ -453,10 +437,10 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
     const fx=f[0]*px+f[4]*py+f[8]*pz+f[12],
           fy=f[1]*px+f[5]*py+f[9]*pz+f[13],
           fz=f[2]*px+f[6]*py+f[10]*pz+f[14];
-    return mat4MulPoint(out, m.vMatrix, fx,fy,fz);
+    return mat4MulPoint(out, m.mat4View, fx,fy,fz);
   }
   if (from === EYE && to === MATRIX) {
-    const e = m.eMatrix;
+    const e = m.mat4Eye;
     const ex=e[0]*px+e[4]*py+e[8]*pz+e[12],
           ey=e[1]*px+e[5]*py+e[9]*pz+e[13],
           ez=e[2]*px+e[6]*py+e[10]*pz+e[14];
@@ -472,7 +456,7 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
     return _worldToScreen(out, fx,fy,fz, _ensurePV(m), vp, ndcZMin);
   }
   if (from === SCREEN && to === MATRIX) {
-    _screenToWorld(out, px,py,pz, m.ipvMatrix, vp, ndcZMin);
+    _screenToWorld(out, px,py,pz, m.mat4PVInv, vp, ndcZMin);
     const wx=out[0],wy=out[1],wz=out[2];
     return mat4MulPoint(out, m.toFrameInv, wx,wy,wz);
   }
@@ -486,7 +470,7 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
     return _worldToNDC(out, fx,fy,fz, _ensurePV(m));
   }
   if (from === NDC && to === MATRIX) {
-    _ndcToWorld(out, px,py,pz, m.ipvMatrix);
+    _ndcToWorld(out, px,py,pz, m.mat4PVInv);
     const wx=out[0],wy=out[1],wz=out[2];
     return mat4MulPoint(out, m.toFrameInv, wx,wy,wz);
   }
@@ -516,26 +500,21 @@ function _applyDir(out, m, dx, dy, dz) {
 }
 
 function _worldToScreenDir(out, dx, dy, dz, proj, view, vpW, vpH, ndcZMin) {
-  // Transform to clip space (no w divide for direction).
   const vx=view[0]*dx+view[4]*dy+view[8]*dz;
   const vy=view[1]*dx+view[5]*dy+view[9]*dz;
   const vz=view[2]*dx+view[6]*dy+view[10]*dz;
   const cx=proj[0]*vx+proj[4]*vy+proj[8]*vz;
   const cy=proj[1]*vx+proj[5]*vy+proj[9]*vz;
   const cz=proj[2]*vx+proj[6]*vy+proj[10]*vz;
-  // NDC→screen scale (direction, no offset).
   out[0]=cx*vpW*0.5; out[1]=-cy*vpH*0.5;
   out[2]=cz*(1-ndcZMin)*0.5;
   return out;
 }
 
 function _screenToWorldDir(out, dx, dy, dz, proj, eMatrix, vpW, vpH, ndcZMin) {
-  // Screen direction → NDC direction.
   const nx=dx/(vpW*0.5), ny=-dy/(vpH*0.5);
   const nz=dz/((1-ndcZMin)*0.5);
-  // NDC direction → eye direction (inverse projection, linear only).
   const ex=nx/proj[0], ey=ny/proj[5], ez=nz;
-  // Eye direction → world direction.
   _applyDir(out, eMatrix, ex, ey, ez);
   return out;
 }
@@ -560,14 +539,14 @@ export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
   const vpW = Math.abs(vp[2]), vpH = Math.abs(vp[3]);
 
   // EYE ↔ WORLD (most common)
-  if (from === EYE && to === WORLD) return _applyDir(out, m.eMatrix, dx, dy, dz);
-  if (from === WORLD && to === EYE) return _applyDir(out, m.vMatrix, dx, dy, dz);
+  if (from === EYE && to === WORLD) return _applyDir(out, m.mat4Eye, dx, dy, dz);
+  if (from === WORLD && to === EYE) return _applyDir(out, m.mat4View, dx, dy, dz);
 
   // WORLD ↔ SCREEN
   if (from === WORLD && to === SCREEN)
-    return _worldToScreenDir(out, dx,dy,dz, m.pMatrix, m.vMatrix, vpW, vpH, ndcZMin);
+    return _worldToScreenDir(out, dx,dy,dz, m.mat4Proj, m.mat4View, vpW, vpH, ndcZMin);
   if (from === SCREEN && to === WORLD)
-    return _screenToWorldDir(out, dx,dy,dz, m.pMatrix, m.eMatrix, vpW, vpH, ndcZMin);
+    return _screenToWorldDir(out, dx,dy,dz, m.mat4Proj, m.mat4Eye, vpW, vpH, ndcZMin);
 
   // SCREEN ↔ NDC
   if (from === SCREEN && to === NDC)
@@ -577,42 +556,42 @@ export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
 
   // WORLD ↔ NDC
   if (from === WORLD && to === NDC) {
-    _worldToScreenDir(out, dx,dy,dz, m.pMatrix, m.vMatrix, vpW, vpH, ndcZMin);
+    _worldToScreenDir(out, dx,dy,dz, m.mat4Proj, m.mat4View, vpW, vpH, ndcZMin);
     const sx=out[0],sy=out[1],sz=out[2];
     return _screenToNDCDir(out, sx,sy,sz, vpW, vpH, ndcZMin);
   }
   if (from === NDC && to === WORLD) {
     _ndcToScreenDir(out, dx,dy,dz, vpW, vpH, ndcZMin);
     const sx=out[0],sy=out[1],sz=out[2];
-    return _screenToWorldDir(out, sx,sy,sz, m.pMatrix, m.eMatrix, vpW, vpH, ndcZMin);
+    return _screenToWorldDir(out, sx,sy,sz, m.mat4Proj, m.mat4Eye, vpW, vpH, ndcZMin);
   }
 
   // EYE ↔ SCREEN
   if (from === EYE && to === SCREEN) {
-    _applyDir(out, m.eMatrix, dx,dy,dz);
+    _applyDir(out, m.mat4Eye, dx,dy,dz);
     const wx=out[0],wy=out[1],wz=out[2];
-    return _worldToScreenDir(out, wx,wy,wz, m.pMatrix, m.vMatrix, vpW, vpH, ndcZMin);
+    return _worldToScreenDir(out, wx,wy,wz, m.mat4Proj, m.mat4View, vpW, vpH, ndcZMin);
   }
   if (from === SCREEN && to === EYE) {
-    _screenToWorldDir(out, dx,dy,dz, m.pMatrix, m.eMatrix, vpW, vpH, ndcZMin);
+    _screenToWorldDir(out, dx,dy,dz, m.mat4Proj, m.mat4Eye, vpW, vpH, ndcZMin);
     const wx=out[0],wy=out[1],wz=out[2];
-    return _applyDir(out, m.vMatrix, wx,wy,wz);
+    return _applyDir(out, m.mat4View, wx,wy,wz);
   }
 
   // EYE ↔ NDC
   if (from === EYE && to === NDC) {
-    _applyDir(out, m.eMatrix, dx,dy,dz);
+    _applyDir(out, m.mat4Eye, dx,dy,dz);
     const wx=out[0],wy=out[1],wz=out[2];
-    _worldToScreenDir(out, wx,wy,wz, m.pMatrix, m.vMatrix, vpW, vpH, ndcZMin);
+    _worldToScreenDir(out, wx,wy,wz, m.mat4Proj, m.mat4View, vpW, vpH, ndcZMin);
     const sx=out[0],sy=out[1],sz=out[2];
     return _screenToNDCDir(out, sx,sy,sz, vpW, vpH, ndcZMin);
   }
   if (from === NDC && to === EYE) {
     _ndcToScreenDir(out, dx,dy,dz, vpW, vpH, ndcZMin);
     const sx=out[0],sy=out[1],sz=out[2];
-    _screenToWorldDir(out, sx,sy,sz, m.pMatrix, m.eMatrix, vpW, vpH, ndcZMin);
+    _screenToWorldDir(out, sx,sy,sz, m.mat4Proj, m.mat4Eye, vpW, vpH, ndcZMin);
     const wx=out[0],wy=out[1],wz=out[2];
-    return _applyDir(out, m.vMatrix, wx,wy,wz);
+    return _applyDir(out, m.mat4View, wx,wy,wz);
   }
 
   // MATRIX ↔ WORLD
@@ -623,10 +602,10 @@ export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
   if (from === MATRIX && to === EYE) {
     _applyDir(out, m.fromFrame, dx,dy,dz);
     const wx=out[0],wy=out[1],wz=out[2];
-    return _applyDir(out, m.vMatrix, wx,wy,wz);
+    return _applyDir(out, m.mat4View, wx,wy,wz);
   }
   if (from === EYE && to === MATRIX) {
-    _applyDir(out, m.eMatrix, dx,dy,dz);
+    _applyDir(out, m.mat4Eye, dx,dy,dz);
     const wx=out[0],wy=out[1],wz=out[2];
     return _applyDir(out, m.toFrameInv, wx,wy,wz);
   }
@@ -635,10 +614,10 @@ export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
   if (from === MATRIX && to === SCREEN) {
     _applyDir(out, m.fromFrame, dx,dy,dz);
     const wx=out[0],wy=out[1],wz=out[2];
-    return _worldToScreenDir(out, wx,wy,wz, m.pMatrix, m.vMatrix, vpW, vpH, ndcZMin);
+    return _worldToScreenDir(out, wx,wy,wz, m.mat4Proj, m.mat4View, vpW, vpH, ndcZMin);
   }
   if (from === SCREEN && to === MATRIX) {
-    _screenToWorldDir(out, dx,dy,dz, m.pMatrix, m.eMatrix, vpW, vpH, ndcZMin);
+    _screenToWorldDir(out, dx,dy,dz, m.mat4Proj, m.mat4Eye, vpW, vpH, ndcZMin);
     const wx=out[0],wy=out[1],wz=out[2];
     return _applyDir(out, m.toFrameInv, wx,wy,wz);
   }
@@ -647,14 +626,14 @@ export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
   if (from === MATRIX && to === NDC) {
     _applyDir(out, m.fromFrame, dx,dy,dz);
     const wx=out[0],wy=out[1],wz=out[2];
-    _worldToScreenDir(out, wx,wy,wz, m.pMatrix, m.vMatrix, vpW, vpH, ndcZMin);
+    _worldToScreenDir(out, wx,wy,wz, m.mat4Proj, m.mat4View, vpW, vpH, ndcZMin);
     const sx=out[0],sy=out[1],sz=out[2];
     return _screenToNDCDir(out, sx,sy,sz, vpW, vpH, ndcZMin);
   }
   if (from === NDC && to === MATRIX) {
     _ndcToScreenDir(out, dx,dy,dz, vpW, vpH, ndcZMin);
     const sx=out[0],sy=out[1],sz=out[2];
-    _screenToWorldDir(out, sx,sy,sz, m.pMatrix, m.eMatrix, vpW, vpH, ndcZMin);
+    _screenToWorldDir(out, sx,sy,sz, m.mat4Proj, m.mat4Eye, vpW, vpH, ndcZMin);
     const wx=out[0],wy=out[1],wz=out[2];
     return _applyDir(out, m.toFrameInv, wx,wy,wz);
   }
@@ -711,21 +690,16 @@ export function pixelRatio(proj, vpH, eyeZ, ndcZMin) {
  * @param {number} py  Query Y (CSS pixels).
  * @param {number} W   Canvas width  (CSS pixels).
  * @param {number} H   Canvas height (CSS pixels).
- * @returns {Float32Array} proj (same reference)
  */
 export function mat4Pick(proj, px, py, W, H) {
-  const cx =  2 * (px + 0.5) / W - 1;
-  const cy = -2 * (py + 0.5) / H + 1;
-  const sx = W;
-  const sy = H;
-  const tx = -cx * W;
-  const ty = -cy * H;
-  for (let j = 0; j < 4; j++) {
-    const a = proj[j * 4];
-    const b = proj[j * 4 + 1];
-    const d = proj[j * 4 + 3];
-    proj[j * 4]     = sx * a + tx * d;
-    proj[j * 4 + 1] = sy * b + ty * d;
+  const cx = 2*(px+0.5)/W - 1;
+  const cy = 1 - 2*(py+0.5)/H;
+  const sx = W, sy = H;
+  const tx = -cx*W, ty = -cy*H;
+  for (let c = 0; c < 4; c++) {
+    const i = c * 4;
+    const r0 = proj[i], r1 = proj[i+1], r3 = proj[i+3];
+    proj[i]   = sx * r0 + tx * r3;
+    proj[i+1] = sy * r1 + ty * r3;
   }
-  return proj;
 }

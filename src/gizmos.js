@@ -33,9 +33,9 @@ const _eye = new Float32Array(16);  // eye matrix scratch for viewFrustum
 // Local p5 state accessors
 // ═══════════════════════════════════════════════════════════════════════════
 
-const _rawMat4  = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
-const _projMat4 = (r) => r.states.uPMatrix.mat4;
-const _viewMat4 = (r) => r.states.curCamera.cameraMatrix.mat4;
+const _rawMat4   = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
+const _projMat4  = (r) => r.states.uPMatrix.mat4;
+const _viewMat4  = (r) => r.states.curCamera.cameraMatrix.mat4;
 const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -140,25 +140,25 @@ export function installGizmos(p5, fn) {
   /**
    * Draw a screen-space crosshair centred on the current model's origin.
    * @param {{
-   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
-   *   size?:     number,
-   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   size?:       number,
+   *   mat4Eye?:    Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4PV?:     Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    */
   p5.Renderer3D.prototype.cross = function ({
-    mMatrix, x, y, size = 50, eMatrix, pMatrix, vMatrix, pvMatrix
+    mat4Model, x, y, size = 50, mat4Eye, mat4Proj, mat4View, mat4PV
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
+    const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
     if (x == null || y == null) {
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, mat4Proj, mat4View, mat4PV });
       x = _sl[0]; y = _sl[1];
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
+      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, mat4Eye });
       size = size / this.pixelRatio(_wl);
     }
     const half = size / 2.0;
@@ -175,27 +175,27 @@ export function installGizmos(p5, fn) {
   /**
    * Draw a screen-space bulls-eye overlay centred on the current model's origin.
    * @param {{
-   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
-   *   size?:     number,
-   *   shape?:    number,
-   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   size?:       number,
+   *   shape?:      number,
+   *   mat4Eye?:    Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4PV?:     Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    */
   p5.Renderer3D.prototype.bullsEye = function ({
-    mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
-    eMatrix, pMatrix, vMatrix, pvMatrix
+    mat4Model, x, y, size = 50, shape = p5.Tree.CIRCLE,
+    mat4Eye, mat4Proj, mat4View, mat4PV
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
+    const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
     if (x == null || y == null) {
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, mat4Proj, mat4View, mat4PV });
       x = _sl[0]; y = _sl[1];
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
+      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, mat4Eye });
       size = size / this.pixelRatio(_wl);
     }
     const half = size / 2.0, corner = 0.6 * half;
@@ -227,18 +227,18 @@ export function installGizmos(p5, fn) {
    *
    * @param {{
    *   pg?,
-   *   eMatrix?: Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?: Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?: Float32Array | ArrayLike | p5.Matrix,
-   *   bits?:    number,
-   *   viewer?:  function,
+   *   mat4Eye?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:  Float32Array | ArrayLike | p5.Matrix,
+   *   bits?:      number,
+   *   viewer?:    function,
    * }} [opts]
    */
   p5.Renderer3D.prototype.viewFrustum = function ({
     pg,
-    eMatrix,
-    pMatrix,
-    vMatrix,
+    mat4Eye,
+    mat4Proj,
+    mat4View,
     bits   = p5.Tree.NEAR | p5.Tree.FAR,
     viewer = () => this.axes({
       size: 50,
@@ -251,17 +251,17 @@ export function installGizmos(p5, fn) {
       console.error('displaying viewFrustum requires a pg different than this'); return;
     }
 
-    const eRaw = _rawMat4(eMatrix) ?? (pg ? (pg._renderer.eMatrix(_eye), _eye) : null);
-    const pRaw = _rawMat4(pMatrix) ?? (pg ? _projMat4(pg._renderer) : null);
+    const eRaw = _rawMat4(mat4Eye) ?? (pg ? (pg._renderer.mat4Eye(_eye), _eye) : null);
+    const pRaw = _rawMat4(mat4Proj) ?? (pg ? _projMat4(pg._renderer) : null);
 
     if (!pRaw || !eRaw) {
-      console.error('displaying viewFrustum requires either a pg or both eMatrix and pMatrix'); return;
+      console.error('displaying viewFrustum requires either a pg or both mat4Eye and mat4Proj'); return;
     }
 
     const states = this.states, uView = states?.uViewMatrix;
     if (!uView) return;
 
-    const vRaw = _rawMat4(vMatrix) ?? _viewMat4(this);
+    const vRaw = _rawMat4(mat4View) ?? _viewMat4(this);
 
     const isOrtho = projIsOrtho(pRaw);
     const ndcZ    = getNdcZ();

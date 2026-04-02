@@ -1,6 +1,6 @@
 {
   "name": "p5.tree",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "description": "Render pipeline for p5.js v2 — pose and camera interpolation, space transforms, frustum visibility, HUD, post-processing pipe, picking, and declarative control panels.",
   "type": "module",
   "main": "dist/p5.tree.esm.js",
@@ -49,7 +49,7 @@
     "p5": "^2.2.3"
   },
   "dependencies": {
-    "@nakednous/tree": "^0.0.12",
+    "@nakednous/tree": "^0.0.13",
     "@nakednous/ui": "^0.0.8"
   },
   "devDependencies": {

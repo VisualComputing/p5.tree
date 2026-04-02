@@ -85,11 +85,6 @@ export function installPicking(p5, fn) {
   /**
    * Encode an integer id as a CSS hex color string for use with `fill()`.
    *
-   * ```js
-   * fill(tag(1)); box(60)
-   * fill(tag(2)); sphere(40)
-   * ```
-   *
    * id `0` is reserved — it decodes as background / miss.
    * Hex strings are parsed by p5 independently of `colorMode()`.
    *
@@ -117,21 +112,8 @@ export function installPicking(p5, fn) {
    *
    * Before `drawFn` is called the library unconditionally calls:
    * `noLights()`, `noStroke()`, `resetShader()`.
-   * Stroke is excluded from the pick buffer by default — call
-   * `stroke(tag(id))` inside `drawFn` to include it. When stroke is
-   * included, both `fill` and `stroke` must carry the same `tag(id)`.
    *
    * The FBO is lazily allocated on first use and released in `lifecycles.remove`.
-   *
-   * @example
-   * ```js
-   * const hit = colorPick(mouseX, mouseY, () => {
-   *   push(); fill(tag(1)); box(60);    pop()
-   *   push(); fill(tag(2)); sphere(40); pop()
-   * })
-   * if (hit === 1) console.log('box!')
-   * if (hit === 2) console.log('sphere!')
-   * ```
    *
    * @method colorPick
    * @for p5
@@ -164,9 +146,6 @@ export function installPicking(p5, fn) {
     const fbo = p._tree._pickFbo;
 
     // ── 3. Enter FBO ────────────────────────────────────────────────────────
-    //       fbo.begin() saves full renderer state via renderer.push(), then
-    //       resets uPMatrix and uViewMatrix to FBO defaults.
-    //       fbo.end() calls renderer.pop(), restoring everything automatically.
     fbo.begin();
 
     // ── 4. Restore view and install pick projection ─────────────────────────
@@ -178,10 +157,10 @@ export function installPicking(p5, fn) {
     mat4Pick(proj, px, py, p.width, p.height);
 
     // ── 5. Pick render state ────────────────────────────────────────────────
-    p.background(0);   // clear to id 0 (background / miss)
+    p.background(0);
     p.noLights();
     p.noStroke();
-    p.resetShader();   // clear any bound texture / custom shader
+    p.resetShader();
 
     // ── 6. Draw, read, restore ──────────────────────────────────────────────
     let hit = 0;
@@ -195,7 +174,7 @@ export function installPicking(p5, fn) {
       );
       hit = _pickBuf[0] | (_pickBuf[1] << 8) | (_pickBuf[2] << 16);
     } finally {
-      fbo.end();  // renderer.pop() restores uPMatrix + uViewMatrix + full state
+      fbo.end();
     }
 
     return hit;
@@ -230,14 +209,14 @@ export function installPicking(p5, fn) {
    * @param {number}  [pointerX]
    * @param {number}  [pointerY]
    * @param {{
-   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
-   *   size?:     number,
-   *   shape?:    number,
-   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   size?:       number,
+   *   shape?:      number,
+   *   mat4Eye?:    Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4PV?:     Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {boolean}
    */
@@ -253,14 +232,14 @@ export function installPicking(p5, fn) {
     if (pointerX == null) pointerX = p ? p.mouseX : this.width  / 2;
     if (pointerY == null) pointerY = p ? p.mouseY : this.height / 2;
 
-    let { mMatrix, x, y, size = 50, shape = p5.Tree.CIRCLE,
-          eMatrix, pMatrix, vMatrix, pvMatrix } = config;
-    const mm = _rawMat4(mMatrix) ?? _modelMat4(this);
+    let { mat4Model, x, y, size = 50, shape = p5.Tree.CIRCLE,
+          mat4Eye, mat4Proj, mat4View, mat4PV } = config;
+    const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
 
     if (x == null || y == null) {
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, pMatrix, vMatrix, pvMatrix });
+      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, mat4Proj, mat4View, mat4PV });
       x = _sl[0]; y = _sl[1];
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, eMatrix });
+      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, mat4Eye });
       size = size / this.pixelRatio(_wl);
     }
     const r = size / 2.0, dx = x - pointerX, dy = y - pointerY;
@@ -277,14 +256,14 @@ export function installPicking(p5, fn) {
    * @method mouseHit
    * @for p5
    * @param {{
-   *   mMatrix?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
-   *   size?:     number,
-   *   shape?:    number,
-   *   eMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   vMatrix?:  Float32Array | ArrayLike | p5.Matrix,
-   *   pvMatrix?: Float32Array | ArrayLike | p5.Matrix,
+   *   size?:       number,
+   *   shape?:      number,
+   *   mat4Eye?:    Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4PV?:     Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {boolean}
    */
