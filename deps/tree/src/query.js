@@ -13,19 +13,33 @@
  * Multiply: mat4Mul(out, A, B) = A · B  (standard math order).
  * Pipeline: clip = P · V · M · v
  *
- * ── NDC convention ────────────────────────────────────────────────────────
- * Controlled by the `ndcZMin` scalar passed to every space-transform function:
+ * ── NDC Z convention ──────────────────────────────────────────────────────
+ * Passed as `ndcZMin` to every space-transform function:
  *   WEBGL  = −1   z ∈ [−1,  1]
  *   WEBGPU =  0   z ∈ [ 0,  1]
- * No other code in this file cares about the renderer backend.
+ *
+ * ── NDC Y convention ──────────────────────────────────────────────────────
+ * Standard (OpenGL / WebGL / WebGPU browser / Three.js / p5v2):
+ *   NDC y-up  — y = +1 at top, y = −1 at bottom.
+ * Native Vulkan: NDC y-down — projections constructed with ndcYSign = −1
+ * (see form.js).  Query functions are convention-agnostic: they work on
+ * whatever matrices are passed in.
  *
  * ── Viewport convention ───────────────────────────────────────────────────
- * vp = [x, y, w, h] where w and h may be signed.
- * Sign encodes axis direction — negative h flips NDC y-up to screen y-down.
- * The bridge passes [0, canvasH, canvasW, −canvasH] for p5/WebGL.
- * A non-flipped system (OpenGL bottom-left) would pass [0, 0, w, h].
- * All helpers use vp[2]/vp[3] directly — never Math.abs — so both
- * conventions are handled automatically without any branching.
+ * vp = [x, y, w, h] — w and h are SIGNED.
+ *
+ * The sign of h encodes the relationship between NDC y and screen y:
+ *   h < 0 (e.g. −canvasH): screen y-DOWN  (DOM / p5 mouseX·mouseY / Vulkan surface)
+ *                            NDC y=+1 → screen y=0  (top)
+ *                            NDC y=−1 → screen y=H  (bottom)
+ *   h > 0 (e.g. +canvasH): screen y-UP   (OpenGL desktop / WebGL gl_FragCoord)
+ *                            NDC y=−1 → screen y=0  (bottom)
+ *                            NDC y=+1 → screen y=H  (top)
+ *
+ * Pass [0, canvasH, canvasW, −canvasH] for p5/DOM coordinates.
+ * Pass [0, 0, canvasW, canvasH] for WebGL gl_FragCoord / OpenGL bottom-left.
+ * All helpers use vp[2]/vp[3] signed — no Math.abs — so both conventions
+ * work automatically without any branching.
  *
  * All functions follow the out-first, zero-allocation contract.
  * Returns null on degeneracy (singular matrix, etc.).
@@ -102,7 +116,7 @@ export function mat4Invert(out, src) {
 
 /**
  * Normal matrix: inverseTranspose(upper-left 3×3 of src).
- * On degeneracy (det ≈ 0) writes zeros and returns out.
+ * On degeneracy writes zeros and returns out.
  * @param {Float32Array|number[]} out  9-element destination.
  * @param {Float32Array|number[]} src  16-element mat4.
  */
@@ -124,17 +138,14 @@ export function mat3NormalFromMat4(out, src) {
 export function mat4MulPoint(out, m, x, y, z) {
   const rx=m[0]*x+m[4]*y+m[8]*z+m[12], ry=m[1]*x+m[5]*y+m[9]*z+m[13],
         rz=m[2]*x+m[6]*y+m[10]*z+m[14], rw=m[3]*x+m[7]*y+m[11]*z+m[15];
-  if (rw !== 0 && rw !== 1) { out[0]=rx/rw; out[1]=ry/rw; out[2]=rz/rw; }
-  else                       { out[0]=rx;    out[1]=ry;    out[2]=rz;    }
+  if (rw!==0&&rw!==1) { out[0]=rx/rw; out[1]=ry/rw; out[2]=rz/rw; }
+  else                 { out[0]=rx;    out[1]=ry;    out[2]=rz;    }
   return out;
 }
 
 /**
  * Apply only the 3×3 linear block of a mat4 to a direction (no translation,
  * no perspective divide). Use mat3NormalFromMat4 for normals under non-uniform scale.
- * @param {Float32Array|number[]} out  3-element destination.
- * @param {Float32Array|number[]} m    16-element mat4.
- * @param {number} dx,dy,dz
  */
 export function mat4MulDir(out, m, dx, dy, dz) {
   out[0]=m[0]*dx+m[4]*dy+m[8]*dz;
@@ -147,7 +158,7 @@ export function mat4MulDir(out, m, dx, dy, dz) {
 // Projection queries
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** @returns {boolean} true if the projection is orthographic. */
+/** @returns {boolean} true if orthographic. */
 export function projIsOrtho(p) { return p[15] !== 0; }
 
 /**
@@ -156,19 +167,18 @@ export function projIsOrtho(p) { return p[15] !== 0; }
  * @param {number}            ndcZMin WEBGL (−1) or WEBGPU (0).
  */
 export function projNear(p, ndcZMin) {
-  return p[15] === 0 ? p[14]/(p[10]+ndcZMin) : (p[14]-ndcZMin)/p[10];
+  return p[15]===0 ? p[14]/(p[10]+ndcZMin) : (p[14]-ndcZMin)/p[10];
 }
 
 /** Far plane distance (far always maps to NDC z = 1, convention-independent). */
 export function projFar(p) {
-  return p[15] === 0 ? p[14]/(1+p[10]) : (p[14]-1)/p[10];
+  return p[15]===0 ? p[14]/(1+p[10]) : (p[14]-1)/p[10];
 }
 
-/** @param {ArrayLike<number>} p  @param {number} ndcZMin */
-export function projLeft  (p, ndcZMin) { return p[15]===1 ? -(1+p[12])/p[0]   : projNear(p,ndcZMin)*(p[8]-1)/p[0];   }
-export function projRight (p, ndcZMin) { return p[15]===1 ?  (1-p[12])/p[0]   : projNear(p,ndcZMin)*(1+p[8])/p[0];   }
-export function projTop   (p, ndcZMin) { return p[15]===1 ?  (p[13]-1)/p[5]   : projNear(p,ndcZMin)*(p[9]-1)/p[5];   }
-export function projBottom(p, ndcZMin) { return p[15]===1 ?  (1+p[13])/p[5]   : projNear(p,ndcZMin)*(1+p[9])/p[5];   }
+export function projLeft  (p, ndcZMin) { return p[15]===1 ? -(1+p[12])/p[0]  : projNear(p,ndcZMin)*(p[8]-1)/p[0];  }
+export function projRight (p, ndcZMin) { return p[15]===1 ?  (1-p[12])/p[0]  : projNear(p,ndcZMin)*(1+p[8])/p[0];  }
+export function projTop   (p, ndcZMin) { return p[15]===1 ?  (p[13]-1)/p[5]  : projNear(p,ndcZMin)*(p[9]-1)/p[5];  }
+export function projBottom(p, ndcZMin) { return p[15]===1 ?  (1+p[13])/p[5]  : projNear(p,ndcZMin)*(1+p[9])/p[5];  }
 
 /** Vertical field of view in radians (perspective only). */
 export function projFov (p) { return Math.abs(2*Math.atan(1/p[5])); }
@@ -180,7 +190,7 @@ export function projHfov(p) { return Math.abs(2*Math.atan(1/p[0])); }
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** out = P · V */
-export function mat4PV(out, proj, view) { return mat4Mul(out, proj, view); }
+export function mat4PV(out, proj, view)  { return mat4Mul(out, proj, view); }
 /** out = V · M */
 export function mat4MV(out, model, view) { return mat4Mul(out, view, model); }
 
@@ -190,7 +200,6 @@ export function mat4MV(out, model, view) { return mat4Mul(out, view, model); }
 
 /**
  * Location transform between frames: out = inv(to) · from.
- * Maps a point expressed in `from`-space into `to`-space: p_to = out · p_from.
  * @returns {ArrayLike<number>|null} out, or null if `to` is singular.
  */
 export function mat4Location(out, from, to) {
@@ -230,34 +239,28 @@ export function mat3Direction(out, from, to) {
 // Matrices bag `m`:
 //   mat4Proj    Float32Array(16)  projection  (eye → clip)
 //   mat4View    Float32Array(16)  view        (world → eye)
-//   mat4Eye?    Float32Array(16)  eye         (eye → world); lazy, caller fills
-//   mat4PV?     Float32Array(16)  P · V;      lazy
-//   mat4PVInv?  Float32Array(16)  inv(P · V); lazy
+//   mat4Eye?    Float32Array(16)  eye         (eye → world); caller fills before passing
+//   mat4PV?     Float32Array(16)  P · V;      caller fills or _ensurePV allocates once
+//   mat4PVInv?  Float32Array(16)  inv(P · V); caller fills
 //   fromFrame?  Float32Array(16)  MATRIX source frame
 //   toFrameInv? Float32Array(16)  inv(MATRIX dest frame)
 //
 // Viewport `vp` = [x, y, w, h]:
-//   w and h are signed. Negative h encodes the Y-flip between NDC (y-up)
-//   and screen (y-down). The bridge passes [0, canvasH, canvasW, −canvasH].
-//   A bottom-left-origin system would pass [0, 0, w, h] with positive h.
-//   No branching on renderer — the sign does all the work automatically.
+//   Use SIGNED h to encode screen-y direction (see module header).
+//   Core formula: screen = (ndc*0.5+0.5)*vp[k] + vp[k-2]  (k=2 for x, k=3 for y)
+//   Inverse:      ndc    = ((screen-vp[k-2])/vp[k])*2 - 1
+//   Negative vp[3] flips NDC y-up to screen y-down automatically.
 //
 
 // ── Location helpers ─────────────────────────────────────────────────────
-//
-// Key formula: screen = (ndc * 0.5 + 0.5) * vp[k] + vp[k-2]
-//   vp[2] = w (positive)  → NDC x ∈ [−1,1] → screen x ∈ [0, w]
-//   vp[3] = −h (negative) → NDC y ∈ [−1,1] → screen y ∈ [h, 0]  (y-down)
-// Inverse: ndc = ((screen − vp[k-2]) / vp[k]) * 2 − 1
-//
 
 function _worldToScreen(out, px, py, pz, pv, vp, ndcZMin) {
   const x=pv[0]*px+pv[4]*py+pv[8]*pz+pv[12], y=pv[1]*px+pv[5]*py+pv[9]*pz+pv[13],
         z=pv[2]*px+pv[6]*py+pv[10]*pz+pv[14], w=pv[3]*px+pv[7]*py+pv[11]*pz+pv[15];
-  const xi = (w!==0&&w!==1) ? 1/w : 1;
-  out[0] = (x*xi*0.5+0.5)*vp[2]+vp[0];
-  out[1] = (y*xi*0.5+0.5)*vp[3]+vp[1];
-  out[2] = (z*xi - ndcZMin) / (1-ndcZMin);
+  const xi=(w!==0&&w!==1)?1/w:1;
+  out[0]=(x*xi*0.5+0.5)*vp[2]+vp[0];
+  out[1]=(y*xi*0.5+0.5)*vp[3]+vp[1];
+  out[2]=(z*xi-ndcZMin)/(1-ndcZMin);
   return out;
 }
 
@@ -271,14 +274,12 @@ function _screenToWorld(out, sx, sy, sz, ipv, vp, ndcZMin) {
 function _worldToNDC(out, px, py, pz, pv) {
   const x=pv[0]*px+pv[4]*py+pv[8]*pz+pv[12], y=pv[1]*px+pv[5]*py+pv[9]*pz+pv[13],
         z=pv[2]*px+pv[6]*py+pv[10]*pz+pv[14], w=pv[3]*px+pv[7]*py+pv[11]*pz+pv[15];
-  const xi = (w!==0&&w!==1) ? 1/w : 1;
+  const xi=(w!==0&&w!==1)?1/w:1;
   out[0]=x*xi; out[1]=y*xi; out[2]=z*xi;
   return out;
 }
 
-function _ndcToWorld(out, nx, ny, nz, ipv) {
-  return mat4MulPoint(out, ipv, nx, ny, nz);
-}
+function _ndcToWorld(out, nx, ny, nz, ipv) { return mat4MulPoint(out,ipv,nx,ny,nz); }
 
 function _screenToNDC(out, sx, sy, sz, vp, ndcZMin) {
   out[0]=((sx-vp[0])/vp[2])*2-1;
@@ -306,10 +307,10 @@ function _ensurePV(m) {
  *
  * @param {number[]} out     3-element destination — written and returned.
  * @param {number}   px,py,pz Input point.
- * @param {string}   from    Source space constant (WORLD, EYE, SCREEN, NDC, MATRIX).
- * @param {string}   to      Destination space constant.
+ * @param {string}   from    Source space (WORLD, EYE, SCREEN, NDC, MATRIX).
+ * @param {string}   to      Destination space.
  * @param {object}   m       Matrices bag — see module header.
- * @param {number[]} vp      Viewport [x, y, w, h]; signed h encodes Y orientation.
+ * @param {number[]} vp      Viewport [x, y, w, h]; sign of h encodes screen-y direction.
  * @param {number}   ndcZMin WEBGL (−1) or WEBGPU (0).
  * @returns {number[]} out
  */
@@ -320,7 +321,7 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
   if (from===WORLD && to===NDC)   return _worldToNDC(out,px,py,pz,_ensurePV(m));
   if (from===NDC   && to===WORLD) return _ndcToWorld(out,px,py,pz,m.mat4PVInv);
 
-  if (from===SCREEN && to===NDC)   return _screenToNDC(out,px,py,pz,vp,ndcZMin);
+  if (from===SCREEN && to===NDC)    return _screenToNDC(out,px,py,pz,vp,ndcZMin);
   if (from===NDC    && to===SCREEN) return _ndcToScreen(out,px,py,pz,vp,ndcZMin);
 
   if (from===WORLD && to===EYE) return mat4MulPoint(out,m.mat4View,px,py,pz);
@@ -328,9 +329,9 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
 
   if (from===EYE && to===SCREEN) {
     const e=m.mat4Eye;
-    return _worldToScreen(out, e[0]*px+e[4]*py+e[8]*pz+e[12],
-                               e[1]*px+e[5]*py+e[9]*pz+e[13],
-                               e[2]*px+e[6]*py+e[10]*pz+e[14], _ensurePV(m),vp,ndcZMin);
+    return _worldToScreen(out,e[0]*px+e[4]*py+e[8]*pz+e[12],
+                              e[1]*px+e[5]*py+e[9]*pz+e[13],
+                              e[2]*px+e[6]*py+e[10]*pz+e[14],_ensurePV(m),vp,ndcZMin);
   }
   if (from===SCREEN && to===EYE) {
     _screenToWorld(out,px,py,pz,m.mat4PVInv,vp,ndcZMin);
@@ -339,63 +340,58 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
 
   if (from===EYE && to===NDC) {
     const e=m.mat4Eye;
-    return _worldToNDC(out, e[0]*px+e[4]*py+e[8]*pz+e[12],
-                            e[1]*px+e[5]*py+e[9]*pz+e[13],
-                            e[2]*px+e[6]*py+e[10]*pz+e[14], _ensurePV(m));
+    return _worldToNDC(out,e[0]*px+e[4]*py+e[8]*pz+e[12],
+                           e[1]*px+e[5]*py+e[9]*pz+e[13],
+                           e[2]*px+e[6]*py+e[10]*pz+e[14],_ensurePV(m));
   }
   if (from===NDC && to===EYE) {
     _ndcToWorld(out,px,py,pz,m.mat4PVInv);
     return mat4MulPoint(out,m.mat4View,out[0],out[1],out[2]);
   }
 
-  // MATRIX (custom frame) ↔ WORLD
   if (from===MATRIX && to===WORLD) return mat4MulPoint(out,m.fromFrame,px,py,pz);
   if (from===WORLD && to===MATRIX) return mat4MulPoint(out,m.toFrameInv,px,py,pz);
 
-  // MATRIX ↔ EYE
   if (from===MATRIX && to===EYE) {
     const f=m.fromFrame;
-    return mat4MulPoint(out,m.mat4View, f[0]*px+f[4]*py+f[8]*pz+f[12],
-                                        f[1]*px+f[5]*py+f[9]*pz+f[13],
-                                        f[2]*px+f[6]*py+f[10]*pz+f[14]);
+    return mat4MulPoint(out,m.mat4View,f[0]*px+f[4]*py+f[8]*pz+f[12],
+                                       f[1]*px+f[5]*py+f[9]*pz+f[13],
+                                       f[2]*px+f[6]*py+f[10]*pz+f[14]);
   }
   if (from===EYE && to===MATRIX) {
     const e=m.mat4Eye;
-    return mat4MulPoint(out,m.toFrameInv, e[0]*px+e[4]*py+e[8]*pz+e[12],
-                                          e[1]*px+e[5]*py+e[9]*pz+e[13],
-                                          e[2]*px+e[6]*py+e[10]*pz+e[14]);
+    return mat4MulPoint(out,m.toFrameInv,e[0]*px+e[4]*py+e[8]*pz+e[12],
+                                         e[1]*px+e[5]*py+e[9]*pz+e[13],
+                                         e[2]*px+e[6]*py+e[10]*pz+e[14]);
   }
 
-  // MATRIX ↔ SCREEN
   if (from===MATRIX && to===SCREEN) {
     const f=m.fromFrame;
-    return _worldToScreen(out, f[0]*px+f[4]*py+f[8]*pz+f[12],
-                               f[1]*px+f[5]*py+f[9]*pz+f[13],
-                               f[2]*px+f[6]*py+f[10]*pz+f[14], _ensurePV(m),vp,ndcZMin);
+    return _worldToScreen(out,f[0]*px+f[4]*py+f[8]*pz+f[12],
+                              f[1]*px+f[5]*py+f[9]*pz+f[13],
+                              f[2]*px+f[6]*py+f[10]*pz+f[14],_ensurePV(m),vp,ndcZMin);
   }
   if (from===SCREEN && to===MATRIX) {
     _screenToWorld(out,px,py,pz,m.mat4PVInv,vp,ndcZMin);
     return mat4MulPoint(out,m.toFrameInv,out[0],out[1],out[2]);
   }
 
-  // MATRIX ↔ NDC
   if (from===MATRIX && to===NDC) {
     const f=m.fromFrame;
-    return _worldToNDC(out, f[0]*px+f[4]*py+f[8]*pz+f[12],
-                            f[1]*px+f[5]*py+f[9]*pz+f[13],
-                            f[2]*px+f[6]*py+f[10]*pz+f[14], _ensurePV(m));
+    return _worldToNDC(out,f[0]*px+f[4]*py+f[8]*pz+f[12],
+                           f[1]*px+f[5]*py+f[9]*pz+f[13],
+                           f[2]*px+f[6]*py+f[10]*pz+f[14],_ensurePV(m));
   }
   if (from===NDC && to===MATRIX) {
     _ndcToWorld(out,px,py,pz,m.mat4PVInv);
     return mat4MulPoint(out,m.toFrameInv,out[0],out[1],out[2]);
   }
 
-  // MATRIX ↔ MATRIX
   if (from===MATRIX && to===MATRIX) {
     const f=m.fromFrame;
-    return mat4MulPoint(out,m.toFrameInv, f[0]*px+f[4]*py+f[8]*pz+f[12],
-                                          f[1]*px+f[5]*py+f[9]*pz+f[13],
-                                          f[2]*px+f[6]*py+f[10]*pz+f[14]);
+    return mat4MulPoint(out,m.toFrameInv,f[0]*px+f[4]*py+f[8]*pz+f[12],
+                                         f[1]*px+f[5]*py+f[9]*pz+f[13],
+                                         f[2]*px+f[6]*py+f[10]*pz+f[14]);
   }
 
   out[0]=px; out[1]=py; out[2]=pz;
@@ -404,11 +400,10 @@ export function mapLocation(out, px, py, pz, from, to, m, vp, ndcZMin) {
 
 // ── Direction helpers ────────────────────────────────────────────────────
 //
-// Directions use only the linear (3×3) part — no translation, no w-divide.
-// The Y-flip is carried by the signed vp[2]/vp[3] exactly as for locations.
+// Directions use only the linear 3×3 block — no translation, no w-divide.
+// The signed vp[2]/vp[3] carries the y-convention automatically.
 //
 
-/** Apply 3×3 block of mat4 to a direction. */
 function _applyDir(out, m, dx, dy, dz) {
   out[0]=m[0]*dx+m[4]*dy+m[8]*dz;
   out[1]=m[1]*dx+m[5]*dy+m[9]*dz;
@@ -420,7 +415,7 @@ function _worldToScreenDir(out, dx, dy, dz, proj, view, vpW, vpH, ndcZMin) {
   const vx=view[0]*dx+view[4]*dy+view[8]*dz,
         vy=view[1]*dx+view[5]*dy+view[9]*dz,
         vz=view[2]*dx+view[6]*dy+view[10]*dz;
-  // vpH is signed — negative h flips the Y component automatically.
+  // vpH is signed — negative flips y component automatically.
   out[0]=(proj[0]*vx+proj[4]*vy+proj[8]*vz)*vpW*0.5;
   out[1]=(proj[1]*vx+proj[5]*vy+proj[9]*vz)*vpH*0.5;
   out[2]=(proj[2]*vx+proj[6]*vy+proj[10]*vz)*(1-ndcZMin)*0.5;
@@ -428,7 +423,7 @@ function _worldToScreenDir(out, dx, dy, dz, proj, view, vpW, vpH, ndcZMin) {
 }
 
 function _screenToWorldDir(out, dx, dy, dz, proj, eye, vpW, vpH, ndcZMin) {
-  // Inverse of _worldToScreenDir; signed vpW/vpH cancel the Y-flip.
+  // Inverse of _worldToScreenDir; signed vpW/vpH cancel the y-flip.
   _applyDir(out, eye, dx/(vpW*0.5)/proj[0], dy/(vpH*0.5)/proj[5], dz/((1-ndcZMin)*0.5));
   return out;
 }
@@ -449,15 +444,15 @@ function _ndcToScreenDir(out, dx, dy, dz, vpW, vpH, ndcZMin) {
  *
  * @param {number[]} out     3-element destination.
  * @param {number}   dx,dy,dz Input direction.
- * @param {string}   from    Source space constant.
- * @param {string}   to      Destination space constant.
+ * @param {string}   from    Source space.
+ * @param {string}   to      Destination space.
  * @param {object}   m       Matrices bag — see module header.
- * @param {number[]} vp      Viewport [x, y, w, h]; signed h encodes Y orientation.
+ * @param {number[]} vp      Viewport [x, y, w, h]; sign of h encodes screen-y direction.
  * @param {number}   ndcZMin WEBGL (−1) or WEBGPU (0).
  * @returns {number[]} out
  */
 export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
-  const vpW=vp[2], vpH=vp[3];  // signed — carry Y-flip through all dir helpers
+  const vpW=vp[2], vpH=vp[3];  // signed — carry y-convention through all helpers
 
   if (from===EYE   && to===WORLD)  return _applyDir(out,m.mat4Eye, dx,dy,dz);
   if (from===WORLD && to===EYE)    return _applyDir(out,m.mat4View,dx,dy,dz);
@@ -544,11 +539,10 @@ export function mapDirection(out, dx, dy, dz, from, to, m, vp, ndcZMin) {
 
 /**
  * World-units-per-pixel at a given eye-space Z depth.
- * @param {ArrayLike<number>} proj   Projection mat4.
- * @param {number}            vpH    Viewport height in pixels (positive).
- * @param {number}            eyeZ   Eye-space Z — negative means in front of camera.
+ * @param {ArrayLike<number>} proj    Projection mat4.
+ * @param {number}            vpH     Viewport height in pixels (positive).
+ * @param {number}            eyeZ    Eye-space Z — negative means in front of camera.
  * @param {number}            ndcZMin WEBGL (−1) or WEBGPU (0).
- * @returns {number}
  */
 export function pixelRatio(proj, vpH, eyeZ, ndcZMin) {
   return projIsOrtho(proj)
@@ -561,32 +555,33 @@ export function pixelRatio(proj, vpH, eyeZ, ndcZMin) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Mutate a projection matrix in-place so that pixel (px, py) maps to the
- * full NDC square — making a 1×1 FBO render contain exactly that pixel.
+ * Mutate a projection matrix in-place so that the pixel at (px, py) maps to
+ * the full NDC square — making a 1×1 FBO render contain exactly that pixel.
  *
- * Premultiplies by M_pick (column-major):
+ * Premultiplies by M_pick (column-major, rows 2 and 3 unchanged):
  *
- *   ┌  sx   0   0   tx ┐       sx =  W,   sy = H
- *   │   0  sy   0   ty │       cx =  2·(px+0.5)/W − 1   (NDC X of pixel centre)
- *   │   0   0   1    0 │       cy = −2·(py+0.5)/H + 1   (NDC Y, Y-flipped)
- *   └   0   0   0    1 ┘       tx = −cx·W,  ty = −cy·H
+ *   ┌  sx   0   0   tx ┐     sx = |vp[2]|,   sy = |vp[3]|
+ *   │   0  sy   0   ty │     cx = ((px−vp[0])/vp[2])·2 − 1   (NDC x of pixel centre)
+ *   │   0   0   1    0 │     cy = ((py−vp[1])/vp[3])·2 − 1   (NDC y, sign-aware)
+ *   └   0   0   0    1 ┘     tx = −cx·sx,  ty = −cy·sy
  *
- * Result: P_pick = M_pick · P_original.  Rows 2 and 3 are unchanged.
- * Convention-independent — works for both perspective and orthographic.
+ * Result: P_pick = M_pick · P_original.
+ * The viewport sign convention (vp[3] < 0 for screen y-down) is preserved
+ * automatically through cx/cy — no separate flip needed.
  *
  * @param {Float32Array} proj  Projection mat4 — mutated in place.
- * @param {number} px  Query pixel X (CSS pixels).
- * @param {number} py  Query pixel Y (CSS pixels).
- * @param {number} W   Canvas width  (CSS pixels).
- * @param {number} H   Canvas height (CSS pixels).
+ * @param {number} px  Query pixel X in screen coordinates.
+ * @param {number} py  Query pixel Y in screen coordinates.
+ * @param {number[]} vp  Viewport [x, y, w, h]; same signed convention as mapLocation.
  */
-export function mat4Pick(proj, px, py, W, H) {
-  const cx =  2*(px+0.5)/W - 1;
-  const cy = -2*(py+0.5)/H + 1;  // Y-flip: screen-down → NDC-up
-  const tx = -cx*W, ty = -cy*H;
-  for (let j = 0; j < 4; j++) {
+export function mat4Pick(proj, px, py, vp) {
+  const cx=((px-vp[0])/vp[2])*2-1;
+  const cy=((py-vp[1])/vp[3])*2-1;
+  const sx=Math.abs(vp[2]), sy=Math.abs(vp[3]);
+  const tx=-cx*sx, ty=-cy*sy;
+  for (let j=0; j<4; j++) {
     const a=proj[j*4], b=proj[j*4+1], d=proj[j*4+3];
-    proj[j*4]   = W*a + tx*d;
-    proj[j*4+1] = H*b + ty*d;
+    proj[j*4]   = sx*a + tx*d;
+    proj[j*4+1] = sy*b + ty*d;
   }
 }
