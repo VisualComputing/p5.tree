@@ -6,8 +6,8 @@
  * Depends on p5.tree/hud (beginHUD / endHUD), p5.tree/matrix (mapLocation,
  * pixelRatio, p5.Tree constants), and p5.tree/visibility (computePlanes).
  *
- * All internal calls to mapLocation write into module-level Float32Array
- * buffers — no p5.Vector allocations anywhere.
+ * All internal calls to mapLocation pass opts.out = _sl / _wl so they are
+ * zero-allocation and write directly into the module-level scratch buffers.
  */
 
 'use strict';
@@ -18,7 +18,6 @@ import {
 } from '@nakednous/tree';
 
 import { getNdcZ } from './matrix.js';
-
 import { computePlanes } from './visibility.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -42,11 +41,6 @@ const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
 // Install
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Install gizmo helpers on fn and p5.Renderer3D.
- * @param {p5}    p5
- * @param {Object} fn  p5 prototype.
- */
 export function installGizmos(p5, fn) {
 
   // ── Axes ──────────────────────────────────────────────────────────────────
@@ -62,7 +56,7 @@ export function installGizmos(p5, fn) {
     if (!p) return;
     p.push();
     if ((bits & p5.Tree.LABELS) !== 0) {
-      const cw = size / 40.0, ch = size / 30.0, cs = 1.04 * size;
+      const cw = size/40, ch = size/30, cs = 1.04*size;
       p.stroke(colors[0 % colors.length]);
       p.line(cs,  cw, -ch, cs, -cw,  ch);
       p.line(cs, -cw, -ch, cs,  cw,  ch);
@@ -98,7 +92,7 @@ export function installGizmos(p5, fn) {
     subdivisions = Math.max(1, subdivisions);
     p.push();
     for (let i = 0; i <= subdivisions; ++i) {
-      const pos = size * (2.0 * i / subdivisions - 1.0);
+      const pos = size * (2*i/subdivisions - 1);
       p.line(pos, -size, 0, pos, +size, 0);
       p.line(-size, pos, 0, +size, pos, 0);
     }
@@ -108,7 +102,7 @@ export function installGizmos(p5, fn) {
   // ── Circle primitive ──────────────────────────────────────────────────────
 
   p5.Renderer3D.prototype._circle = function ({
-    filled = false, x = this.width / 2, y = this.height / 2, radius = 100, detail = 50
+    filled = false, x = this.width/2, y = this.height/2, radius = 100, detail = 50
   } = {}) {
     const p = this._pInst;
     if (!p) return;
@@ -116,17 +110,16 @@ export function installGizmos(p5, fn) {
     if (filled) {
       p.beginShape(p.TRIANGLE_STRIP);
       for (let t = 0; t <= detail; t++) {
-        const cx = Math.cos(t * (2 * Math.PI) / detail);
-        const cy = Math.sin(t * (2 * Math.PI) / detail);
+        const cx = Math.cos(t*(2*Math.PI)/detail), cy = Math.sin(t*(2*Math.PI)/detail);
         p.vertex(0, 0, 0, 0.5, 0.5);
-        p.vertex(radius * cx, radius * cy, 0, cx * 0.5 + 0.5, cy * 0.5 + 0.5);
+        p.vertex(radius*cx, radius*cy, 0, cx*0.5+0.5, cy*0.5+0.5);
       }
       p.endShape();
     } else {
-      const angle = (2 * Math.PI) / detail;
+      const angle = (2*Math.PI)/detail;
       let lx = radius, ly = 0;
       for (let i = 1; i <= detail; i++) {
-        const nx = Math.cos(i * angle) * radius, ny = Math.sin(i * angle) * radius;
+        const nx = Math.cos(i*angle)*radius, ny = Math.sin(i*angle)*radius;
         p.line(lx, ly, nx, ny); lx = nx; ly = ny;
       }
     }
@@ -156,15 +149,15 @@ export function installGizmos(p5, fn) {
     if (!p) return;
     const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
     if (x == null || y == null) {
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, mat4Proj, mat4View, mat4PV });
+      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, out: _sl, mat4Proj, mat4View, mat4PV });
       x = _sl[0]; y = _sl[1];
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, mat4Eye });
+      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, out: _wl, mat4Eye });
       size = size / this.pixelRatio(_wl);
     }
-    const half = size / 2.0;
+    const half = size / 2;
     this.beginHUD();
-    p.line(x - half, y, x + half, y);
-    p.line(x, y - half, x, y + half);
+    p.line(x-half, y, x+half, y);
+    p.line(x, y-half, x, y+half);
     this.endHUD();
   };
 
@@ -193,28 +186,28 @@ export function installGizmos(p5, fn) {
     if (!p) return;
     const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
     if (x == null || y == null) {
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, mat4Proj, mat4View, mat4PV });
+      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, out: _sl, mat4Proj, mat4View, mat4PV });
       x = _sl[0]; y = _sl[1];
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, mat4Eye });
+      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, out: _wl, mat4Eye });
       size = size / this.pixelRatio(_wl);
     }
-    const half = size / 2.0, corner = 0.6 * half;
+    const half = size/2, corner = 0.6*half;
     this.beginHUD();
     if (shape === p5.Tree.CIRCLE) {
       this._circle({ x, y, radius: half });
     } else {
-      p.line(x - half, y - half + corner, x - half, y - half);
-      p.line(x - half, y - half, x - half + corner, y - half);
-      p.line(x + half - corner, y - half, x + half, y - half);
-      p.line(x + half, y - half, x + half, y - half + corner);
-      p.line(x + half, y + half - corner, x + half, y + half);
-      p.line(x + half, y + half, x + half - corner, y + half);
-      p.line(x - half + corner, y + half, x - half, y + half);
-      p.line(x - half, y + half, x - half, y + half - corner);
+      p.line(x-half, y-half+corner, x-half, y-half);
+      p.line(x-half, y-half, x-half+corner, y-half);
+      p.line(x+half-corner, y-half, x+half, y-half);
+      p.line(x+half, y-half, x+half, y-half+corner);
+      p.line(x+half, y+half-corner, x+half, y+half);
+      p.line(x+half, y+half, x+half-corner, y+half);
+      p.line(x-half+corner, y+half, x-half, y+half);
+      p.line(x-half, y+half, x-half, y+half-corner);
     }
-    const ch = 0.6 * half;
-    p.line(x - ch, y, x + ch, y);
-    p.line(x, y - ch, x, y + ch);
+    const ch = 0.6*half;
+    p.line(x-ch, y, x+ch, y);
+    p.line(x, y-ch, x, y+ch);
     this.endHUD();
   };
 
@@ -224,7 +217,6 @@ export function installGizmos(p5, fn) {
 
   /**
    * Draw the view frustum of a secondary renderer / camera into this renderer.
-   *
    * @param {{
    *   pg?,
    *   mat4Eye?:   Float32Array | ArrayLike | p5.Matrix,
@@ -235,10 +227,7 @@ export function installGizmos(p5, fn) {
    * }} [opts]
    */
   p5.Renderer3D.prototype.viewFrustum = function ({
-    pg,
-    mat4Eye,
-    mat4Proj,
-    mat4View,
+    pg, mat4Eye, mat4Proj, mat4View,
     bits   = p5.Tree.NEAR | p5.Tree.FAR,
     viewer = () => this.axes({
       size: 50,
@@ -247,11 +236,9 @@ export function installGizmos(p5, fn) {
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    if (this === pg) {
-      console.error('displaying viewFrustum requires a pg different than this'); return;
-    }
+    if (this === pg) { console.error('displaying viewFrustum requires a pg different than this'); return; }
 
-    const eRaw = _rawMat4(mat4Eye) ?? (pg ? (pg._renderer.mat4Eye(_eye), _eye) : null);
+    const eRaw = _rawMat4(mat4Eye)  ?? (pg ? (pg._renderer.mat4Eye(_eye), _eye) : null);
     const pRaw = _rawMat4(mat4Proj) ?? (pg ? _projMat4(pg._renderer) : null);
 
     if (!pRaw || !eRaw) {
@@ -261,17 +248,16 @@ export function installGizmos(p5, fn) {
     const states = this.states, uView = states?.uViewMatrix;
     if (!uView) return;
 
-    const vRaw = _rawMat4(mat4View) ?? _viewMat4(this);
-
+    const vRaw    = _rawMat4(mat4View) ?? _viewMat4(this);
     const isOrtho = projIsOrtho(pRaw);
     const ndcZ    = getNdcZ();
     const apex    = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
     const n = -projNear(pRaw, ndcZ), f = -projFar(pRaw);
-    const l =  projLeft(pRaw, ndcZ), r  = projRight(pRaw, ndcZ);
+    const l =  projLeft(pRaw, ndcZ),  r = projRight(pRaw, ndcZ);
     const t = isOrtho ? -projTop(pRaw, ndcZ)    : projTop(pRaw, ndcZ);
     const b = isOrtho ? -projBottom(pRaw, ndcZ) : projBottom(pRaw, ndcZ);
-    const ratio = isOrtho ? 1 : f / n;
-    const _l = ratio * l, _r = ratio * r, _b = ratio * b, _t = ratio * t;
+    const ratio = isOrtho ? 1 : f/n;
+    const _l=ratio*l, _r=ratio*r, _b=ratio*b, _t=ratio*t;
 
     p.push(); p.resetMatrix();
     const prevView = uView.copy();

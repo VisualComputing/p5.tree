@@ -38,38 +38,15 @@ import { mat4Pick } from '@nakednous/tree';
 // Module-level zero-alloc buffers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** gl.readPixels target — reused every call. */
-const _pickBuf = new Uint8Array(4);
-
-/**
- * Saves the main-canvas projection before fbo.begin() overwrites it.
- * fbo.begin() calls renderer.push() then sets uPMatrix to the FBO's own
- * default-camera projection — we capture the original first.
- */
-const _pickProjSave = new Float32Array(16);
-
-/**
- * Saves the main-canvas view matrix before fbo.begin() overwrites it.
- * fbo.begin() also resets uViewMatrix to the FBO's default camera — which
- * has no knowledge of orbitControl() or any user camera transform.
- */
-const _pickViewSave = new Float32Array(16);
-
-/**
- * Viewport passed to mat4Pick: [0, canvasH, canvasW, −canvasH].
- * Negative h encodes p5/DOM screen-y-down convention — rebuilt each pick call
- * since canvas dimensions may change.
- */
-const _pickVp = new Float32Array(4);
-
-/** Screen-location scratch for pointerHit. */
-const _sl = new Float32Array(3);
-
-/** World-location scratch for pointerHit pixelRatio scaling. */
-const _wl = new Float32Array(3);
+const _pickBuf      = new Uint8Array(4);      // gl.readPixels target
+const _pickProjSave = new Float32Array(16);   // saved projection before fbo.begin()
+const _pickViewSave = new Float32Array(16);   // saved view before fbo.begin()
+const _pickVp       = new Float32Array(4);    // viewport [0, h, w, −h] for mat4Pick
+const _sl           = new Float32Array(3);    // screen location scratch for pointerHit
+const _wl           = new Float32Array(3);    // world location scratch for pointerHit
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Local helpers — zero alloc
+// Local helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
 const _rawMat4   = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
@@ -79,11 +56,6 @@ const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
 // Install
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Install picking methods on fn and p5.Renderer3D.
- * @param {p5}    p5
- * @param {Object} fn  p5 prototype.
- */
 export function installPicking(p5, fn) {
 
   // ── tag ───────────────────────────────────────────────────────────────────
@@ -101,7 +73,9 @@ export function installPicking(p5, fn) {
     const r= id        & 0xff;
     const g=(id >>  8) & 0xff;
     const b=(id >> 16) & 0xff;
-    return '#'+r.toString(16).padStart(2,'0')+g.toString(16).padStart(2,'0')+b.toString(16).padStart(2,'0');
+    return '#' + r.toString(16).padStart(2,'0')
+               + g.toString(16).padStart(2,'0')
+               + b.toString(16).padStart(2,'0');
   };
 
   // ── colorPick ─────────────────────────────────────────────────────────────
@@ -126,16 +100,13 @@ export function installPicking(p5, fn) {
     const renderer = p._renderer;
     const states   = renderer.states;
 
-    // ── 1. Save projection and view BEFORE fbo.begin() ─────────────────────
-    //       fbo.begin() calls renderer.push() then overwrites both uPMatrix
-    //       and uViewMatrix with the FBO's own default-camera matrices.
+    // Save projection and view BEFORE fbo.begin() overwrites them.
     const mainProj = states.uPMatrix.mat4;
     for (let i = 0; i < 16; i++) _pickProjSave[i] = mainProj[i];
-
     const mainView = states.uViewMatrix.mat4;
     for (let i = 0; i < 16; i++) _pickViewSave[i] = mainView[i];
 
-    // ── 2. Lazy-allocate the 1×1 pick FBO ──────────────────────────────────
+    // Lazy-allocate the 1×1 pick FBO.
     p._tree          ||= {};
     p._tree._pickFbo ??= p.createFramebuffer({
       width: 1, height: 1,
@@ -144,27 +115,23 @@ export function installPicking(p5, fn) {
     });
     const fbo = p._tree._pickFbo;
 
-    // ── 3. Enter FBO ────────────────────────────────────────────────────────
     fbo.begin();
 
-    // ── 4. Restore view and install pick projection ─────────────────────────
+    // Restore view; install pick projection.
     const view = states.uViewMatrix.mat4;
     for (let i = 0; i < 16; i++) view[i] = _pickViewSave[i];
-
     const proj = states.uPMatrix.mat4;
     for (let i = 0; i < 16; i++) proj[i] = _pickProjSave[i];
 
-    // Viewport: [0, canvasH, canvasW, −canvasH] — negative h = p5/DOM y-down.
+    // Viewport [0, h, w, −h] — negative h encodes p5/DOM screen-y-down.
     _pickVp[0]=0; _pickVp[1]=p.height; _pickVp[2]=p.width; _pickVp[3]=-p.height;
     mat4Pick(proj, px, py, _pickVp);
 
-    // ── 5. Pick render state ────────────────────────────────────────────────
     p.background(0);
     p.noLights();
     p.noStroke();
     p.resetShader();
 
-    // ── 6. Draw, read, restore ──────────────────────────────────────────────
     let hit = 0;
     try {
       drawFn();
@@ -186,11 +153,10 @@ export function installPicking(p5, fn) {
 
   /**
    * Shorthand for `colorPick(mouseX, mouseY, drawFn)`.
-   *
    * @method mousePick
    * @for p5
-   * @param {function} drawFn  Scene draw callback.
-   * @returns {number}         Decoded id (0 = background / miss).
+   * @param {function} drawFn
+   * @returns {number}  Decoded id (0 = background / miss).
    */
   fn.mousePick = function (drawFn) {
     return this.colorPick(this.mouseX, this.mouseY, drawFn);
@@ -238,13 +204,13 @@ export function installPicking(p5, fn) {
     const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
 
     if (x == null || y == null) {
-      this.mapLocation(_sl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, mat4Proj, mat4View, mat4PV });
+      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, out: _sl, mat4Proj, mat4View, mat4PV });
       x = _sl[0]; y = _sl[1];
-      this.mapLocation(_wl, p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, mat4Eye });
+      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, out: _wl, mat4Eye });
       size = size / this.pixelRatio(_wl);
     }
     const r=size/2, dx=x-pointerX, dy=y-pointerY;
-    return shape===p5.Tree.CIRCLE
+    return shape === p5.Tree.CIRCLE
       ? Math.sqrt(dx*dx+dy*dy) < r
       : (Math.abs(dx) < r && Math.abs(dy) < r);
   };
@@ -253,7 +219,6 @@ export function installPicking(p5, fn) {
 
   /**
    * Shorthand for `pointerHit(mouseX, mouseY, opts)`.
-   *
    * @method mouseHit
    * @for p5
    * @param {{

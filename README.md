@@ -244,20 +244,20 @@ Accepted types for `out` and override params: `Float32Array` | `ArrayLike` | `p5
 **Simple queries** — read from live renderer state:
 
 ```js
-eMatrix(out)   // eye matrix (inverse view) — eye→world
-pMatrix(out)   // projection matrix
-vMatrix(out)   // view matrix — world→eye
-mMatrix(out)   // model matrix — local→world
+mat4Eye(out)    // eye matrix (inverse view) — eye→world
+mat4Proj(out)   // projection matrix
+mat4View(out)   // view matrix — world→eye
+mat4Model(out)  // model matrix — local→world
 ```
 
 **Composite queries** — `out` first, optional overrides in an opts object:
 
 ```js
-pvMatrix(out,  [{ pMatrix, vMatrix }])
-ipvMatrix(out, [{ pMatrix, vMatrix, pvMatrix }])
-mvMatrix(out,  [{ mMatrix, vMatrix }])
-pmvMatrix(out, [{ pMatrix, mMatrix, vMatrix }])
-nMatrix(out,   [{ mMatrix, vMatrix, mvMatrix }])  // 9-element out
+mat4PV(out,    [{ mat4Proj, mat4View }])
+mat4PVInv(out, [{ mat4Proj, mat4View, mat4PV }])
+mat4MV(out,    [{ mat4Model, mat4View }])
+mat4PMV(out,   [{ mat4Proj, mat4Model, mat4View }])
+mat3Normal(out,[{ mat4Model, mat4View, mat4MV }])  // 9-element out
 mat4Location(out, from, to)   // location transform: inv(to) · from
 mat3Direction(out, from, to)  // direction transform: to₃ · inv(from₃), 9-element out
 ```
@@ -265,10 +265,10 @@ mat3Direction(out, from, to)  // direction transform: to₃ · inv(from₃), 9-e
 **Raw matrix math** — forwarded from `@nakednous/tree`, same out-first contract:
 
 ```js
-mat4Mul(out, A, B)          // out = A · B  (column-major)
-mat4Invert(out, src)        // out = inv(src), null if singular
-mat4MulPoint(out, m, point) // out = m · [x,y,z,1] perspective-divided
-                            // point: Float32Array | ArrayLike | p5.Vector
+mat4Mul(out, A, B)           // out = A · B  (column-major)
+mat4Invert(out, src)         // out = inv(src), null if singular
+mat4MulPoint(out, m, point)  // out = m · [x,y,z,1] perspective-divided
+                             // point: Float32Array | ArrayLike | p5.Vector
 mat4MulDir(out, m, dx,dy,dz) // out = 3×3 block of m applied to direction
                              // no translation, no perspective divide
 ```
@@ -284,13 +284,13 @@ const wlm = new Float32Array(16)   // e.g. bias · lightPV for shadow mapping
 const pt  = new Float32Array(3)
 
 // draw — zero allocations
-eMatrix(e)
-pMatrix(pm)
-pvMatrix(pv)
+mat4Eye(e)
+mat4Proj(pm)
+mat4PV(pv)
 mat4Mul(wlm, biasMatrix, pv)
 mat4MulPoint(pt, wlm, lightPosition)
-viewFrustum({ eMatrix: e, pMatrix: pm })
-mouseHit({ pvMatrix: pv, eMatrix: e })
+viewFrustum({ mat4Eye: e, mat4Proj: pm })
+mouseHit({ mat4PV: pv, mat4Eye: e })
 ```
 
 ## Frustum queries
@@ -298,48 +298,57 @@ mouseHit({ pvMatrix: pv, eMatrix: e })
 Scalars read directly from the projection matrix — no buffer needed:
 
 ```js
-lPlane()   rPlane()   bPlane()   tPlane()   // side planes
-nPlane()   fPlane()                          // near / far
-fov()      hfov()                            // field of view (radians)
-isOrtho()                                    // true for orthographic
+projLeft()   projRight()   projBottom()   projTop()   // side planes
+projNear()   projFar()                                // near / far
+projFov()    projHfov()                               // field of view (radians)
+projIsOrtho()                                         // true for orthographic
 
-pixelRatio([worldPos], [{ pMatrix, vMatrix }])
+pixelRatio([worldPos], [{ mat4Proj, mat4View }])
 // world-units-per-pixel at worldPos (defaults to camera position)
 ```
 
 ## Coordinate space conversions
 
-```js
-mapLocation(out, point, [opts])   // map a point between spaces
-mapLocation(out, [opts])          // input defaults to p5.Tree.ORIGIN
-mapLocation(out)                  // defaults to ORIGIN, EYE → WORLD
+`out` is opt-in. When provided via `opts.out` the result is written into it (zero-alloc hot path). When omitted a fresh `p5.Vector` is allocated and returned. Return type matches `opts.out`.
 
-mapDirection(out, vector, [opts]) // map a direction between spaces
-mapDirection(out, [opts])         // input defaults to p5.Tree._k
-mapDirection(out)                 // defaults to _k, EYE → WORLD
+```js
+mapLocation([point], [opts])   // map a point between spaces
+mapLocation([opts])            // input defaults to p5.Tree.ORIGIN
+mapLocation()                  // ORIGIN, EYE → WORLD → p5.Vector
+
+mapDirection([dir], [opts])    // map a direction between spaces
+mapDirection([opts])           // input defaults to p5.Tree._k
+mapDirection()                 // _k, EYE → WORLD → p5.Vector
 ```
 
-`out` is a 3-element `Float32Array`, `ArrayLike`, or `p5.Vector`.
+`point` / `dir` accept `Float32Array` | `ArrayLike` | `p5.Vector`.
 
-| Option      | Default           | Description                             |
-|-------------|-------------------|-----------------------------------------|
-| `from`      | `p5.Tree.EYE`     | Source space (constant or matrix).      |
-| `to`        | `p5.Tree.WORLD`   | Target space (constant or matrix).      |
-| `eMatrix`   | current eye       | Pre-computed eye matrix.                |
-| `pMatrix`   | current proj      | Override projection matrix.             |
-| `vMatrix`   | current view      | Override view matrix.                   |
-| `pvMatrix`  | P·V               | Pre-computed PV — skips multiply.       |
-| `ipvMatrix` | inv(PV)           | Pre-computed IPV — skips inversion.     |
+| Option       | Default           | Description                                     |
+|--------------|-------------------|-------------------------------------------------|
+| `out`        | new p5.Vector()   | Destination buffer — omit to allocate p5.Vector.|
+| `from`       | `p5.Tree.EYE`     | Source space (constant or matrix).              |
+| `to`         | `p5.Tree.WORLD`   | Target space (constant or matrix).              |
+| `mat4Eye`    | current eye       | Pre-computed eye matrix.                        |
+| `mat4Proj`   | current proj      | Override projection matrix.                     |
+| `mat4View`   | current view      | Override view matrix.                           |
+| `mat4PV`     | P·V               | Pre-computed PV — skips multiply.               |
+| `mat4PVInv`  | inv(PV)           | Pre-computed IPV — skips inversion.             |
 
 `from` / `to` accept: `p5.Tree.WORLD`, `EYE`, `SCREEN`, `NDC`, `MODEL`, or a mat4 for a custom local frame.
 
 ```js
-const loc = new Float32Array(3)
-const dir = new Float32Array(3)
+// ergonomic — allocates p5.Vector
+const eye = mapLocation()                                      // camera world position
+const fwd = mapDirection()                                     // camera look direction
+const scr = mapLocation([100,0,0], { from: p5.Tree.WORLD,
+                                     to:   p5.Tree.SCREEN })
 
-mapLocation(loc)                                                    // camera world position
-mapDirection(dir)                                                   // camera view direction
-mapLocation(loc, [100,0,0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN })
+// hot path — zero allocation
+const loc = new Float32Array(3)
+const pv  = new Float32Array(16)
+mat4PV(pv)
+mapLocation([100,0,0], { from: p5.Tree.WORLD, to: p5.Tree.SCREEN,
+                         out: loc, mat4PV: pv })
 ```
 
 Constants: `p5.Tree.ORIGIN`, `p5.Tree.i`, `p5.Tree.j`, `p5.Tree.k`, `p5.Tree._i`, `p5.Tree._j`, `p5.Tree._k`.
@@ -566,15 +575,15 @@ pop()
 
 Both accept the same options object:
 
-| Option     | Default          | Description                                    |
-|------------|------------------|------------------------------------------------|
-| `mMatrix`  | current model    | Override model matrix.                         |
-| `size`     | `50`             | Hit radius (world units, auto-scaled by depth).|
-| `shape`    | `p5.Tree.CIRCLE` | `CIRCLE` or `SQUARE`.                          |
-| `eMatrix`  | current eye      | Pre-computed eye matrix.                       |
-| `pMatrix`  | current proj     | Override projection.                           |
-| `vMatrix`  | current view     | Override view.                                 |
-| `pvMatrix` | P·V              | Pre-computed PV.                               |
+| Option      | Default          | Description                                    |
+|-------------|------------------|------------------------------------------------|
+| `mat4Model` | current model    | Override model matrix.                         |
+| `size`      | `50`             | Hit radius (world units, auto-scaled by depth).|
+| `shape`     | `p5.Tree.CIRCLE` | `CIRCLE` or `SQUARE`.                          |
+| `mat4Eye`   | current eye      | Pre-computed eye matrix.                       |
+| `mat4Proj`  | current proj     | Override projection.                           |
+| `mat4View`  | current view     | Override view.                                 |
+| `mat4PV`    | P·V              | Pre-computed PV.                               |
 
 ---
 
@@ -630,11 +639,11 @@ p5.Tree.INVISIBLE
 Scene-space diagnostic helpers — drawn to understand the scene, not to build it.
 
 ```js
-axes([{ size, bits, mMatrix, eMatrix, pMatrix, vMatrix, pvMatrix }])
+axes([{ size, bits, mat4Model, mat4Eye, mat4Proj, mat4View, mat4PV }])
 grid([{ size, subdivisions }])
 bullsEye([{ size, shape }])
 cross([{ size }])
-viewFrustum({ pg, eMatrix, pMatrix, vMatrix, bits, viewer })
+viewFrustum({ pg, mat4Eye, mat4Proj, mat4View, bits, viewer })
 ```
 
 `axes` bits: `p5.Tree.X`, `p5.Tree._X`, `p5.Tree.Y`, `p5.Tree._Y`, `p5.Tree.Z`, `p5.Tree._Z`, `p5.Tree.LABELS`.

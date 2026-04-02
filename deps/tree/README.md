@@ -219,24 +219,48 @@ One-keyframe behaviour: `play()` with exactly one keyframe snaps `eval()` to tha
 
 **Spaces:** `WORLD`, `EYE`, `SCREEN`, `NDC`, `MODEL`, `MATRIX` (custom frame).
 
-**NDC convention:** `WEBGL = -1` (z ∈ [−1,1]), `WEBGPU = 0` (z ∈ [0,1]).
+#### Conventions
+
+Three independent conventions are controlled by caller-supplied parameters:
+
+**NDC Z** — passed as `ndcZMin`:
+```
+WEBGL  = −1   z ∈ [−1,  1]
+WEBGPU =  0   z ∈ [ 0,  1]
+```
+
+**Viewport** — `vp = [x, y, w, h]` with signed `h`:
+```
+h < 0  screen y-down (DOM / p5 mouseX·mouseY)  →  [0, canvasH, canvasW, −canvasH]
+h > 0  screen y-up   (OpenGL gl_FragCoord)     →  [0, 0, canvasW, canvasH]
+```
+The sign of `h` is the only thing that differs — no branching, no flags.
+
+**NDC Y** — controlled by `ndcYSign` in the projection constructors (`form.js`):
+```
++1  NDC y-up   (default) — OpenGL / WebGL / WebGPU / Three.js / p5v2
+−1  NDC y-down           — native Vulkan clip space
+```
+
+#### Usage
 
 ```js
 import { mapLocation, mapDirection, WORLD, SCREEN, WEBGL } from '@nakednous/tree'
 
 const out = new Float32Array(3)
 const m = {
-  pMatrix:   /* Float32Array(16) — projection */,
-  vMatrix:   /* Float32Array(16) — view (world→eye) */,
-  pvMatrix:  /* pMatrix × vMatrix — optional, computed if absent */,
-  ipvMatrix: /* inv(pvMatrix)    — optional, computed if absent */,
+  mat4Proj:   /* Float32Array(16) — projection (eye → clip) */,
+  mat4View:   /* Float32Array(16) — view (world → eye) */,
+  mat4PV?:    /* mat4Proj × mat4View — optional, computed if absent */,
+  mat4PVInv?: /* inv(mat4PV)         — optional, computed if absent */,
 }
-const vp = [0, height, width, -height]
+const vp = [0, height, width, -height]  // signed h = screen y-down
 
 mapLocation(out, worldX, worldY, worldZ, WORLD, SCREEN, m, vp, WEBGL)
 ```
 
-The matrices bag `m` is assembled by the host (p5.tree reads live renderer state into it). All pairs are supported: WORLD↔EYE, WORLD↔SCREEN, WORLD↔NDC, EYE↔SCREEN, SCREEN↔NDC, WORLD↔MATRIX, and their reverses.
+The matrices bag `m` is assembled by the host. All pairs are supported:
+WORLD↔EYE, WORLD↔SCREEN, WORLD↔NDC, EYE↔SCREEN, SCREEN↔NDC, WORLD↔MATRIX, and their reverses.
 
 ---
 
@@ -289,14 +313,14 @@ mat4PV  mat4MV
 **Matrix construction from specs** (`form.js`):
 ```
 mat4FromBasis        — rigid frame from orthonormal basis + translation
-mat4View           — view matrix (world→eye) from lookat params
-mat4Eye        — eye matrix (eye→world) from lookat params
+mat4View             — view matrix (world→eye) from lookat params
+mat4Eye              — eye matrix (eye→world) from lookat params
 mat4FromTRS          — column-major mat4 from flat TRS scalars
 mat4FromTranslation  — translation-only mat4
 mat4FromScale        — scale-only mat4
-mat4Perspective      — perspective projection
-mat4Ortho            — orthographic projection
-mat4Frustum          — off-centre perspective projection
+mat4Perspective      — perspective projection  (ndcZMin, ndcYSign)
+mat4Ortho            — orthographic projection (ndcZMin, ndcYSign)
+mat4Frustum          — off-centre perspective  (ndcZMin, ndcYSign)
 mat4Bias             — NDC→texture/UV remap [0,1] for shadow mapping
 mat4Reflect          — reflection across a plane
 mat4ToTranslation    — extract translation (col 3)
@@ -312,7 +336,7 @@ projLeft  projRight  projTop  projBottom
 
 **Pixel ratio:** `pixelRatio(proj, vpH, eyeZ, ndcZMin)` — world-units-per-pixel at a given depth, handles both perspective and orthographic.
 
-**Pick matrix:** `mat4Pick(proj, px, py, W, H)` — mutates a projection mat4 in-place so that pixel `(px, py)` maps to the full NDC square. Used by the p5.tree GPU color-ID picking implementation. Convention-independent (perspective and orthographic).
+**Pick matrix:** `mat4Pick(proj, px, py, vp)` — mutates a projection matrix in-place so that the pixel at `(px, py)` maps to the full NDC square, making a 1×1 FBO render contain exactly that pixel. Takes the same signed viewport `vp` as `mapLocation` — the y-convention is preserved automatically.
 
 ---
 
@@ -337,7 +361,7 @@ ORIGIN, i, j, k, _i, _j, _k
 
 ## Performance contract
 
-All hot-path functions follow an **out-first, zero-allocation** contract:
+All functions in this package follow an **out-first, zero-allocation** contract:
 
 - `out` is the first parameter — the caller owns the buffer
 - the function writes into `out` and returns it
@@ -346,15 +370,15 @@ All hot-path functions follow an **out-first, zero-allocation** contract:
 
 ```js
 // allocate once
-const out      = new Float32Array(3)
-const pvMatrix = new Float32Array(16)
-const ipvMatrix= new Float32Array(16)
+const out       = new Float32Array(3)
+const mat4PV    = new Float32Array(16)
+const mat4PVInv = new Float32Array(16)
 
 // per frame — zero allocation
-mat4Mul(pvMatrix, proj, view)
-mat4Invert(ipvMatrix, pvMatrix)
+mat4Mul(mat4PV, proj, view)
+mat4Invert(mat4PVInv, mat4PV)
 mapLocation(out, px, py, pz, WORLD, SCREEN,
-  { pMatrix: proj, vMatrix: view, pvMatrix, ipvMatrix }, vp, WEBGL)
+  { mat4Proj: proj, mat4View: view, mat4PV, mat4PVInv }, vp, WEBGL)
 ```
 
 ---
