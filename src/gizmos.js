@@ -254,11 +254,8 @@ export function installGizmos(p5, fn) {
     const apex    = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
     const n = -projNear(pRaw, ndcZ), f = -projFar(pRaw);
     const l =  projLeft(pRaw, ndcZ),  r = projRight(pRaw, ndcZ);
-    // projTop/projBottom are Y-up (OpenGL eye space). Negate y to draw in
-    // p5.js main-canvas / createGraphics space, which is Y-down: y > 0 is lower
-    // on screen than y < 0.
-    const t = -projTop(pRaw, ndcZ);
-    const b = -projBottom(pRaw, ndcZ);
+    const t = projTop(pRaw, ndcZ);   // geometric top, positive → draws at screen-top via 3D pipeline
+    const b = projBottom(pRaw, ndcZ);
     const ratio = isOrtho ? 1 : f/n;
     const _l=ratio*l, _r=ratio*r, _b=ratio*b, _t=ratio*t;
 

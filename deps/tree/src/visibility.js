@@ -24,7 +24,9 @@ export const PLANE_LEFT = 0, PLANE_RIGHT = 1, PLANE_NEAR = 2,
  * @param {number} upX,upY,upZ    Camera up.
  * @param {number} rtX,rtY,rtZ    Camera right.
  * @param {boolean} ortho         true if orthographic.
- * @param {number} near,far,left,right,top,bottom  Projection plane values.
+ * @param {number} near,far,left,right,top,bottom
+ *   Projection extents in camera space.
+ *   Sign contract: top > 0, bottom < 0, right > 0, left < 0 for standard y-up camera.
  */
 export function frustumPlanes(
   out,
@@ -55,11 +57,11 @@ export function frustumPlanes(
 
     // Top: normal = up
     out[16] = upX; out[17] = upY; out[18] = upZ;
-    out[19] = posUp - bottom; // note: p5 top/bottom are swapped in sign convention
+    out[19] = posUp + top;
 
     // Bottom: normal = -up
     out[20] = -upX; out[21] = -upY; out[22] = -upZ;
-    out[23] = -posUp + top;
+    out[23] = -posUp - bottom;
   } else {
     // Left
     const hfovl = Math.atan2(left, near);

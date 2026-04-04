@@ -179,20 +179,24 @@ export function projLeft  (p, ndcZMin) { return p[15]===1 ? -(1+p[12])/p[0]  : p
 export function projRight (p, ndcZMin) { return p[15]===1 ?  (1-p[12])/p[0]  : projNear(p,ndcZMin)*(1+p[8])/p[0];  }
 
 /**
- * Top extent of the near plane in camera space (y_max).
- * Positive for a standard y-up camera.
- * @param {ArrayLike<number>} p       Projection mat4.
- * @param {number}            ndcZMin WEBGL (−1) or WEBGPU (0).
+ * Top extent of the near plane in camera space (y_max, positive for standard y-up camera).
+ * Sign-normalized: returns the larger of the two y boundaries regardless of whether
+ * the projection was built with ndcYSign = +1 or −1.
  */
-export function projTop   (p, ndcZMin) { return p[15]===1 ?  (1+p[13])/p[5]  : projNear(p,ndcZMin)*(1+p[9])/p[5];  }
+export function projTop(p, ndcZMin) {
+  return p[15]===1
+    ? ( Math.sign(p[5]) - p[13]) / p[5]   // ortho
+    : projNear(p,ndcZMin)*(1+p[9])/p[5];  // perspective (p[5]>0 in practice)
+}
 
 /**
- * Bottom extent of the near plane in camera space (y_min).
- * Negative for a standard y-up camera.
- * @param {ArrayLike<number>} p       Projection mat4.
- * @param {number}            ndcZMin WEBGL (−1) or WEBGPU (0).
+ * Bottom extent of the near plane in camera space (y_min, negative for standard y-up camera).
  */
-export function projBottom(p, ndcZMin) { return p[15]===1 ?  (p[13]-1)/p[5]  : projNear(p,ndcZMin)*(p[9]-1)/p[5];  }
+export function projBottom(p, ndcZMin) {
+  return p[15]===1
+    ? (-Math.sign(p[5]) - p[13]) / p[5]   // ortho
+    : projNear(p,ndcZMin)*(p[9]-1)/p[5];  // perspective
+}
 
 /** Vertical field of view in radians (perspective only). */
 export function projFov (p) { return Math.abs(2*Math.atan(1/p[5])); }
