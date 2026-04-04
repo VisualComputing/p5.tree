@@ -15,6 +15,19 @@
  *   m._c1.set([px - hw, py - hh, pz - hd])
  *   m._c2.set([px + hw, py + hh, pz + hd])
  *   m.visibility = p.visibility({ corner1: m._c1, corner2: m._c2 })
+ *
+ * ── Sign contract ─────────────────────────────────────────────────────────
+ *
+ * Frustum extents are near-plane coordinates in camera space (y-up, z into
+ * screen):
+ *
+ *   top    > 0   bottom < 0   (y axis)
+ *   right  > 0   left   < 0   (x axis)
+ *   near, far > 0              (positive distances along −z)
+ *
+ * All of frustumPlanes, viewFrustum, projTop/projBottom, projLeft/projRight,
+ * mat4Frustum, mat4Ortho, and p5 v2's frustum()/ortho() share this contract.
+ * p5 v2 call order: frustum(left, right, bottom, top, near, far).
  */
 
 'use strict';
@@ -234,11 +247,11 @@ export function installVisibility(p5, fn) {
    *
    * @method bounds
    * @for p5
-   * @param {{ eMatrix?: Float32Array | ArrayLike | p5.Matrix }} [opts]
+   * @param {{ mat4Eye?: Float32Array | ArrayLike | p5.Matrix }} [opts]
    * @returns {object}
    */
-  p5.Renderer3D.prototype.bounds = function ({ eMatrix } = {}) {
-    const eRaw = _rawMat4(eMatrix) ?? (mat4Invert(_eye, _viewMat4(this)), _eye);
+  p5.Renderer3D.prototype.bounds = function ({ mat4Eye } = {}) {
+    const eRaw = _rawMat4(mat4Eye) ?? (mat4Invert(_eye, _viewMat4(this)), _eye);
     computePlanes(this, eRaw);
     const keys   = [p5.Tree.LEFT, p5.Tree.RIGHT, p5.Tree.NEAR, p5.Tree.FAR, p5.Tree.TOP, p5.Tree.BOTTOM];
     const result = {};

@@ -177,8 +177,22 @@ export function projFar(p) {
 
 export function projLeft  (p, ndcZMin) { return p[15]===1 ? -(1+p[12])/p[0]  : projNear(p,ndcZMin)*(p[8]-1)/p[0];  }
 export function projRight (p, ndcZMin) { return p[15]===1 ?  (1-p[12])/p[0]  : projNear(p,ndcZMin)*(1+p[8])/p[0];  }
-export function projTop   (p, ndcZMin) { return p[15]===1 ?  (p[13]-1)/p[5]  : projNear(p,ndcZMin)*(p[9]-1)/p[5];  }
-export function projBottom(p, ndcZMin) { return p[15]===1 ?  (1+p[13])/p[5]  : projNear(p,ndcZMin)*(1+p[9])/p[5];  }
+
+/**
+ * Top extent of the near plane in camera space (y_max).
+ * Positive for a standard y-up camera.
+ * @param {ArrayLike<number>} p       Projection mat4.
+ * @param {number}            ndcZMin WEBGL (−1) or WEBGPU (0).
+ */
+export function projTop   (p, ndcZMin) { return p[15]===1 ?  (1+p[13])/p[5]  : projNear(p,ndcZMin)*(1+p[9])/p[5];  }
+
+/**
+ * Bottom extent of the near plane in camera space (y_min).
+ * Negative for a standard y-up camera.
+ * @param {ArrayLike<number>} p       Projection mat4.
+ * @param {number}            ndcZMin WEBGL (−1) or WEBGPU (0).
+ */
+export function projBottom(p, ndcZMin) { return p[15]===1 ?  (p[13]-1)/p[5]  : projNear(p,ndcZMin)*(p[9]-1)/p[5];  }
 
 /** Vertical field of view in radians (perspective only). */
 export function projFov (p) { return Math.abs(2*Math.atan(1/p[5])); }
