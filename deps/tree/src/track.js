@@ -218,11 +218,11 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
  *
  *   [x,y,z,w]                        — raw quaternion array
  *   { axis:[x,y,z], angle }          — axis-angle
- *   { dir:[x,y,z], up?:[x,y,z] }    — forward direction (−Z) with optional up
- *   { eMatrix: mat4 }                — rotation block of an eye matrix
+ *   { dir:[x,y,z], up?:[x,y,z] }     — forward direction (−Z) with optional up
+ *   { mat4Eye: mat4 }                — rotation block of an eye matrix
  *   { mat3: mat3 }                   — column-major 3×3 rotation matrix
  *   { euler:[rx,ry,rz], order? }     — intrinsic Euler (default order: YXZ)
- *   { from:[x,y,z], to:[x,y,z] }    — shortest-arc rotation
+ *   { from:[x,y,z], to:[x,y,z] }     — shortest-arc rotation
  *
  * @param {*} v
  * @returns {number[]|null}  [x,y,z,w] or null if unparseable.
@@ -249,10 +249,10 @@ function _parseQuat(v) {
     return qFromLookDir([0,0,0,1], d, u);
   }
 
-  // { eMatrix }
-  if (v.eMatrix != null) {
-    const m = (ArrayBuffer.isView(v.eMatrix) || Array.isArray(v.eMatrix))
-      ? v.eMatrix : (v.eMatrix.mat4 ?? null);
+  // { mat4Eye }
+  if (v.mat4Eye != null) {
+    const m = (ArrayBuffer.isView(v.mat4Eye) || Array.isArray(v.mat4Eye))
+      ? v.mat4Eye : (v.mat4Eye.mat4 ?? null);
     if (!m || m.length < 16) return null;
     return qFromRotMat3x3([0,0,0,1], m[0],m[4],m[8], m[1],m[5],m[9], m[2],m[6],m[10]);
   }
@@ -310,7 +310,7 @@ function _parseQuat(v) {
  *
  * Accepted forms:
  *
- *   { mMatrix }
+ *   { mat4Model }
  *     Decompose a column-major mat4 into TRS via mat4ToTransform.
  *     Float32Array(16), plain Array, or { mat4 } wrapper.
  *
@@ -326,10 +326,10 @@ function _parseQuat(v) {
 function _parseSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
 
-  // { mMatrix } — full TRS decomposition from model matrix
-  if (spec.mMatrix != null) {
-    const m = (ArrayBuffer.isView(spec.mMatrix) || Array.isArray(spec.mMatrix))
-      ? spec.mMatrix : (spec.mMatrix.mat4 ?? null);
+  // { mat4Model } — full TRS decomposition from model matrix
+  if (spec.mat4Model != null) {
+    const m = (ArrayBuffer.isView(spec.mat4Model) || Array.isArray(spec.mat4Model))
+      ? spec.mat4Model : (spec.mat4Model.mat4 ?? null);
     if (!m || m.length < 16) return null;
     const kf = mat4ToTransform({ pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] }, m);
     kf.tanIn = null; kf.tanOut = null;
@@ -366,7 +366,7 @@ function _sameTransform(a, b) {
  *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
  *   Removed forms (task 2):
- *     { vMatrix } and { eMatrix } — use PoseTrack.add({ mMatrix: eMatrix }) for
+ *     { mat4View } and { mat4Eye } — use PoseTrack.add({ mat4Model: mat4Eye }) for
  *     full-fidelity capture including roll, or cam.capturePose() for lookat-style.
  *
  * @param {Object} spec
@@ -865,7 +865,7 @@ export class PoseTrack extends Track {
  *   { eye, center?, up?, fov?, halfHeight?,
  *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
  *
- * To capture a matrix-based pose, use PoseTrack.add({ mMatrix: eMatrix })
+ * To capture a matrix-based pose, use PoseTrack.add({ mat4Model: mat4Eye })
  * for full-fidelity including roll, or cam.capturePose() for lookat-style.
  */
 export class CameraTrack extends Track {

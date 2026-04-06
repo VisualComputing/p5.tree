@@ -82,10 +82,10 @@ Playback features: signed `rate` (negative reverses), `loop`, `bounce`, `seek(t)
 `add()` accepts flexible specs. Top-level forms:
 
 ```js
-track.add({ pos, rot, scl })                      // explicit TRS — rot accepts any form below
-track.add({ pos, rot, scl, tanIn, tanOut })        // with Hermite tangents (vec3, optional)
-track.add({ mMatrix: mat4 })                       // decompose a column-major model matrix into TRS
-track.add([ spec, spec, ... ])                     // bulk
+track.add({ pos, rot, scl })                 // explicit TRS — rot accepts any form below
+track.add({ pos, rot, scl, tanIn, tanOut })  // with Hermite tangents (vec3, optional)
+track.add({ mMatrix: mat4 })                 // decompose a column-major model matrix into TRS
+track.add([ spec, spec, ... ])               // bulk
 ```
 
 `tanIn` is the incoming position tangent at this keyframe; `tanOut` is the outgoing tangent. When only one is given, the other mirrors it. When neither is given, centripetal Catmull-Rom tangents are auto-computed from neighboring keyframes.
@@ -100,16 +100,16 @@ track.add({ pos:[300,0,0] })                                    // auto tangents
 `rot` sub-forms — all normalised internally:
 
 ```js
-rot: [x,y,z,w]                                   // raw quaternion
-rot: { axis:[x,y,z], angle }                      // axis-angle
-rot: { dir:[x,y,z], up?:[x,y,z] }                // look direction (−Z forward)
-rot: { euler:[rx,ry,rz], order?:'YXZ' }           // intrinsic Euler angles (radians)
-                                                   // orders: YXZ (default), XYZ, ZYX,
-                                                   //         ZXY, XZY, YZX
-                                                   // extrinsic ABC = intrinsic CBA
-rot: { from:[x,y,z], to:[x,y,z] }                // shortest-arc between directions
-rot: { mat3: Float32Array|Array }                 // column-major 3×3 rotation matrix
-rot: { eMatrix: mat4 }                            // rotation block of an eye matrix
+rot: [x,y,z,w]                           // raw quaternion
+rot: { axis:[x,y,z], angle }             // axis-angle
+rot: { dir:[x,y,z], up?:[x,y,z] }        // look direction (−Z forward)
+rot: { euler:[rx,ry,rz], order?:'YXZ' }  // intrinsic Euler angles (radians)
+                                         // orders: YXZ (default), XYZ, ZYX,
+                                         //         ZXY, XZY, YZX
+                                         // extrinsic ABC = intrinsic CBA
+rot: { from:[x,y,z], to:[x,y,z] }        // shortest-arc between directions
+rot: { mat3: Float32Array|Array }        // column-major 3×3 rotation matrix
+rot: { eMatrix: mat4 }                   // rotation block of an eye matrix
 ```
 
 ---
@@ -283,6 +283,8 @@ pointVisibility(planes, px, py, pz)
 ```
 
 Three-state result: `VISIBLE` (fully inside), `SEMIVISIBLE` (intersecting), `INVISIBLE` (fully outside).
+
+**Sign contract:** `top > 0`, `bottom < 0`, `right > 0`, `left < 0` for standard y-up camera.
 
 ---
 

@@ -73,10 +73,10 @@ function draw() {
 `add()` accepts flexible specs. Top-level forms:
 
 ```js
-track.add({ pos, rot, scl })                      // explicit TRS — rot accepts any form below
-track.add({ pos, rot, scl, tanIn, tanOut })        // with Hermite tangents (vec3, optional)
-track.add({ mMatrix: mat4 })                       // decompose model matrix into TRS
-track.add([ spec, spec, ... ])                     // bulk
+track.add({ pos, rot, scl })                 // explicit TRS — rot accepts any form below
+track.add({ pos, rot, scl, tanIn, tanOut })  // with Hermite tangents (vec3, optional)
+track.add({ mat4Model: mat4 })               // decompose a column-major model matrix into TRS
+track.add([ spec, spec, ... ])               // bulk
 ```
 
 `tanIn` is the incoming position tangent at this keyframe; `tanOut` is the outgoing tangent. When only one is given, the other mirrors it. When neither is given, centripetal Catmull-Rom tangents are auto-computed — identical to the default smooth behavior.
@@ -98,7 +98,7 @@ track.add({ pos:[0,0,0], rot: { euler:[rx,ry,rz] } })               // intrinsic
 track.add({ pos:[0,0,0], rot: { euler:[rx,ry,rz], order:'XYZ' } })  // explicit order
 track.add({ pos:[0,0,0], rot: { from:[0,0,1], to:[1,0,0] } })       // shortest arc
 track.add({ pos:[0,0,0], rot: { mat3: rotationMatrix } })           // 3×3 col-major
-track.add({ pos:[0,0,0], rot: { eMatrix: eyeMat } })                // from eye matrix
+track.add({ pos:[0,0,0], rot: { mat4Eye: eyeMat } })                // from eye matrix
 ```
 
 Supported Euler orders: `YXZ` (default, matches p5 Y-up), `XYZ`, `ZYX`, `ZXY`, `XZY`, `YZX`. All are intrinsic — extrinsic `ABC` equals intrinsic `CBA` with the same angles.
@@ -126,7 +126,7 @@ let track
 
 function setup() {
   createCanvas(600, 400, WEBGL)
-  track = createCameraTrack()   // binds to the default camera
+  track = createCameraTrack()  // binds to the default camera
 
   track.add({ eye:[0,0,500], center:[0,0,0] })
   track.add({ eye:[300,-150,0], center:[0,0,0] })
@@ -136,7 +136,7 @@ function setup() {
 
 function draw() {
   background(20)
-  orbitControl()   // works freely when track is stopped
+  orbitControl()  // works freely when track is stopped
   axes(); grid()
 }
 ```
@@ -154,7 +154,7 @@ track.add()                    // shortcut — captures track's bound camera
 track.add([ spec, spec, ... ]) // bulk
 ```
 
-For matrix-based capture use `track.add({ mMatrix: eMatrix })` on a `PoseTrack` for full-fidelity TRS including roll, or `cam.capturePose()` for lookat-style capture.
+For matrix-based capture use `track.add({ mat4Model: mat4Eye })` on a `PoseTrack` for full-fidelity TRS including roll, or `cam.capturePose()` for lookat-style capture.
 
 `fov` (radians) animates perspective field of view.
 `halfHeight` (world units) animates the vertical extent of an ortho frustum —
@@ -179,14 +179,14 @@ All tracks share the same transport API:
 
 ```js
 track.play({ duration, loop, bounce, rate, onPlay, onEnd, onStop })
-track.stop([rewind])   // rewind=true seeks to origin
-track.reset()          // clear all keyframes and stop
-track.seek(t)          // t ∈ [0, 1]
-track.time()           // → number ∈ [0, 1]
-track.info()           // → { keyframes, segments, playing, loop, ... }
-track.add(spec)        // append keyframe(s)
-track.set(i, spec)     // replace keyframe at index
-track.remove(i)        // remove keyframe at index
+track.stop([rewind])  // rewind=true seeks to origin
+track.reset()         // clear all keyframes and stop
+track.seek(t)         // t ∈ [0, 1]
+track.time()          // → number ∈ [0, 1]
+track.info()          // → { keyframes, segments, playing, loop, ... }
+track.add(spec)       // append keyframe(s)
+track.set(i, spec)    // replace keyframe at index
+track.remove(i)       // remove keyframe at index
 ```
 
 | Option     | Default | Description                                   |
@@ -223,9 +223,9 @@ reset() → onStop → _onDeactivate
 ## Camera helpers
 
 ```js
-getCamera()              // current p5.Camera (curCamera)
-cam.capturePose([out])   // → { eye, center, up, fov, halfHeight }
-cam.applyPose(pose)      // write pose back to camera
+getCamera()             // current p5.Camera (curCamera)
+cam.capturePose([out])  // → { eye, center, up, fov, halfHeight }
+cam.applyPose(pose)     // write pose back to camera
 ```
 
 ---
@@ -265,12 +265,12 @@ mat3Direction(out, from, to)  // direction transform: to₃ · inv(from₃), 9-e
 **Raw matrix math** — forwarded from `@nakednous/tree`, same out-first contract:
 
 ```js
-mat4Mul(out, A, B)           // out = A · B  (column-major)
-mat4Invert(out, src)         // out = inv(src), null if singular
-mat4MulPoint(out, m, point)  // out = m · [x,y,z,1] perspective-divided
-                             // point: Float32Array | ArrayLike | p5.Vector
-mat4MulDir(out, m, dx,dy,dz) // out = 3×3 block of m applied to direction
-                             // no translation, no perspective divide
+mat4Mul(out, A, B)            // out = A · B  (column-major)
+mat4Invert(out, src)          // out = inv(src), null if singular
+mat4MulPoint(out, m, point)   // out = m · [x,y,z,1] perspective-divided
+                              // point: Float32Array | ArrayLike | p5.Vector
+mat4MulDir(out, m, dx,dy,dz)  // out = 3×3 block of m applied to direction
+                              // no translation, no perspective divide
 ```
 
 **Zero-allocation draw-loop pattern:**
@@ -280,7 +280,7 @@ mat4MulDir(out, m, dx,dy,dz) // out = 3×3 block of m applied to direction
 const e   = new Float32Array(16)
 const pm  = new Float32Array(16)
 const pv  = new Float32Array(16)
-const wlm = new Float32Array(16)   // e.g. bias · lightPV for shadow mapping
+const wlm = new Float32Array(16)  // e.g. bias · lightPV for shadow mapping
 const pt  = new Float32Array(3)
 
 // draw — zero allocations
@@ -312,13 +312,13 @@ pixelRatio([worldPos], [{ mat4Proj, mat4View }])
 `out` is opt-in. When provided via `opts.out` the result is written into it (zero-alloc hot path). When omitted a fresh `p5.Vector` is allocated and returned. Return type matches `opts.out`.
 
 ```js
-mapLocation([point], [opts])   // map a point between spaces
-mapLocation([opts])            // input defaults to p5.Tree.ORIGIN
-mapLocation()                  // ORIGIN, EYE → WORLD → p5.Vector
+mapLocation([point], [opts])  // map a point between spaces
+mapLocation([opts])           // input defaults to p5.Tree.ORIGIN
+mapLocation()                 // ORIGIN, EYE → WORLD → p5.Vector
 
-mapDirection([dir], [opts])    // map a direction between spaces
-mapDirection([opts])           // input defaults to p5.Tree._k
-mapDirection()                 // _k, EYE → WORLD → p5.Vector
+mapDirection([dir], [opts])   // map a direction between spaces
+mapDirection([opts])          // input defaults to p5.Tree._k
+mapDirection()                // _k, EYE → WORLD → p5.Vector
 ```
 
 `point` / `dir` accept `Float32Array` | `ArrayLike` | `p5.Vector`.
@@ -392,8 +392,8 @@ const panel = createPanel({
 panel.tick()
 ```
 
-| Option     | Default         | Description                                              |
-|------------|-----------------|----------------------------------------------------------|
+| Option     | Default         | Description                                             |
+|------------|-----------------|---------------------------------------------------------|
 | `target`   | —               | `fn(name, value)` or object with `.set(name, value)`.   |
 | `x` / `y`  | `0`             | Position (px).                                          |
 | `width`    | `120`           | Slider width (px).                                      |
@@ -453,12 +453,12 @@ createPanel(track, {
 **Returned handle** (both panel types):
 
 ```js
-panel.el            // HTMLElement container
-panel.visible       // get/set boolean
-panel.collapsed     // get/set boolean (requires collapsible + title)
-panel.parent(el)    // re-mount into a different HTMLElement
-panel.tick()        // called automatically — no need to call manually
-panel.dispose()     // remove from DOM
+panel.el          // HTMLElement container
+panel.visible     // get/set boolean
+panel.collapsed   // get/set boolean (requires collapsible + title)
+panel.parent(el)  // re-mount into a different HTMLElement
+panel.tick()      // called automatically — no need to call manually
+panel.dispose()   // remove from DOM
 ```
 
 ## Collapsible panels
@@ -489,8 +489,8 @@ A lightweight multi-pass pipeline for `p5.Framebuffer`, `p5.strands`, and standa
 pipe(source, passes, options)
 ```
 
-| Parameter | Description                                           |
-|-----------|-------------------------------------------------------|
+| Parameter | Description                                          |
+|-----------|------------------------------------------------------|
 | `source`  | `p5.Framebuffer`, texture, image, or graphics.       |
 | `passes`  | Array of filters, or a single filter instance.       |
 | `options` | See table below.                                     |
@@ -503,7 +503,7 @@ pipe(source, passes, options)
 | `ping` / `pong`  | —               | User-provided framebuffers (advanced override).     |
 | `clear`          | `true`          | Clear each pass target before drawing.              |
 | `clearDisplay`   | `true`          | Clear main canvas before final blit.                |
-| `clearFn`        | `background(0)` | Custom clear strategy for passes.                  |
+| `clearFn`        | `background(0)` | Custom clear strategy for passes.                   |
 | `clearDisplayFn` | `clearFn`       | Custom clear strategy for display stage.            |
 | `draw`           | full blit       | Custom draw strategy for placing texture on target. |
 
@@ -590,7 +590,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.34'
+p5.Tree.VERSION   // '0.0.35'
 ```
 
 ## Shader helpers
@@ -619,9 +619,9 @@ shader.setUniform('texOffset', texelSize(myFbo))
 Frustum culling against the current camera:
 
 ```js
-visibility({ corner1, corner2 })   // axis-aligned box
-visibility({ center, radius })     // sphere
-visibility({ center })             // point
+visibility({ corner1, corner2 })  // axis-aligned box
+visibility({ center, radius })    // sphere
+visibility({ center })            // point
 ```
 
 Returns:
@@ -665,9 +665,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.34/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.34/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.34/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.34/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.34/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.34/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.35/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.35/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.35/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.35/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.35/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.35/dist/p5.tree.esm.js)
 
 ---
 
