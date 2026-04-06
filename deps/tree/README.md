@@ -84,7 +84,7 @@ Playback features: signed `rate` (negative reverses), `loop`, `bounce`, `seek(t)
 ```js
 track.add({ pos, rot, scl })                 // explicit TRS — rot accepts any form below
 track.add({ pos, rot, scl, tanIn, tanOut })  // with Hermite tangents (vec3, optional)
-track.add({ mMatrix: mat4 })                 // decompose a column-major model matrix into TRS
+track.add({ mat4Model: mat4 })               // decompose a column-major model matrix into TRS
 track.add([ spec, spec, ... ])               // bulk
 ```
 
@@ -109,7 +109,7 @@ rot: { euler:[rx,ry,rz], order?:'YXZ' }  // intrinsic Euler angles (radians)
                                          // extrinsic ABC = intrinsic CBA
 rot: { from:[x,y,z], to:[x,y,z] }        // shortest-arc between directions
 rot: { mat3: Float32Array|Array }        // column-major 3×3 rotation matrix
-rot: { eMatrix: mat4 }                   // rotation block of an eye matrix
+rot: { mat4Eye: mat4 }                   // rotation block of an eye matrix
 ```
 
 ---
@@ -160,7 +160,7 @@ track.add({ eye, center?, up?, fov?, halfHeight?,
 track.add([ spec, spec, ... ])     // bulk
 ```
 
-For matrix-based capture use `PoseTrack.add({ mMatrix: eMatrix })` for full-fidelity TRS including roll, or `cam.capturePose()` (p5.tree bridge) for lookat-style capture.
+For matrix-based capture use `track.add({ mat4Model: mat4Eye })` for full-fidelity TRS including roll, or `cam.capturePose()` (p5.tree bridge) for lookat-style capture.
 
 `fov` and `halfHeight` are lerped between keyframes only when both adjacent keyframes carry a non-null value for that field. Mixed or null entries pass `null` through — the bridge leaves the projection unchanged.
 
