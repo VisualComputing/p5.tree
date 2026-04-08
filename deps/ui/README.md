@@ -102,6 +102,23 @@ panel.speed.reset()
 panel.speed.visible = false
 ```
 
+**Avoid direct DOM access.** Attaching listeners to internal elements (`ui.on.el.firstChild.addEventListener(...)`) couples your code to the panel's internal structure. Use `target` instead:
+
+```js
+// fragile — do not use
+ui.on.el.firstChild.addEventListener('change', () => { showGrid = ui.on.value() })
+
+// correct
+createPanel({ on: { value: true } }, {
+  target: (name, value) => { showGrid = value }
+})
+
+// target can also call any function and ignore its arguments
+createPanel({ on: { value: false } }, {
+  target: () => syncFxPanels()
+})
+```
+
 ### Tick model
 
 `tick()` pushes dirty bindings to target at most once per binding per frame. The first tick always pushes all bindings to initialise target state. Multiple interactions within a single frame collapse to one push at `tick()` time — correct for rendering sinks (shaders, scene params).
