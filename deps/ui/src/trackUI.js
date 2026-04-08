@@ -54,7 +54,7 @@
  * Layout (top → bottom)
  * ---------------------
  *   Title row  — optional, becomes collapse toggle when collapsible=true
- *   Row 1  — controls:  [+]  [▶/⏸]  [↺]   (always visible)
+ *   Row 1  — controls:  [+]  [▶/⏸]  [↺]   (each independently optional)
  *   Row 1b — depth:     depth slider        (when target supports add)
  *   Row 2  — seek:      seek slider         (hidden when keyframes ≤ 1)
  *   Row 3  — rate:      rate label + slider (when showProps)
@@ -86,6 +86,8 @@ import {
  * @param {boolean} [opt.seek=true]       Show seek slider.
  * @param {boolean} [opt.props=true]      Show rate slider + loop controls.
  * @param {boolean} [opt.info=false]      Show time/keyframe readout.
+ * @param {boolean} [opt.play=true]       Show play/pause button. false hides it —
+ *                                        seek slider becomes the sole transport control.
  * @param {number}  [opt.rate=1]          Initial rate (overridden by target.rate if set).
  * @param {boolean} [opt.loop=false]      Initial loop state (overridden by target.loop).
  * @param {boolean} [opt.bounce=false]    Initial bounce state (overridden by target.bounce).
@@ -109,6 +111,7 @@ export function createTrackUI(target, opt) {
   const showSeek  = opt.seek  !== false;
   const showProps = opt.props !== false;
   const showInfo  = opt.info  === true;
+  const showPlay  = opt.play  !== false;
   const sliderW      = opt.width      ?? 120;
   const rateSliderW  = opt.rateWidth  ?? sliderW;
   const depthSliderW = opt.depthWidth ?? sliderW;
@@ -131,11 +134,7 @@ export function createTrackUI(target, opt) {
 
   /** Assemble play() options from current UI state. */
   function _playOpts() {
-    return {
-      rate:   _rate,
-      loop:   _loop,
-      bounce: _bounce,
-    };
+    return { rate: _rate, loop: _loop, bounce: _bounce };
   }
 
   /** Keyframe count from target.info(), or -1 if unavailable. */
@@ -178,6 +177,14 @@ export function createTrackUI(target, opt) {
   }
 
   // ── Row 1 — controls: [+] [▶/⏸] [↺] ─────────────────────────────────────
+  //
+  // Each button is independently optional:
+  //   hasAdd   — target exposes add()          (+ button)
+  //   showPlay — opt.play !== false            (play/pause button)
+  //   hasReset — target exposes reset()        (reset button)
+  //
+  // The row is only appended when at least one button is present, so that
+  // fully button-free panels produce no empty DOM row.
 
   const ctrlRow = document.createElement('div');
   ctrlRow.className = 'p5t-controls';
@@ -193,16 +200,19 @@ export function createTrackUI(target, opt) {
     ctrlRow.appendChild(btnAdd);
   }
 
-  const btnPlay = createButton('\u25B6', () => {
-    if (target.playing) {
-      target.stop();
-    } else {
-      target.play(_playOpts());
-    }
-    _syncPlayBtn();
-  });
-  btnPlay.title = 'Play / Pause';
-  ctrlRow.appendChild(btnPlay);
+  let btnPlay = null;
+  if (showPlay) {
+    btnPlay = createButton('\u25B6', () => {
+      if (target.playing) {
+        target.stop();
+      } else {
+        target.play(_playOpts());
+      }
+      _syncPlayBtn();
+    });
+    btnPlay.title = 'Play / Pause';
+    ctrlRow.appendChild(btnPlay);
+  }
 
   let btnReset = null;
   const hasReset = typeof target.reset === 'function';
@@ -216,7 +226,9 @@ export function createTrackUI(target, opt) {
     ctrlRow.appendChild(btnReset);
   }
 
-  body.appendChild(ctrlRow);
+  if (hasAdd || showPlay || hasReset) {
+    body.appendChild(ctrlRow);
+  }
 
   // ── Row 1b — depth slider ─────────────────────────────────────────────────
 
@@ -289,8 +301,6 @@ export function createTrackUI(target, opt) {
   }
 
   // ── Row 4 — loop + bounce checkboxes ─────────────────────────────────────
-  //
-  // Both are always visible and independent — no visibility toggling.
 
   let loopInp, bounceInp;
 
@@ -352,7 +362,7 @@ export function createTrackUI(target, opt) {
     const kf = _kfCount();
     if (kf === _lastKf) return;
     _lastKf = kf;
-    btnPlay.disabled = kf === 0;
+    if (btnPlay)    btnPlay.disabled    = kf === 0;
     if (btnReset)   btnReset.disabled   = kf === 0;
     if (seekSlider) seekSlider.disabled = kf < 2;
   }
@@ -409,7 +419,6 @@ export function createTrackUI(target, opt) {
     if (showInfo) _updateInfo();
 
     // Poll loop/bounce from track — covers external play() calls.
-    // Only when playing: when stopped the UI owns these values.
     if (showProps && target.playing) {
       const liveLoop   = !!target.loop;
       const liveBounce = !!target.bounce;

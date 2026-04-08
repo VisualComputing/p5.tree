@@ -234,6 +234,7 @@ track.play({ bounce: true }) // bounce checkbox checked ✓
 | `seek`        | `true`          | Show seek slider.                                                    |
 | `props`       | `true`          | Show rate slider + loop controls.                                    |
 | `info`        | `false`         | Show time/keyframe readout.                                          |
+| `play`        | `true`          | Show play/stop button. `false` suppresses it.                        |
 | `rate`        | `target.rate`   | Initial rate (seeded once; UI-owned after creation).                 |
 | `loop`        | `target.loop`   | Initial loop state (seeded from live track; polled while playing).   |
 | `bounce`      | `target.bounce` | Initial bounce state (seeded from live track; polled while playing). |
