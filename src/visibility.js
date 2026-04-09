@@ -26,7 +26,7 @@
  *   near, far > 0              (positive distances along −z)
  *
  * All of frustumPlanes, viewFrustum, projTop/projBottom, projLeft/projRight,
- * mat4Frustum, mat4Ortho, and p5 v2's frustum()/ortho() share this contract.
+ * mat4Proj, mat4Ortho, and p5 v2's frustum()/ortho() share this contract.
  * p5 v2 call order: frustum(left, right, bottom, top, near, far).
  */
 

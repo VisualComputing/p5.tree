@@ -121,13 +121,13 @@ export const hermiteVec3 = (out, p0, m0, p1, m1, t) => {
 };
 
 // Centripetal CR outgoing tangent at p1 for segment p1→p2, scaled by dt1.
-const _crTanOut = (out, p0, p1, p2, p3) => {
+const _crTanOut = (out, p0, p1, p2) => {
   const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1;
   for (let i=0;i<3;i++) out[i]=((p1[i]-p0[i])/dt0-(p2[i]-p0[i])/(dt0+dt1)+(p2[i]-p1[i])/dt1)*dt1;
   return out;
 };
 
-const _crTanIn = (out, p0, p1, p2, p3) => {
+const _crTanIn = (out, p1, p2, p3) => {
   const dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
   for (let i=0;i<3;i++) out[i]=((p2[i]-p1[i])/dt1-(p3[i]-p1[i])/(dt1+dt2)+(p3[i]-p2[i])/dt2)*dt1;
   return out;

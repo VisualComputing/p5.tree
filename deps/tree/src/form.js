@@ -165,30 +165,6 @@ export function mat4FromScale(out, sx,sy,sz) {
 // =========================================================================
 
 /**
- * Perspective projection matrix.
- *
- * @param {Float32Array|number[]} out  16-element destination.
- * @param {number} fov       Vertical field of view (radians).
- * @param {number} aspect    Width / height.
- * @param {number} near      Near plane distance (positive).
- * @param {number} far       Far plane distance (positive, > near).
- * @param {number} ndcZMin   −1 (WEBGL) or 0 (WEBGPU).
- * @param {number} [ndcYSign=1]  +1 = NDC y-up (default); −1 = NDC y-down (native Vulkan).
- */
-export function mat4Perspective(out, fov, aspect, near, far, ndcZMin, ndcYSign=1) {
-  const f = 1 / Math.tan(fov * 0.5);
-  out[0]=f/aspect;       out[1]=0;              out[2]=0;  out[3]=0;
-  out[4]=0;              out[5]=ndcYSign*f;     out[6]=0;  out[7]=0;
-  out[8]=0;              out[9]=0;
-  out[10]=(ndcZMin*near-far)/(far-near);
-  out[11]=-1;
-  out[12]=0; out[13]=0;
-  out[14]=(ndcZMin-1)*far*near/(far-near);
-  out[15]=0;
-  return out;
-}
-
-/**
  * Orthographic projection matrix.
  *
  * @param {Float32Array|number[]} out  16-element destination.
@@ -209,15 +185,18 @@ export function mat4Ortho(out, left, right, bottom, top, near, far, ndcZMin, ndc
 }
 
 /**
- * Frustum (off-centre perspective) projection matrix.
+ * Perspective projection matrix (general / off-centre frustum).
+ * Symmetric case: left=-right, bottom=-top — derive from fov+aspect in user space:
+ *   top = near * Math.tan(fov / 2);  right = top * aspect
+ *   mat4Persp(out, -right, right, -top, top, near, far, ndcZMin)
  *
  * @param {Float32Array|number[]} out  16-element destination.
- * @param {number} left,right,bottom,top  Near-plane extents.
+ * @param {number} left,right,bottom,top  Near-plane extents (signed, y-up: top>0, bottom<0).
  * @param {number} near,far              Clip plane distances (positive).
  * @param {number} ndcZMin               −1 (WEBGL) or 0 (WEBGPU).
  * @param {number} [ndcYSign=1]          +1 = NDC y-up (default); −1 = NDC y-down (native Vulkan).
  */
-export function mat4Frustum(out, left, right, bottom, top, near, far, ndcZMin, ndcYSign=1) {
+export function mat4Persp(out, left, right, bottom, top, near, far, ndcZMin, ndcYSign=1) {
   const rl=1/(right-left), tb=1/(top-bottom);
   out[0]=2*near*rl;        out[1]=0;                          out[2]=0;  out[3]=0;
   out[4]=0;                out[5]=ndcYSign*2*near*tb;         out[6]=0;  out[7]=0;

@@ -31,7 +31,7 @@ import {
   mapLocation as coreMapLocation,
   mat4Mul, mat4Invert,
 } from '@nakednous/tree';
-import { registerPlayer, unregisterPlayer } from './track.js';
+import { registerPlayer } from './track.js';
 import { CameraTrack } from '@nakednous/tree';
 
 // ── Module-level scratch (allocated once at import time) ──────────────────────

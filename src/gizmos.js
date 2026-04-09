@@ -18,7 +18,6 @@ import {
 } from '@nakednous/tree';
 
 import { getNdcZ } from './matrix.js';
-import { computePlanes } from './visibility.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level working buffers — never returned to caller

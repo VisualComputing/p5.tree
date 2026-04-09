@@ -320,9 +320,8 @@ mat4Eye              — eye matrix (eye→world) from lookat params
 mat4FromTRS          — column-major mat4 from flat TRS scalars
 mat4FromTranslation  — translation-only mat4
 mat4FromScale        — scale-only mat4
-mat4Perspective      — perspective projection  (ndcZMin, ndcYSign)
-mat4Ortho            — orthographic projection (ndcZMin, ndcYSign)
-mat4Frustum          — off-centre perspective  (ndcZMin, ndcYSign)
+mat4Persp            — perspective projection, general frustum (ndcZMin, ndcYSign)
+mat4Ortho            — orthographic projection                 (ndcZMin, ndcYSign)
 mat4Bias             — NDC→texture/UV remap [0,1] for shadow mapping
 mat4Reflect          — reflection across a plane
 ```

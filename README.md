@@ -244,12 +244,14 @@ Accepted types for `out` and override params: `Float32Array` | `ArrayLike` | `p5
 **Simple queries** — read from live renderer state:
 
 ```js
-mat4Eye(out)                                   // eye matrix (inverse view) — eye→world
-mat4Eye(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)    // standalone lookat eye — no camera state
-mat4Proj(out)                                  // projection matrix
-mat4View(out)                                  // view matrix — world→eye
-mat4View(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)   // standalone lookat view — no camera state
-mat4Model(out)                                 // model matrix — local→world
+mat4Model(out)                               // model matrix — local→world
+mat4View(out)                                // view matrix — world→eye
+mat4View(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)  // standalone lookat view — no camera state
+mat4Eye(out)                                 // eye matrix (inverse view) — eye→world
+mat4Eye(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)   // standalone lookat eye — no camera state
+mat4Proj(out)                                // projection matrix (live state — persp or ortho)
+mat4Persp(out, l,r,b,t, near,far)            // standalone perspective (general frustum)
+mat4Ortho(out, l,r,b,t, near,far)            // standalone orthographic
 ```
 
 **Composite queries** — `out` first, optional overrides in an opts object:
@@ -607,7 +609,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.36'
+p5.Tree.VERSION   // '0.0.37'
 ```
 
 ## Shader helpers
@@ -682,9 +684,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.36/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.36/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.36/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.36/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.36/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.36/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.37/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.37/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.37/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.37/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.37/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.37/dist/p5.tree.esm.js)
 
 ---
 

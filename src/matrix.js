@@ -34,6 +34,8 @@ import {
   pixelRatio as corePixelRatio,
   mat4View  as _mat4View,
   mat4Eye   as _mat4Eye,
+  mat4Persp as _mat4Persp,
+  mat4Ortho as _mat4Ortho,
   mat4ToTranslation,
   mat4ToScale,
   mat4ToRotation,
@@ -102,13 +104,36 @@ export function installMatrix(p5, fn) {
   // ── Simple matrix queries ─────────────────────────────────────────────────
   //   out: Float32Array | ArrayLike | p5.Matrix — 16-element destination.
 
-  /** Projection matrix (eye → clip). */
+  /** Projection matrix (eye → clip) — reads live renderer state (perspective or ortho). */
   p5.Renderer3D.prototype.mat4Proj = function (out) {
     const buf = _rawMat4(out), s = _projMat4(this);
     for (let i = 0; i < 16; i++) buf[i] = s[i];
     return out;
   };
   fn.mat4Proj = function (out) { return this._renderer.mat4Proj(out); };
+
+  /**
+   * Perspective projection matrix (standalone constructor, general frustum).
+   * mat4Persp(out, left, right, bottom, top, near, far[, ndcZMin[, ndcYSign]])
+   * Symmetric: left=-right, bottom=-top — derive from fov+aspect in user space.
+   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   */
+  fn.mat4Persp = function (out, ...args) {
+    if (args[6] == null) args[6] = _ndcZ;
+    _mat4Persp(_rawMat4(out), ...args);
+    return out;
+  };
+
+  /**
+   * Orthographic projection matrix (standalone constructor).
+   * mat4Ortho(out, left, right, bottom, top, near, far[, ndcZMin[, ndcYSign]])
+   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   */
+  fn.mat4Ortho = function (out, ...args) {
+    if (args[6] == null) args[6] = _ndcZ;
+    _mat4Ortho(_rawMat4(out), ...args);
+    return out;
+  };
 
   /** Model matrix (local → world). */
   p5.Renderer3D.prototype.mat4Model = function (out) {
