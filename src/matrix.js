@@ -27,11 +27,16 @@ import {
   EYE, NDC, SCREEN, MATRIX, WEBGL, WEBGPU,
   mat4Mul, mat4Invert, mat3NormalFromMat4,
   mat4Location, mat3Direction,
-  mapLocation as coreMapLocation,
-  mapDirection as coreMapDirection,
+  mapLocation as _mapLocation,
+  mapDirection as _mapDirection,
   projIsOrtho, projNear, projFar, projFov, projHfov,
   projLeft, projRight, projTop, projBottom,
   pixelRatio as corePixelRatio,
+  mat4View  as _mat4View,
+  mat4Eye   as _mat4Eye,
+  mat4ToTranslation,
+  mat4ToScale,
+  mat4ToRotation,
 } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -120,7 +125,11 @@ export function installMatrix(p5, fn) {
     return out;
   };
   p5.Renderer3D.prototype.mat4View = function (out) { return this.states.curCamera.mat4View(out); };
-  fn.mat4View = function (out) { return this._renderer.mat4View(out); };
+  fn.mat4View = function (out, ...args) {
+    if (args.length === 0) return this._renderer.mat4View(out);
+    _mat4View(_rawMat4(out), ...args);
+    return out;
+  };
 
   /** Eye matrix (eye → world, i.e. inverse view). Returns null if singular. */
   p5.Camera.prototype.mat4Eye = function (out) {
@@ -128,7 +137,11 @@ export function installMatrix(p5, fn) {
     return mat4Invert(buf, this.cameraMatrix.mat4) === null ? null : out;
   };
   p5.Renderer3D.prototype.mat4Eye = function (out) { return this.states.curCamera.mat4Eye(out); };
-  fn.mat4Eye = function (out) { return this._renderer.mat4Eye(out); };
+  fn.mat4Eye = function (out, ...args) {
+    if (args.length === 0) return this._renderer.mat4Eye(out);
+    _mat4Eye(_rawMat4(out), ...args);
+    return out;
+  };
 
   // ── Composite matrix queries ──────────────────────────────────────────────
   //   opts may supply precomputed matrices to skip redundant multiplications.
@@ -235,6 +248,28 @@ export function installMatrix(p5, fn) {
   };
   fn.mat4Invert = function (out, src) { return this._renderer.mat4Invert(out, src); };
 
+  // ── Decomposition ─────────────────────────────────────────────────────────
+  //   Extract components from an existing mat4 — matrix → information.
+  //   out3 / out4 are plain arrays or Float32Arrays; _rawMat4 normalises m.
+
+  /** Extract translation (column 3) from a mat4 into a 3-element buffer. */
+  fn.mat4ToTranslation = function (out3, m) {
+    mat4ToTranslation(out3, _rawMat4(m));
+    return out3;
+  };
+
+  /** Extract scale (column vector lengths) from a mat4. Assumes no shear. */
+  fn.mat4ToScale = function (out3, m) {
+    mat4ToScale(out3, _rawMat4(m));
+    return out3;
+  };
+
+  /** Extract rotation as a unit quaternion [x,y,z,w]. Assumes no shear. */
+  fn.mat4ToRotation = function (out4, m) {
+    mat4ToRotation(out4, _rawMat4(m));
+    return out4;
+  };
+
   // ── Projection scalar queries ─────────────────────────────────────────────
   //   Read scalars from the current projection matrix — no buffer needed.
 
@@ -259,7 +294,7 @@ export function installMatrix(p5, fn) {
   fn.projHfov    = function () { return this._renderer.projHfov();    };
 
   // ── _buildBag ─────────────────────────────────────────────────────────────
-  //   Builds the matrices bag for coreMapLocation / coreMapDirection.
+  //   Builds the matrices bag for _mapLocation / _mapDirection.
   //   from / to: space-string constant or mat4 for a custom MATRIX frame.
   //   _wb holds toFrameInv; valid until coreMap* returns.
 
@@ -341,7 +376,7 @@ export function installMatrix(p5, fn) {
 
     const isVecOut = out instanceof p5.Vector;
     const buf = isVecOut ? _tmp3 : out;
-    coreMapLocation(buf, px, py, pz, fromStr, toStr, bag, _vp, _ndcZ);
+    _mapLocation(buf, px, py, pz, fromStr, toStr, bag, _vp, _ndcZ);
     if (isVecOut) { out.x = buf[0]; out.y = buf[1]; out.z = buf[2]; }
     return out;
   };
@@ -392,7 +427,7 @@ export function installMatrix(p5, fn) {
 
     const isVecOut = out instanceof p5.Vector;
     const buf = isVecOut ? _tmp3 : out;
-    coreMapDirection(buf, dx, dy, dz, fromStr, toStr, bag, _vp, _ndcZ);
+    _mapDirection(buf, dx, dy, dz, fromStr, toStr, bag, _vp, _ndcZ);
     if (isVecOut) { out.x = buf[0]; out.y = buf[1]; out.z = buf[2]; }
     return out;
   };

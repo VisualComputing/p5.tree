@@ -36,8 +36,6 @@
 
 'use strict';
 
-import { qFromRotMat3x3 } from './quat.js';
-
 // =========================================================================
 // Frame construction
 // =========================================================================
@@ -122,7 +120,7 @@ export function mat4Eye(out, ex,ey,ez, cx,cy,cz, ux,uy,uz) {
  *
  * @param {Float32Array|number[]} out  16-element destination.
  * @param {number} tx,ty,tz      Translation.
- * @param {number} qx,qy,qz,qw  Rotation quaternion [x,y,z,w].
+ * @param {number} qx,qy,qz,qw   Rotation quaternion [x,y,z,w].
  * @param {number} sx,sy,sz      Scale.
  */
 export function mat4FromTRS(out, tx,ty,tz, qx,qy,qz,qw, sx,sy,sz) {
@@ -277,47 +275,4 @@ export function mat4Reflect(out, nx,ny,nz,d) {
   out[8]=-2*nx*nz;   out[9]=-2*ny*nz;  out[10]=1-2*nz*nz; out[11]=0;
   out[12]=2*d*nx;    out[13]=2*d*ny;   out[14]=2*d*nz;   out[15]=1;
   return out;
-}
-
-// =========================================================================
-// Partial decomposition  (mat4To___ mirrors mat4From___)
-// =========================================================================
-
-/**
- * Extract translation from a column-major mat4 (column 3).
- * @param {Float32Array|number[]} out3  3-element destination.
- * @param {Float32Array|number[]} m     16-element source.
- */
-export function mat4ToTranslation(out3, m) {
-  out3[0]=m[12]; out3[1]=m[13]; out3[2]=m[14];
-  return out3;
-}
-
-/**
- * Extract scale from a column-major mat4 (column lengths of the rotation block).
- * Assumes no shear.
- * @param {Float32Array|number[]} out3  3-element destination.
- * @param {Float32Array|number[]} m     16-element source.
- */
-export function mat4ToScale(out3, m) {
-  out3[0]=Math.sqrt(m[0]*m[0]+m[1]*m[1]+m[2]*m[2]);
-  out3[1]=Math.sqrt(m[4]*m[4]+m[5]*m[5]+m[6]*m[6]);
-  out3[2]=Math.sqrt(m[8]*m[8]+m[9]*m[9]+m[10]*m[10]);
-  return out3;
-}
-
-/**
- * Extract rotation as a unit quaternion from a column-major mat4.
- * Scale is factored out from each column. Assumes no shear.
- * @param {number[]} out4  4-element [x,y,z,w] destination.
- * @param {Float32Array|number[]} m  16-element source.
- */
-export function mat4ToRotation(out4, m) {
-  const sx=Math.sqrt(m[0]*m[0]+m[1]*m[1]+m[2]*m[2])||1;
-  const sy=Math.sqrt(m[4]*m[4]+m[5]*m[5]+m[6]*m[6])||1;
-  const sz=Math.sqrt(m[8]*m[8]+m[9]*m[9]+m[10]*m[10])||1;
-  return qFromRotMat3x3(out4,
-    m[0]/sx, m[4]/sy, m[8]/sz,
-    m[1]/sx, m[5]/sy, m[9]/sz,
-    m[2]/sx, m[6]/sy, m[10]/sz);
 }
