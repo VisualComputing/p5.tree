@@ -325,6 +325,10 @@ mat4Ortho            — orthographic projection (ndcZMin, ndcYSign)
 mat4Frustum          — off-centre perspective  (ndcZMin, ndcYSign)
 mat4Bias             — NDC→texture/UV remap [0,1] for shadow mapping
 mat4Reflect          — reflection across a plane
+```
+
+**Mat4 decomposition** (`query.js`):
+```
 mat4ToTranslation    — extract translation (col 3)
 mat4ToScale          — extract scale (column lengths)
 mat4ToRotation       — extract rotation as unit quaternion

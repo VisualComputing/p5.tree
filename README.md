@@ -244,10 +244,12 @@ Accepted types for `out` and override params: `Float32Array` | `ArrayLike` | `p5
 **Simple queries** — read from live renderer state:
 
 ```js
-mat4Eye(out)    // eye matrix (inverse view) — eye→world
-mat4Proj(out)   // projection matrix
-mat4View(out)   // view matrix — world→eye
-mat4Model(out)  // model matrix — local→world
+mat4Eye(out)                                   // eye matrix (inverse view) — eye→world
+mat4Eye(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)    // standalone lookat eye — no camera state
+mat4Proj(out)                                  // projection matrix
+mat4View(out)                                  // view matrix — world→eye
+mat4View(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)   // standalone lookat view — no camera state
+mat4Model(out)                                 // model matrix — local→world
 ```
 
 **Composite queries** — `out` first, optional overrides in an opts object:
@@ -271,6 +273,17 @@ mat4MulPoint(out, m, point)   // out = m · [x,y,z,1] perspective-divided
                               // point: Float32Array | ArrayLike | p5.Vector
 mat4MulDir(out, m, dx,dy,dz)  // out = 3×3 block of m applied to direction
                               // no translation, no perspective divide
+```
+
+**Decomposition** — extract components from an existing mat4:
+
+```js
+mat4ToTranslation(out3, m)  // extract translation (col 3)
+                             // out3: Float32Array | number[] | p5.Vector
+mat4ToScale(out3, m)        // extract scale (column lengths) — assumes no shear
+                             // out3: Float32Array | number[] | p5.Vector
+mat4ToRotation(out4, m)     // extract rotation as unit quaternion [x,y,z,w]
+                             // out4: Float32Array | number[]
 ```
 
 **Zero-allocation draw-loop pattern:**
