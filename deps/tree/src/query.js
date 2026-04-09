@@ -219,10 +219,30 @@ export function mat4MV(out, model, view) { return mat4Mul(out, view, model); }
 
 /**
  * Location transform between frames: out = inv(to) · from.
+ * Assumes both matrices are affine (bottom row [0,0,0,1]).
  * @returns {ArrayLike<number>|null} out, or null if `to` is singular.
  */
 export function mat4Location(out, from, to) {
-  return mat4Invert(out, to) && mat4Mul(out, out, from);
+  // Same as: return mat4Invert(out, to) && mat4Mul(out, out, from);
+  const a00=to[0],a01=to[1],a02=to[2],
+        a10=to[4],a11=to[5],a12=to[6],
+        a20=to[8],a21=to[9],a22=to[10];
+  const b01=a22*a11-a12*a21, b11=a12*a20-a22*a10, b21=a21*a10-a11*a20;
+  let det=a00*b01+a01*b11+a02*b21;
+  if (Math.abs(det) < 1e-12) return null;
+  det=1/det;
+  const i00=b01*det,             i01=(a02*a21-a22*a01)*det, i02=(a12*a01-a02*a11)*det;
+  const i10=b11*det,             i11=(a22*a00-a02*a20)*det, i12=(a02*a10-a12*a00)*det;
+  const i20=b21*det,             i21=(a01*a20-a21*a00)*det, i22=(a11*a00-a01*a10)*det;
+  const f00=from[0],f01=from[1],f02=from[2],
+        f10=from[4],f11=from[5],f12=from[6],
+        f20=from[8],f21=from[9],f22=from[10];
+  out[0]=i00*f00+i01*f01+i02*f02; out[1]=i10*f00+i11*f01+i12*f02; out[2]=i20*f00+i21*f01+i22*f02; out[3]=0;
+  out[4]=i00*f10+i01*f11+i02*f12; out[5]=i10*f10+i11*f11+i12*f12; out[6]=i20*f10+i21*f11+i22*f12; out[7]=0;
+  out[8]=i00*f20+i01*f21+i02*f22; out[9]=i10*f20+i11*f21+i12*f22; out[10]=i20*f20+i21*f21+i22*f22; out[11]=0;
+  const dx=from[12]-to[12], dy=from[13]-to[13], dz=from[14]-to[14];
+  out[12]=i00*dx+i01*dy+i02*dz; out[13]=i10*dx+i11*dy+i12*dz; out[14]=i20*dx+i21*dy+i22*dz; out[15]=1;
+  return out;
 }
 
 /**

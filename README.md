@@ -279,11 +279,11 @@ mat4MulDir(out, m, dx,dy,dz)  // out = 3×3 block of m applied to direction
 
 ```js
 mat4ToTranslation(out3, m)  // extract translation (col 3)
-                             // out3: Float32Array | number[] | p5.Vector
+                            // out3: Float32Array | number[] | p5.Vector
 mat4ToScale(out3, m)        // extract scale (column lengths) — assumes no shear
-                             // out3: Float32Array | number[] | p5.Vector
+                            // out3: Float32Array | number[] | p5.Vector
 mat4ToRotation(out4, m)     // extract rotation as unit quaternion [x,y,z,w]
-                             // out4: Float32Array | number[]
+                            // out4: Float32Array | number[]
 ```
 
 **Zero-allocation draw-loop pattern:**
