@@ -248,19 +248,27 @@ export function installMatrix(p5, fn) {
   };
   fn.mat4Invert = function (out, src) { return this._renderer.mat4Invert(out, src); };
 
-  // ── Decomposition ─────────────────────────────────────────────────────────
+  // ── Decomposition ─────────────────────────────────────────────────────────────────────────────
   //   Extract components from an existing mat4 — matrix → information.
-  //   out3 / out4 are plain arrays or Float32Arrays; _rawMat4 normalises m.
+  //   m is normalised via _rawMat4 (handles Float32Array | ArrayLike | p5.Matrix).
+  //   out3: Float32Array | number[] | p5.Vector — p5.Vector written back via _tmp3.
+  //   out4: Float32Array | number[] only — quaternion is 4-component, no p5.Vector.
 
-  /** Extract translation (column 3) from a mat4 into a 3-element buffer. */
+  /** Extract translation (column 3) from a mat4. */
   fn.mat4ToTranslation = function (out3, m) {
-    mat4ToTranslation(out3, _rawMat4(m));
+    const isVec = out3 instanceof p5.Vector;
+    const buf = isVec ? _tmp3 : out3;
+    mat4ToTranslation(buf, _rawMat4(m));
+    if (isVec) { out3.x = buf[0]; out3.y = buf[1]; out3.z = buf[2]; }
     return out3;
   };
 
   /** Extract scale (column vector lengths) from a mat4. Assumes no shear. */
   fn.mat4ToScale = function (out3, m) {
-    mat4ToScale(out3, _rawMat4(m));
+    const isVec = out3 instanceof p5.Vector;
+    const buf = isVec ? _tmp3 : out3;
+    mat4ToScale(buf, _rawMat4(m));
+    if (isVec) { out3.x = buf[0]; out3.y = buf[1]; out3.z = buf[2]; }
     return out3;
   };
 
