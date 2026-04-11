@@ -184,7 +184,7 @@ export const qToMat4 = (out, q) => {
  * @param {Object}  [out]
  * @returns {{ axis: number[], angle: number }}
  */
-export const quatToAxisAngle = (q, out) => {
+export const qToAxisAngle = (q, out) => {
   out = out || {};
   const x=q[0],y=q[1],z=q[2],w=q[3];
   const sinHalf = Math.sqrt(x*x+y*y+z*z);

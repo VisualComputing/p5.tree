@@ -14,7 +14,7 @@
  *  Quaternion helpers  (re-exported from quat.js)
  *    qSet qCopy qDot qNormalize qNegate qMul qSlerp qNlerp
  *    qFromAxisAngle qFromLookDir qFromRotMat3x3 qFromMat4 qToMat4
- *    quatToAxisAngle
+ *    qToAxisAngle
  *  Spline / vector helpers
  *    hermiteVec3  lerpVec3
  *  Transform / mat4 helpers
@@ -84,7 +84,7 @@ export {
   qSet, qCopy, qDot, qNormalize, qNegate, qMul,
   qSlerp, qNlerp,
   qFromAxisAngle, qFromLookDir, qFromRotMat3x3, qFromMat4,
-  quatToAxisAngle,
+  qToAxisAngle,
 } from './quat.js';
 
 import {

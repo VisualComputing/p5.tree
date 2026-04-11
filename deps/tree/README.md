@@ -298,7 +298,7 @@ Exported individually for use in hot paths.
 qSet  qCopy  qDot  qNormalize  qNegate  qMul
 qSlerp  qNlerp
 qFromAxisAngle  qFromLookDir  qFromRotMat3x3  qFromMat4  qToMat4
-quatToAxisAngle
+qToAxisAngle
 ```
 
 **Spline / vector:** `hermiteVec3`, `lerpVec3`
