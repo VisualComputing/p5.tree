@@ -635,21 +635,39 @@ shader.setUniform('texOffset', texelSize(myFbo))
 
 ## Visibility testing
 
-Frustum culling against the current camera:
+Frustum culling with two orthogonal axes — **where bounds are defined** (world vs local space)
+and **which frustum to test against** (current camera vs any camera). All four combinations
+are valid and compose freely.
 
 ```js
-visibility({ corner1, corner2 })  // axis-aligned box
-visibility({ center, radius })    // sphere
-visibility({ center })            // point
+// world-space bounds, current camera
+visibility({ corner1, corner2 })             // axis-aligned box
+visibility({ center, radius })               // sphere
+visibility({ center })                       // point
+
+// local-space bounds, current camera — mat4Model transforms bounds before test
+visibility({ corner1, corner2, mat4Model })
+visibility({ center, radius,   mat4Model })
+
+// world-space bounds, arbitrary camera — pre-compute frustum from any eye matrix
+const b = bounds({ mat4Eye: lightEyeMatrix })
+visibility({ corner1, corner2, bounds: b })
+visibility({ center, radius,   bounds: b })
+
+// local-space bounds, arbitrary camera — full composition
+visibility({ corner1, corner2, mat4Model, bounds: b })
+visibility({ center, radius,   mat4Model, bounds: b })
 ```
 
-Returns:
+`mat4Model` accepts `Float32Array(16)` | `ArrayLike` | `p5.Matrix`.
+AABB: all 8 corners transformed, result is a conservative world-space AABB.
+Sphere: center transformed, radius scaled by max column length.
 
-```js
-p5.Tree.VISIBLE
-p5.Tree.SEMIVISIBLE
-p5.Tree.INVISIBLE
-```
+`bounds({ mat4Eye })` pre-computes the six frustum planes from any camera's eye matrix.
+Typical uses: shadow map culling (light's frustum), portal rendering, dual-camera scenes.
+Omit `mat4Eye` to use the current camera.
+
+Returns `p5.Tree.VISIBLE` | `p5.Tree.SEMIVISIBLE` | `p5.Tree.INVISIBLE`.
 
 ---
 
