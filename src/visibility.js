@@ -33,7 +33,7 @@
 'use strict';
 
 import {
-  mat4Invert,
+  mat4Invert, mat4MulPoint,
   projIsOrtho, projNear, projFar,
   projLeft, projRight, projTop, projBottom,
   frustumPlanes,
@@ -48,6 +48,8 @@ import { getNdcZ } from './matrix.js';
 
 const _eye    = new Float32Array(16);  // eye matrix scratch for computePlanes
 const _planes = new Float64Array(24);  // 6 frustum planes × [a,b,c,d]
+const _tMin   = new Float32Array(3);   // transformed AABB min scratch
+const _tMax   = new Float32Array(3);   // transformed AABB max scratch
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Local p5 state accessors
@@ -106,7 +108,7 @@ export function installVisibility(p5, fn) {
   // ── Argument parser ───────────────────────────────────────────────────────
 
   p5.Renderer3D.prototype._parseVisibilityArgs = function (...args) {
-    let corner1, corner2, center, radius, pendingRadius, bounds;
+    let corner1, corner2, center, radius, pendingRadius, bounds, mat4Model;
     const vecs = [];
     const isPlainObject = v => {
       if (!v || typeof v !== 'object') return false;
@@ -123,9 +125,10 @@ export function installVisibility(p5, fn) {
       if (isPlainObject(arg)) {
         if ('corner1' in arg || 'corner2' in arg || 'center' in arg ||
             'radius'  in arg || 'bounds'  in arg) {
-          corner1 = arg.corner1 ?? corner1; corner2 = arg.corner2 ?? corner2;
-          center  = arg.center  ?? center;  radius  = arg.radius  ?? radius;
-          bounds  = arg.bounds  ?? bounds;
+          corner1   = arg.corner1 ?? corner1; corner2 = arg.corner2 ?? corner2;
+          center    = arg.center  ?? center;  radius  = arg.radius  ?? radius;
+          bounds    = arg.bounds  ?? bounds;
+          mat4Model = arg.mat4Model ?? mat4Model;
         } else { bounds = arg; }
       }
     }
@@ -134,43 +137,126 @@ export function installVisibility(p5, fn) {
       else if (vecs.length >= 2) { corner1 = vecs[0]; corner2 = vecs[1]; }
     }
     if (radius === undefined && pendingRadius !== undefined && center) { radius = pendingRadius; }
-    return { corner1, corner2, center, radius, bounds };
+    return { corner1, corner2, center, radius, bounds, mat4Model };
   };
 
   // ── visibility ────────────────────────────────────────────────────────────
-
+  
   /**
    * Test visibility of a point, sphere, or AABB against the view frustum.
    *
+   * Three query forms:
+   *   visibility({ corner1, corner2 })          // axis-aligned box
+   *   visibility({ center, radius })            // sphere
+   *   visibility({ center })                    // point
+   *
+   * All corner/center values accept Float32Array(3), plain array, or p5.Vector.
+   *
+   * ── mat4Model (optional) ────────────────────────────────────────────────────
+   * When supplied, transforms bounds from local/object space to world space
+   * before the frustum test. Accepts Float32Array(16) | ArrayLike | p5.Matrix.
+   * Useful when bounds are defined in object space and the model matrix is
+   * available without a push()/pop() context — mirrors the mat4Model option
+   * already accepted by axes(), bullsEye(), and pointerHit().
+   *
+   *   AABB  → all 8 corners transformed; result is a conservative world-space
+   *           AABB (larger than tight OBB — correct for culling, never false negative).
+   *   Sphere → center transformed; radius scaled by max column length
+   *            (conservative under non-uniform scale).
+   *   Point  → straight mat4 × point.
+   *
+   * ── Performance notes ───────────────────────────────────────────────────────
    * Fast path (no `bounds` option): calls core boxVisibility / sphereVisibility /
    * pointVisibility directly — zero allocations per call.
-   * Fallback (user-supplied `bounds` object): scalar arithmetic on the keyed plane
-   * object.
-   *
-   * Accepts Float32Array(3) or plain array for corner1/corner2/center.
+   * Fallback (user-supplied `bounds` object): scalar arithmetic on the keyed
+   * plane object.
    *
    * @method visibility
    * @for p5
+   * @param {{
+   *   corner1?:   Float32Array | ArrayLike | p5.Vector,
+   *   corner2?:   Float32Array | ArrayLike | p5.Vector,
+   *   center?:    Float32Array | ArrayLike | p5.Vector,
+   *   radius?:    number,
+   *   bounds?:    object,
+   *   mat4Model?: Float32Array | ArrayLike | p5.Matrix,
+   * }} opts
    * @returns {number} p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
    */
   p5.Renderer3D.prototype.visibility = function (...args) {
-    const { corner1, corner2, center, radius, bounds: userBounds } = this._parseVisibilityArgs(...args);
+    const { corner1, corner2, center, radius, bounds: userBounds, mat4Model } = this._parseVisibilityArgs(...args);
+    
+    // ── Optional model-space → world-space transform ──────────────────────
+    // If mat4Model supplied, transform bounds before frustum test.
+    // AABB: transform all 8 corners, recompute conservative AABB (zero-alloc).
+    // Sphere: transform center; scale radius by max column length.
+    // Point: straight mat4MulPoint.
+    let c1 = corner1, c2 = corner2, ct = center, rt = radius;
+    if (mat4Model != null) {
+      const m = _rawMat4(mat4Model);
+      if (m != null) {
+        if (c1 && c2) {
+          // Transform 8 AABB corners, find new min/max
+          const x0 = c1.x ?? c1[0] ?? 0, y0 = c1.y ?? c1[1] ?? 0, z0 = c1.z ?? c1[2] ?? 0;
+          const x1 = c2.x ?? c2[0] ?? 0, y1 = c2.y ?? c2[1] ?? 0, z1 = c2.z ?? c2[2] ?? 0;
+          _tMin[0] =  Infinity; _tMin[1] =  Infinity; _tMin[2] =  Infinity;
+          _tMax[0] = -Infinity; _tMax[1] = -Infinity; _tMax[2] = -Infinity;
+          for (let i = 0; i < 8; i++) {
+            const cx = (i & 4) ? x0 : x1;
+            const cy = (i & 2) ? y0 : y1;
+            const cz = (i & 1) ? z0 : z1;
+            mat4MulPoint(_tMin, m, [cx, cy, cz]);   // reuse _tMin as temp
+            if (_tMin[0] < _tMax[0] || i === 0) {}  // update min/max below
+            // ── inline to avoid a second scratch ─────────────────────────
+            const tx = m[0]*cx + m[4]*cy + m[8]*cz  + m[12];
+            const tw = m[3]*cx + m[7]*cy + m[11]*cz + m[15];
+            const ty = m[1]*cx + m[5]*cy + m[9]*cz  + m[13];
+            const tz = m[2]*cx + m[6]*cy + m[10]*cz + m[14];
+            const wx = tx/tw, wy = ty/tw, wz = tz/tw;
+            if (i === 0 || wx < _tMin[0]) _tMin[0] = wx;
+            if (i === 0 || wy < _tMin[1]) _tMin[1] = wy;
+            if (i === 0 || wz < _tMin[2]) _tMin[2] = wz;
+            if (i === 0 || wx > _tMax[0]) _tMax[0] = wx;
+            if (i === 0 || wy > _tMax[1]) _tMax[1] = wy;
+            if (i === 0 || wz > _tMax[2]) _tMax[2] = wz;
+          }
+          c1 = _tMin; c2 = _tMax;
+        } else if (ct) {
+          // Transform center
+          const cx = ct.x ?? ct[0] ?? 0;
+          const cy = ct.y ?? ct[1] ?? 0;
+          const cz = ct.z ?? ct[2] ?? 0;
+          const tw = m[3]*cx + m[7]*cy + m[11]*cz + m[15];
+          _tMin[0] = (m[0]*cx + m[4]*cy + m[8]*cz  + m[12]) / tw;
+          _tMin[1] = (m[1]*cx + m[5]*cy + m[9]*cz  + m[13]) / tw;
+          _tMin[2] = (m[2]*cx + m[6]*cy + m[10]*cz + m[14]) / tw;
+          ct = _tMin;
+          if (rt != null) {
+            // Scale radius by max column length (conservative under non-uniform scale)
+            const s0 = Math.sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+            const s1 = Math.sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
+            const s2 = Math.sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
+            rt = rt * Math.max(s0, s1, s2);
+          }
+        }
+      }
+    }
 
     if (!userBounds) {
       const planes = computePlanes(this);
-      if (center) {
-        const cx = center.x ?? center[0] ?? 0;
-        const cy = center.y ?? center[1] ?? 0;
-        const cz = center.z ?? center[2] ?? 0;
-        return radius != null
-          ? sphereVisibility(planes, cx, cy, cz, radius)
+      if (ct) {
+        const cx = ct.x ?? ct[0] ?? 0;
+        const cy = ct.y ?? ct[1] ?? 0;
+        const cz = ct.z ?? ct[2] ?? 0;
+        return rt != null
+          ? sphereVisibility(planes, cx, cy, cz, rt)
           : pointVisibility(planes, cx, cy, cz);
       }
-      if (corner1 && corner2) {
+      if (c1 && c2) {
         return boxVisibility(
           planes,
-          corner1.x ?? corner1[0] ?? 0, corner1.y ?? corner1[1] ?? 0, corner1.z ?? corner1[2] ?? 0,
-          corner2.x ?? corner2[0] ?? 0, corner2.y ?? corner2[1] ?? 0, corner2.z ?? corner2[2] ?? 0
+          c1.x ?? c1[0] ?? 0, c1.y ?? c1[1] ?? 0, c1.z ?? c1[2] ?? 0,
+          c2.x ?? c2[0] ?? 0, c2.y ?? c2[1] ?? 0, c2.z ?? c2[2] ?? 0
         );
       }
       console.error('[p5.tree] visibility: could not parse query.');
@@ -178,12 +264,12 @@ export function installVisibility(p5, fn) {
     }
 
     // ── Fallback: user-supplied keyed bounds ───────────────────────────────
-    if (center) {
-      return radius != null
-        ? this._ballVisibility(center, radius, userBounds)
-        : this._pointVisibility(center, userBounds);
+    if (ct) {
+      return rt != null
+        ? this._ballVisibility(ct, rt, userBounds)
+        : this._pointVisibility(ct, userBounds);
     }
-    if (corner1 && corner2) return this._boxVisibility(corner1, corner2, userBounds);
+    if (c1 && c2) return this._boxVisibility(c1, c2, userBounds);
     console.error('[p5.tree] visibility: could not parse query.');
     return p5.Tree.INVISIBLE;
   };
