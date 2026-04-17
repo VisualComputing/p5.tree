@@ -32,6 +32,19 @@
  *  hooks, rate semantics.  Subclasses add only keyframe storage and
  *  add() / eval() for their respective data shape.
  *
+ * ── Path samplers (public, zero-alloc, no cursor side effects) ──────────────
+ *  PoseTrack
+ *    samplePos(out, seg, t)            writes interpolated pos at (seg, t∈[0,1])
+ *    sampleTangents(outIn, outOut, i)  effective in/out tangents at keyframe i
+ *  CameraTrack
+ *    sampleEye(out, seg, t)
+ *    sampleCenter(out, seg, t)
+ *    sampleEyeTangents(outIn, outOut, i)
+ *    sampleCenterTangents(outIn, outOut, i)
+ *
+ *  Samplers honour the corresponding interpolation mode (hermite/linear/step)
+ *  and the stored-tangent / auto-CR fallback chain used by eval().
+ *
  * ── Hook architecture ─────────────────────────────────────────────────────────
  *  Lib-space hooks (underscore prefix — reserved for host layer / UI layer):
  *    _onActivate / _onDeactivate  — fire on playing transitions false→true / true→false.
@@ -121,19 +134,22 @@ export const hermiteVec3 = (out, p0, m0, p1, m1, t) => {
 };
 
 // Centripetal CR outgoing tangent at p1 for segment p1→p2, scaled by dt1.
+// Signature: (out, p0, p1, p2). Returns tangent AT p1 (the middle point).
 const _crTanOut = (out, p0, p1, p2) => {
   const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1;
   for (let i=0;i<3;i++) out[i]=((p1[i]-p0[i])/dt0-(p2[i]-p0[i])/(dt0+dt1)+(p2[i]-p1[i])/dt1)*dt1;
   return out;
 };
 
+// Centripetal CR incoming tangent at p2 for segment p1→p2, scaled by dt1.
+// Signature: (out, p1, p2, p3). Returns tangent AT p2 (the middle point).
 const _crTanIn = (out, p1, p2, p3) => {
   const dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
   for (let i=0;i<3;i++) out[i]=((p2[i]-p1[i])/dt1-(p3[i]-p1[i])/(dt1+dt2)+(p3[i]-p2[i])/dt2)*dt1;
   return out;
 };
 
-// Module-level scratch — shared by eval() across all track instances (non-reentrant hot path).
+// Module-level scratch — shared across all track instances (non-reentrant hot path).
 const _m0=[0,0,0], _m1=[0,0,0];
 
 /**
@@ -150,6 +166,121 @@ export const lerpVec3 = (out, a, b, t) => {
   out[2]=a[2]+t*(b[2]-a[2]);
   return out;
 };
+
+// =========================================================================
+// S2b  Path samplers — shared core
+// =========================================================================
+//
+// These helpers factor out the per-field interpolation from eval(), so that
+// the samplers (samplePos / sampleEye / sampleCenter / sampleTangents / ...)
+// can write into caller buffers without touching the cursor state.
+//
+// The field name and its associated tangent field names are passed as keys
+// so the same core serves 'pos'/'tanIn'/'tanOut' for PoseTrack and
+// 'eye'|'center' + matching tangent keys for CameraTrack.
+
+/**
+ * Sample interpolated vec3 path at (seg, t) into out.
+ * @private
+ * @param {number[]} out
+ * @param {Array} kfs         keyframe array
+ * @param {string} interp     'hermite' | 'linear' | 'step'
+ * @param {string} field      keyframe property holding the vec3 path point
+ * @param {string} tanInName  keyframe property for incoming tangent
+ * @param {string} tanOutName keyframe property for outgoing tangent
+ * @param {number} seg        segment index
+ * @param {number} t          local parameter in [0,1]
+ */
+function _samplePathCore(out, kfs, interp, field, tanInName, tanOutName, seg, t) {
+  const n = kfs.length;
+  if (n === 0) { out[0]=0; out[1]=0; out[2]=0; return out; }
+  if (n === 1) {
+    const p = kfs[0][field];
+    out[0]=p[0]; out[1]=p[1]; out[2]=p[2];
+    return out;
+  }
+  const nSeg = n - 1;
+  seg = _clampS(seg | 0, 0, nSeg - 1);
+  t   = _clamp01(t);
+  const k0 = kfs[seg];
+  const k1 = kfs[seg + 1];
+
+  if (interp === 'step') {
+    const p = k0[field];
+    out[0]=p[0]; out[1]=p[1]; out[2]=p[2];
+    return out;
+  }
+  if (interp === 'linear') {
+    return lerpVec3(out, k0[field], k1[field], t);
+  }
+
+  // hermite (default)
+  const p0 = seg > 0      ? kfs[seg - 1][field] : k0[field];
+  const p3 = seg + 2 < n  ? kfs[seg + 2][field] : k1[field];
+  const m0 = k0[tanOutName] != null ? k0[tanOutName]
+           : k0[tanInName]  != null ? k0[tanInName]
+           : _crTanOut(_m0, p0, k0[field], k1[field]);
+  const m1 = k1[tanInName]  != null ? k1[tanInName]
+           : k1[tanOutName] != null ? k1[tanOutName]
+           : _crTanIn(_m1, k0[field], k1[field], p3);
+  return hermiteVec3(out, k0[field], m0, k1[field], m1, t);
+}
+
+/**
+ * Write the effective in/out tangents at keyframe i.
+ *
+ * Stored tanIn/tanOut take precedence, then each mirrors the other when only
+ * one is stored, else centripetal Catmull-Rom tangents are auto-computed from
+ * neighbours.
+ *
+ * At endpoints one side has no adjacent segment; that side mirrors the other
+ * side's tangent. Callers drawing arrows at endpoints therefore see a vector
+ * that matches the curve's derivative into / out of the curve's boundary.
+ *
+ * @private
+ */
+function _sampleTangentsCore(outIn, outOut, kfs, field, tanInName, tanOutName, i) {
+  const n = kfs.length;
+  if (n === 0) {
+    outIn[0]=outIn[1]=outIn[2]=0; outOut[0]=outOut[1]=outOut[2]=0;
+    return;
+  }
+  i = _clampS(i | 0, 0, n - 1);
+  const ki = kfs[i];
+  const hasTI = ki[tanInName]  != null;
+  const hasTO = ki[tanOutName] != null;
+
+  // ── outgoing tangent at keyframe i (for segment i → i+1) ──────────────
+  if (hasTO) {
+    outOut[0]=ki[tanOutName][0]; outOut[1]=ki[tanOutName][1]; outOut[2]=ki[tanOutName][2];
+  } else if (hasTI) {
+    outOut[0]=ki[tanInName][0];  outOut[1]=ki[tanInName][1];  outOut[2]=ki[tanInName][2];
+  } else if (i < n - 1) {
+    const k1 = kfs[i + 1];
+    const p0 = i > 0 ? kfs[i - 1][field] : ki[field];
+    _crTanOut(outOut, p0, ki[field], k1[field]);
+  } else {
+    outOut[0]=0; outOut[1]=0; outOut[2]=0;  // filled below by mirror
+  }
+
+  // ── incoming tangent at keyframe i (for segment i-1 → i) ──────────────
+  if (hasTI) {
+    outIn[0]=ki[tanInName][0];  outIn[1]=ki[tanInName][1];  outIn[2]=ki[tanInName][2];
+  } else if (hasTO) {
+    outIn[0]=ki[tanOutName][0]; outIn[1]=ki[tanOutName][1]; outIn[2]=ki[tanOutName][2];
+  } else if (i > 0) {
+    const k0 = kfs[i - 1];
+    const p3 = i + 1 < n ? kfs[i + 1][field] : ki[field];
+    _crTanIn(outIn, k0[field], ki[field], p3);
+  } else {
+    outIn[0]=outOut[0]; outIn[1]=outOut[1]; outIn[2]=outOut[2];
+  }
+
+  // Boundary mirror the other way: last keyframe with no stored tangents.
+  if (i === n - 1 && !hasTO && !hasTI) {
+    outOut[0]=outIn[0]; outOut[1]=outIn[1]; outOut[2]=outIn[2];
+  }
+}
 
 // =========================================================================
 // S3  Transform <-> Mat4
@@ -365,10 +496,6 @@ function _sameTransform(a, b) {
  *     eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite.
  *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
  *
- *   Removed forms (task 2):
- *     { mat4View } and { mat4Eye } — use PoseTrack.add({ mat4Model: mat4Eye }) for
- *     full-fidelity capture including roll, or cam.capturePose() for lookat-style.
- *
  * @param {Object} spec
  * @returns {{ eye:number[], center:number[], up:number[],
  *             fov:number|null, halfHeight:number|null,
@@ -388,12 +515,12 @@ function _parseCameraSpec(spec) {
   return {
     eye, center,
     up: [up[0]/ul, up[1]/ul, up[2]/ul],
-    fov:         typeof spec.fov        === 'number' ? spec.fov        : null,
-    halfHeight:  typeof spec.halfHeight === 'number' ? spec.halfHeight : null,
-    eyeTanIn:    _parseVec3(spec.eyeTanIn)    || null,
-    eyeTanOut:   _parseVec3(spec.eyeTanOut)   || null,
-    centerTanIn: _parseVec3(spec.centerTanIn) || null,
-    centerTanOut:_parseVec3(spec.centerTanOut)|| null,
+    fov:          typeof spec.fov        === 'number' ? spec.fov        : null,
+    halfHeight:   typeof spec.halfHeight === 'number' ? spec.halfHeight : null,
+    eyeTanIn:     _parseVec3(spec.eyeTanIn)    || null,
+    eyeTanOut:    _parseVec3(spec.eyeTanOut)   || null,
+    centerTanIn:  _parseVec3(spec.centerTanIn) || null,
+    centerTanOut: _parseVec3(spec.centerTanOut)|| null,
   };
 }
 
@@ -420,7 +547,7 @@ class Track {
     this.playing   = false;
     /** Loop at boundaries. @type {boolean} */
     this.loop      = false;
-    /** Ping-pong bounce (takes precedence over loop). @type {boolean} */
+    /** Ping-pong bounce (independent of loop). @type {boolean} */
     this.bounce    = false;
     /** Frames per segment (≥1). @type {number} */
     this.duration  = 30;
@@ -635,14 +762,12 @@ class Track {
     // ── loop:false, bounce:true — bounce once, stop at origin ────────────
     if (!this.loop && this.bounce) {
       if (next >= total) {
-        // far boundary: reflect and flip direction once
         this._setCursorFromScalar(Math.min(total, 2 * total - next));
         this._dir = -this._dir;
         this._bounced = true;
         return true;
       }
       if (next <= 0) {
-        // origin: stop (whether we bounced or started backward)
         this._setCursorFromScalar(0);
         this.playing = false;
         this._dir = 1; this._bounced = false;
@@ -770,6 +895,39 @@ export class PoseTrack extends Track {
   }
 
   /**
+   * Sample the position path at (seg, t).
+   *
+   * Pure function of the keyframes — does not read or modify the transport
+   * cursor, fires no hooks, allocates nothing.  seg is clamped to
+   * [0, segments-1] and t to [0, 1].
+   *
+   * @param {number[]} out  3-element result buffer.
+   * @param {number} seg    Segment index.
+   * @param {number} t      Local parameter in [0, 1].
+   * @returns {number[]} out
+   */
+  samplePos(out, seg, t) {
+    return _samplePathCore(out, this.keyframes, this.posInterp, 'pos', 'tanIn', 'tanOut', seg, t);
+  }
+
+  /**
+   * Write the effective incoming / outgoing tangents at keyframe i.
+   * Stored tanIn/tanOut take precedence, then each mirrors the other when
+   * only one is stored, else centripetal Catmull-Rom tangents are auto-
+   * computed from neighbours.  Endpoint tangents mirror across the missing
+   * side so drawing arrows at boundary keyframes produces a visible vector.
+   *
+   * @param {number[]} outIn   3-element result — incoming tangent at kf i.
+   * @param {number[]} outOut  3-element result — outgoing tangent at kf i.
+   * @param {number} i         Keyframe index.
+   * @returns {PoseTrack} this
+   */
+  sampleTangents(outIn, outOut, i) {
+    _sampleTangentsCore(outIn, outOut, this.keyframes, 'pos', 'tanIn', 'tanOut', i);
+    return this;
+  }
+
+  /**
    * Evaluate interpolated TRS pose at current cursor.
    * @param {{ pos:number[], rot:number[], scl:number[] }} [out]
    * @returns {{ pos:number[], rot:number[], scl:number[] }} out
@@ -794,22 +952,8 @@ export class PoseTrack extends Track {
     const k0   = this.keyframes[seg];
     const k1   = this.keyframes[seg + 1];
 
-    // pos — Hermite (auto-CR tangents when none stored), linear, or step
-    if (this.posInterp === 'step') {
-      out.pos[0]=k0.pos[0]; out.pos[1]=k0.pos[1]; out.pos[2]=k0.pos[2];
-    } else if (this.posInterp === 'linear') {
-      lerpVec3(out.pos, k0.pos, k1.pos, t);
-    } else {
-      const p0 = seg > 0      ? this.keyframes[seg - 1].pos : k0.pos;
-      const p3 = seg + 2 < n ? this.keyframes[seg + 2].pos  : k1.pos;
-      const m0 = k0.tanOut != null ? k0.tanOut
-               : k0.tanIn  != null ? k0.tanIn
-               : _crTanOut(_m0, p0, k0.pos, k1.pos, p3);
-      const m1 = k1.tanIn  != null ? k1.tanIn
-               : k1.tanOut != null ? k1.tanOut
-               : _crTanIn(_m1, p0, k0.pos, k1.pos, p3);
-      hermiteVec3(out.pos, k0.pos, m0, k1.pos, m1, t);
-    }
+    // pos — shared sampler (respects posInterp + tangent fallback chain)
+    _samplePathCore(out.pos, this.keyframes, this.posInterp, 'pos', 'tanIn', 'tanOut', seg, t);
 
     // rot — step, slerp, or nlerp
     if (this.rotInterp === 'step') {
@@ -918,6 +1062,52 @@ export class CameraTrack extends Track {
   }
 
   /**
+   * Sample the eye path at (seg, t). See PoseTrack.samplePos for semantics.
+   * @param {number[]} out
+   * @param {number} seg
+   * @param {number} t
+   * @returns {number[]} out
+   */
+  sampleEye(out, seg, t) {
+    return _samplePathCore(out, this.keyframes, this.eyeInterp, 'eye', 'eyeTanIn', 'eyeTanOut', seg, t);
+  }
+
+  /**
+   * Sample the center path at (seg, t). See PoseTrack.samplePos for semantics.
+   * @param {number[]} out
+   * @param {number} seg
+   * @param {number} t
+   * @returns {number[]} out
+   */
+  sampleCenter(out, seg, t) {
+    return _samplePathCore(out, this.keyframes, this.centerInterp, 'center', 'centerTanIn', 'centerTanOut', seg, t);
+  }
+
+  /**
+   * Effective in/out eye tangents at keyframe i. See PoseTrack.sampleTangents.
+   * @param {number[]} outIn
+   * @param {number[]} outOut
+   * @param {number} i
+   * @returns {CameraTrack} this
+   */
+  sampleEyeTangents(outIn, outOut, i) {
+    _sampleTangentsCore(outIn, outOut, this.keyframes, 'eye', 'eyeTanIn', 'eyeTanOut', i);
+    return this;
+  }
+
+  /**
+   * Effective in/out center tangents at keyframe i. See PoseTrack.sampleTangents.
+   * @param {number[]} outIn
+   * @param {number[]} outOut
+   * @param {number} i
+   * @returns {CameraTrack} this
+   */
+  sampleCenterTangents(outIn, outOut, i) {
+    _sampleTangentsCore(outIn, outOut, this.keyframes, 'center', 'centerTanIn', 'centerTanOut', i);
+    return this;
+  }
+
+  /**
    * Evaluate interpolated camera pose at current cursor.
    *
    * @param {{ eye:number[], center:number[], up:number[] }} [out]
@@ -945,39 +1135,11 @@ export class CameraTrack extends Track {
     const k0   = this.keyframes[seg];
     const k1   = this.keyframes[seg + 1];
 
-    // eye — Hermite (auto-CR tangents when none stored), linear, or step
-    if (this.eyeInterp === 'step') {
-      out.eye[0]=k0.eye[0]; out.eye[1]=k0.eye[1]; out.eye[2]=k0.eye[2];
-    } else if (this.eyeInterp === 'linear') {
-      lerpVec3(out.eye, k0.eye, k1.eye, t);
-    } else {
-      const p0 = seg > 0      ? this.keyframes[seg - 1].eye : k0.eye;
-      const p3 = seg + 2 < n ? this.keyframes[seg + 2].eye  : k1.eye;
-      const m0 = k0.eyeTanOut != null ? k0.eyeTanOut
-               : k0.eyeTanIn  != null ? k0.eyeTanIn
-               : _crTanOut(_m0, p0, k0.eye, k1.eye, p3);
-      const m1 = k1.eyeTanIn  != null ? k1.eyeTanIn
-               : k1.eyeTanOut != null ? k1.eyeTanOut
-               : _crTanIn(_m1, p0, k0.eye, k1.eye, p3);
-      hermiteVec3(out.eye, k0.eye, m0, k1.eye, m1, t);
-    }
+    // eye — shared sampler
+    _samplePathCore(out.eye, this.keyframes, this.eyeInterp, 'eye', 'eyeTanIn', 'eyeTanOut', seg, t);
 
-    // center — Hermite, linear, or step (independent lookat target)
-    if (this.centerInterp === 'step') {
-      out.center[0]=k0.center[0]; out.center[1]=k0.center[1]; out.center[2]=k0.center[2];
-    } else if (this.centerInterp === 'hermite') {
-      const c0 = seg > 0      ? this.keyframes[seg - 1].center : k0.center;
-      const c3 = seg + 2 < n ? this.keyframes[seg + 2].center  : k1.center;
-      const m0 = k0.centerTanOut != null ? k0.centerTanOut
-               : k0.centerTanIn  != null ? k0.centerTanIn
-               : _crTanOut(_m0, c0, k0.center, k1.center, c3);
-      const m1 = k1.centerTanIn  != null ? k1.centerTanIn
-               : k1.centerTanOut != null ? k1.centerTanOut
-               : _crTanIn(_m1, c0, k0.center, k1.center, c3);
-      hermiteVec3(out.center, k0.center, m0, k1.center, m1, t);
-    } else {
-      lerpVec3(out.center, k0.center, k1.center, t);
-    }
+    // center — shared sampler
+    _samplePathCore(out.center, this.keyframes, this.centerInterp, 'center', 'centerTanIn', 'centerTanOut', seg, t);
 
     // up — nlerp on unit sphere
     lerpVec3(out.up, k0.up, k1.up, t);

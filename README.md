@@ -30,6 +30,10 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [Shader helpers](#shader-helpers)
     -   [Visibility testing](#visibility-testing)
 -   [Gizmos](#gizmos)
+    -   [axes](#axes)
+    -   [viewFrustum](#viewfrustum)
+    -   [hermite](#hermite)
+    -   [trackPath](#trackpath)
 -   [Releases](#releases)
 -   [Usage](#usage)
     -   [CDN](#cdn)
@@ -676,18 +680,63 @@ Returns `p5.Tree.VISIBLE` | `p5.Tree.SEMIVISIBLE` | `p5.Tree.INVISIBLE`.
 Scene-space diagnostic helpers — drawn to understand the scene, not to build it.
 
 ```js
-axes([{ size, bits, mat4Model, mat4Eye, mat4Proj, mat4View, mat4PV }])
+axes([{ size, bits, semantic }])
 grid([{ size, subdivisions }])
-bullsEye([{ size, shape }])
 cross([{ size }])
+bullsEye([{ size, shape }])
 viewFrustum({ pg, mat4Eye, mat4Proj, mat4View, bits, viewer })
+hermite(p0, m0, p1, m1, [{ samples }])
+trackPath(track, [{ bits, samples, size, tanScale, semantic }])
 ```
 
-`axes` bits: `p5.Tree.X`, `p5.Tree._X`, `p5.Tree.Y`, `p5.Tree._Y`, `p5.Tree.Z`, `p5.Tree._Z`, `p5.Tree.LABELS`.
-
-`viewFrustum` bits: `p5.Tree.NEAR`, `p5.Tree.FAR`, `p5.Tree.BODY`, `p5.Tree.APEX`.
-
 Matrix params accept `Float32Array(16)` | `ArrayLike` | `p5.Matrix` throughout.
+
+## axes
+
+`axes` colours X/Y/Z red/lime/blue by default. Pass `semantic: false` to have every axis and label use the ambient stroke instead — compose per-axis colouring by splitting into single-bit calls with your own `stroke()`:
+
+```js
+stroke('red');   axes({ bits: p5.Tree.X, semantic: false })
+stroke('lime');  axes({ bits: p5.Tree.Y, semantic: false })
+stroke('cyan');  axes({ bits: p5.Tree.Z, semantic: false })
+```
+
+Bits: `p5.Tree.X`, `p5.Tree._X`, `p5.Tree.Y`, `p5.Tree._Y`, `p5.Tree.Z`, `p5.Tree._Z`, `p5.Tree.LABELS`.
+
+## viewFrustum
+
+Draws the view frustum of a secondary renderer / camera into the current renderer. Bits: `p5.Tree.NEAR`, `p5.Tree.FAR`, `p5.Tree.BODY`, `p5.Tree.APEX`.
+
+## hermite
+
+A single cubic Hermite segment between `p0` and `p1` with explicit outgoing tangent `m0` at `p0` and incoming tangent `m1` at `p1`. Sampled at `samples` points (default 32) and stroked as a polyline.
+
+```js
+hermite([-150, 0, 0], [0, 200, 0], [150, 0, 0], [0, -200, 0])
+hermite(p0, m0, p1, m1, { samples: 64 })
+```
+
+## trackPath
+
+Visualises a `PoseTrack` or `CameraTrack`: sampled path polyline, keyframe markers (axes oriented by each keyframe's pose), control polygon, tangent arrows, and — for `CameraTrack` — eye→center lines and per-keyframe view frustums.
+
+Bits: `p5.Tree.PATH`, `p5.Tree.KEYFRAMES`, `p5.Tree.CONTROLS`, `p5.Tree.TANGENTS_IN`, `p5.Tree.TANGENTS_OUT`, `p5.Tree.TANGENTS` (both). `CameraTrack` only: `p5.Tree.CENTER`, `p5.Tree.LOOKAT`, `p5.Tree.FRUSTUMS`. Default bits: `PATH | KEYFRAMES`.
+
+All strokes come from the ambient `stroke(...)` state — multi-colour effects are composed by splitting the call, matching the `axes` / `viewFrustum` pattern:
+
+```js
+const { PATH, KEYFRAMES, CONTROLS, TANGENTS_IN, TANGENTS_OUT } = p5.Tree
+
+stroke(200);       trackPath(track, { bits: PATH })
+stroke(80);        trackPath(track, { bits: CONTROLS })
+stroke('cyan');    trackPath(track, { bits: TANGENTS_IN,  tanScale: 0.5 })
+stroke('magenta'); trackPath(track, { bits: TANGENTS_OUT, tanScale: 0.5 })
+trackPath(track, { bits: KEYFRAMES, size: 25 })
+```
+
+`size` controls the per-keyframe axes marker size; `tanScale` scales the drawn tangent arrows. The `semantic` flag is forwarded to the `KEYFRAMES` axes markers (same meaning as for `axes` — pass `false` when you want markers to follow the ambient stroke).
+
+`trackPath` reads the track's path through the zero-alloc samplers exposed by `@nakednous/tree` (`samplePos`, `sampleEye`, `sampleCenter`, `sampleTangents`, `sampleEyeTangents`, `sampleCenterTangents`). Users who want to render their own path visualisations can call those samplers directly — see the [core README](deps/tree/README.md#path-sampling).
 
 ---
 

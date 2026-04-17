@@ -166,6 +166,30 @@ For matrix-based capture use `track.add({ mat4Model: mat4Eye })` for full-fideli
 
 ---
 
+### Path sampling
+
+The interpolated path of a track can be sampled without advancing the transport cursor or firing hooks. All samplers are zero-alloc — the caller owns the output buffers — and honour the track's interpolation mode (`hermite` / `linear` / `step`) and the same stored-tangent → auto-CR fallback chain used by `eval()`.
+
+**`PoseTrack`:**
+
+```js
+track.samplePos(out, seg, t)            // interpolated pos at (seg, t ∈ [0, 1])
+track.sampleTangents(outIn, outOut, i)  // effective in/out tangents at keyframe i
+```
+
+**`CameraTrack`:**
+
+```js
+track.sampleEye(out, seg, t)
+track.sampleCenter(out, seg, t)
+track.sampleEyeTangents(outIn, outOut, i)
+track.sampleCenterTangents(outIn, outOut, i)
+```
+
+Tangent samplers mirror the missing side at boundary keyframes so the first and last keyframes produce visible tangent vectors. Intended uses: custom rendering of the path (polyline overlays, arclength-based placement), pedagogical visualisations of Hermite / Catmull-Rom, and gizmos — `p5.tree`'s `trackPath` is built on top of these.
+
+---
+
 ### Shared Track transport
 
 Both `PoseTrack` and `CameraTrack` extend `Track`, which holds all transport machinery:

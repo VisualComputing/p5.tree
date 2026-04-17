@@ -1,7 +1,15 @@
 /**
- * @file Gizmos — scene-space diagnostic helpers: axes, grid, cross, bullsEye, viewFrustum.
+ * @file Gizmos — scene-space diagnostic helpers.
  * @module p5.tree/gizmos
  * @license AGPL-3.0-only
+ *
+ * axes      — coordinate frame (X/Y/Z, optional labels)
+ * grid      — ground plane
+ * cross     — screen-space crosshair centred on current model origin
+ * bullsEye  — screen-space bulls-eye centred on current model origin
+ * viewFrustum — another renderer's view frustum drawn in this renderer
+ * hermite   — a single Hermite segment given endpoints and tangents
+ * trackPath — PoseTrack / CameraTrack path + keyframe markers + tangents + frustums
  *
  * Depends on p5.tree/hud (beginHUD / endHUD), p5.tree/matrix (mapLocation,
  * pixelRatio, p5.Tree constants), and p5.tree/visibility (computePlanes).
@@ -15,6 +23,9 @@
 import {
   projIsOrtho, projNear, projFar,
   projLeft, projRight, projTop, projBottom,
+  mat4Persp, mat4Ortho,
+  qFromLookDir, qToMat4,
+  hermiteVec3,
 } from '@nakednous/tree';
 
 import { getNdcZ } from './matrix.js';
@@ -27,6 +38,16 @@ const _sl  = new Float32Array(3);   // screen location (cross, bullsEye)
 const _wl  = new Float32Array(3);   // world location  (pixelRatio input)
 const _eye = new Float32Array(16);  // eye matrix scratch for viewFrustum
 
+// trackPath sample buffers (reused across segments / keyframes in one call)
+const _sp    = new Float32Array(3);   // sampled point (primary path)
+const _sp2   = new Float32Array(3);   // sampled point (center path)
+const _prev  = new Float32Array(3);   // previous sample (for line() polylines)
+const _tIn   = new Float32Array(3);   // tangent in
+const _tOut  = new Float32Array(3);   // tangent out
+const _kfEye = new Float32Array(16);  // per-keyframe eye matrix (FRUSTUMS)
+const _kfPrj = new Float32Array(16);  // per-keyframe proj matrix (FRUSTUMS)
+const _kfRot = [0,0,0,1];             // scratch quaternion
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Local p5 state accessors
 // ═══════════════════════════════════════════════════════════════════════════
@@ -35,6 +56,9 @@ const _rawMat4   = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
 const _projMat4  = (r) => r.states.uPMatrix.mat4;
 const _viewMat4  = (r) => r.states.curCamera.cameraMatrix.mat4;
 const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
+
+// Semantic axis colours — used when axes({ semantic: true }) is active.
+const _AXIS_COLORS = ['Red', 'Lime', 'DodgerBlue'];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Install
@@ -46,36 +70,58 @@ export function installGizmos(p5, fn) {
 
   fn.axes = function (opts) { this._renderer.axes(opts); return this; };
 
+  /**
+   * Draw a 3D coordinate frame at the current model origin.
+   *
+   * Colouring:
+   *   semantic: true  (default) — X red, Y lime, Z blue (matches universal
+   *                               3D convention; labels inherit axis colour).
+   *   semantic: false          — every axis and label uses ambient stroke
+   *                              (consistent with grid / cross / viewFrustum).
+   *
+   * Per-axis coloured variants are obtained by calling axes({ bits: ... })
+   * with a single bit and semantic: false, one stroke per call:
+   *
+   *   stroke('red');   axes({ bits: p5.Tree.X, semantic: false })
+   *   stroke('lime');  axes({ bits: p5.Tree.Y, semantic: false })
+   *   stroke('blue');  axes({ bits: p5.Tree.Z, semantic: false })
+   *
+   * @param {{ size?: number, semantic?: boolean, bits?: number }} [opts]
+   */
   p5.Renderer3D.prototype.axes = function ({
-    size   = 100,
-    colors = ['Red', 'Lime', 'DodgerBlue'],
-    bits   = p5.Tree.LABELS | p5.Tree.X | p5.Tree.Y | p5.Tree.Z
+    size     = 100,
+    semantic = true,
+    bits     = p5.Tree.LABELS | p5.Tree.X | p5.Tree.Y | p5.Tree.Z
   } = {}) {
     const p = this._pInst;
     if (!p) return;
+
+    // When semantic, pick axis colour; otherwise no-op (ambient stroke drives).
+    const setAxis = semantic ? (i) => p.stroke(_AXIS_COLORS[i]) : (_i) => {};
+
     p.push();
     if ((bits & p5.Tree.LABELS) !== 0) {
       const cw = size/40, ch = size/30, cs = 1.04*size;
-      p.stroke(colors[0 % colors.length]);
+      setAxis(0);
       p.line(cs,  cw, -ch, cs, -cw,  ch);
       p.line(cs, -cw, -ch, cs,  cw,  ch);
-      p.stroke(colors[1 % colors.length]);
+      setAxis(1);
       p.line( cw, cs,  ch,  0, cs,   0);
       p.line(  0, cs,   0, -cw, cs,  ch);
       p.line(-cw, cs,  ch,  0, cs,   0);
       p.line(  0, cs,   0,  0, cs, -ch);
-      p.stroke(colors[2 % colors.length]);
+      setAxis(2);
       p.line(-cw, -ch, cs,  cw, -ch, cs);
       p.line( cw, -ch, cs, -cw,  ch, cs);
       p.line(-cw,  ch, cs,  cw,  ch, cs);
     }
-    p.stroke(colors[0 % colors.length]);
+    setAxis(0);
     (bits & p5.Tree.X)  !== 0 && p.line(0,0,0,  size,0,0);
     (bits & p5.Tree._X) !== 0 && p.line(0,0,0, -size,0,0);
-    p.stroke(colors[1 % colors.length]);
+    setAxis(1);
     (bits & p5.Tree.Y)  !== 0 && p.line(0,0,0, 0, size,0);
     (bits & p5.Tree._Y) !== 0 && p.line(0,0,0, 0,-size,0);
-    p.stroke(colors[2 % colors.length]);
+    setAxis(2);
     (bits & p5.Tree.Z)  !== 0 && p.line(0,0,0, 0,0, size);
     (bits & p5.Tree._Z) !== 0 && p.line(0,0,0, 0,0,-size);
     p.pop();
@@ -253,7 +299,7 @@ export function installGizmos(p5, fn) {
     const apex    = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
     const n = -projNear(pRaw, ndcZ), f = -projFar(pRaw);
     const l =  projLeft(pRaw, ndcZ),  r = projRight(pRaw, ndcZ);
-    const t = projTop(pRaw, ndcZ);   // geometric top, positive → draws at screen-top via 3D pipeline
+    const t = projTop(pRaw, ndcZ);
     const b = projBottom(pRaw, ndcZ);
     const ratio = isOrtho ? 1 : f/n;
     const _l=ratio*l, _r=ratio*r, _b=ratio*b, _t=ratio*t;
@@ -296,5 +342,293 @@ export function installGizmos(p5, fn) {
 
     uView.set(prevView);
     p.pop();
+  };
+
+  // ── Hermite — atomic spline primitive ─────────────────────────────────────
+
+  fn.hermite = function (p0, m0, p1, m1, opts) {
+    this._renderer.hermite(p0, m0, p1, m1, opts);
+    return this;
+  };
+
+  /**
+   * Draw one cubic Hermite segment between two endpoints with explicit tangents.
+   *
+   * Pedagogical primitive for the splines chapter: pass p0, p1, and their
+   * in/out tangent vectors m0 (outgoing at p0) and m1 (incoming at p1); the
+   * curve is sampled at `samples` points and drawn as a polyline using the
+   * ambient stroke state.
+   *
+   *   hermite([0,0,0], [100,0,0], [200,0,0], [0,100,0])
+   *   hermite(p0, m0, p1, m1, { samples: 64 })
+   *
+   * trackPath uses hermite internally for each segment in Hermite mode.
+   *
+   * @param {number[]} p0  Segment start — [x,y,z].
+   * @param {number[]} m0  Outgoing tangent at p0.
+   * @param {number[]} p1  Segment end — [x,y,z].
+   * @param {number[]} m1  Incoming tangent at p1.
+   * @param {{ samples?: number }} [opts]
+   */
+  p5.Renderer3D.prototype.hermite = function (p0, m0, p1, m1, { samples = 32 } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+    const N = Math.max(2, samples | 0);
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      hermiteVec3(_sp, p0, m0, p1, m1, t);
+      if (i > 0) p.line(_prev[0], _prev[1], _prev[2], _sp[0], _sp[1], _sp[2]);
+      _prev[0] = _sp[0]; _prev[1] = _sp[1]; _prev[2] = _sp[2];
+    }
+  };
+
+  // ── trackPath ─────────────────────────────────────────────────────────────
+
+  fn.trackPath = function (track, opts) {
+    this._renderer.trackPath(track, opts);
+    return this;
+  };
+
+  /**
+   * Draw a PoseTrack or CameraTrack's path, keyframe markers, tangents,
+   * control polygon, lookat lines, and/or per-keyframe view frustums.
+   *
+   * Dispatches on track type (duck-checks keyframes[0].eye).  Bits that do not
+   * apply to a given track type are silently ignored (FRUSTUMS / LOOKAT /
+   * CENTER on PoseTrack; none extra on CameraTrack).
+   *
+   * All strokes come from the ambient `stroke(...)` state.  Multi-colour
+   * effects are achieved by splitting into multiple calls with different
+   * strokes per bit — exactly the same pattern as axes / viewFrustum:
+   *
+   *   const { PATH, KEYFRAMES, CONTROLS, TANGENTS_IN, TANGENTS_OUT } = p5.Tree
+   *
+   *   stroke(200);       trackPath(track, { bits: PATH | KEYFRAMES })
+   *   stroke(80);        trackPath(track, { bits: CONTROLS })
+   *   stroke('cyan');    trackPath(track, { bits: TANGENTS_IN })
+   *   stroke('magenta'); trackPath(track, { bits: TANGENTS_OUT })
+   *
+   * Keyframe markers are small axes gizmos oriented by each keyframe's
+   * rotation (PoseTrack) or lookat basis (CameraTrack).  Their colouring
+   * follows axes({ semantic }) — pass `semantic: false` to suppress
+   * red/lime/blue when mixing the marker with a monochrome scheme.
+   *
+   * @param {PoseTrack|CameraTrack} track
+   * @param {{
+   *   bits?:     number,     // default PATH | KEYFRAMES
+   *   samples?:  number,     // samples per segment (default 32)
+   *   size?:     number,     // axes marker size (default 30)
+   *   tanScale?: number,     // tangent arrow scale factor (default 1.0)
+   *   semantic?: boolean,    // propagate semantic-colour flag to axes markers
+   * }} [opts]
+   */
+  p5.Renderer3D.prototype.trackPath = function (track, {
+    bits     = p5.Tree.PATH | p5.Tree.KEYFRAMES,
+    samples  = 32,
+    size     = 30,
+    tanScale = 1.0,
+    semantic = true,
+  } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+    if (!track || !Array.isArray(track.keyframes)) return;
+    const kfs = track.keyframes;
+    const n   = kfs.length;
+    if (n === 0) return;
+
+    const isCameraTrack = (typeof track.sampleEye === 'function')
+                       || (n > 0 && kfs[0].eye !== undefined);
+    const N = Math.max(2, samples | 0);
+
+    // Clamp or soften bits that do not apply.
+    const hasPath       = (bits & p5.Tree.PATH)         !== 0;
+    const hasCenter     = isCameraTrack && (bits & p5.Tree.CENTER)     !== 0;
+    const hasKeyframes  = (bits & p5.Tree.KEYFRAMES)    !== 0;
+    const hasControls   = (bits & p5.Tree.CONTROLS)     !== 0;
+    const hasTangentsIn = (bits & p5.Tree.TANGENTS_IN)  !== 0;
+    const hasTangentsOut= (bits & p5.Tree.TANGENTS_OUT) !== 0;
+    const hasLookat     = isCameraTrack && (bits & p5.Tree.LOOKAT)   !== 0;
+    const hasFrustums   = isCameraTrack && (bits & p5.Tree.FRUSTUMS) !== 0;
+
+    // ── PATH: primary sampled polyline (pos or eye) ──────────────────────
+    if (hasPath && n >= 1) {
+      if (n === 1) {
+        const pt = isCameraTrack ? kfs[0].eye : kfs[0].pos;
+        p.point(pt[0], pt[1], pt[2]);
+      } else {
+        let first = true;
+        for (let seg = 0; seg < n - 1; seg++) {
+          // include segment endpoint only on last segment to avoid duplication
+          const end = (seg === n - 2) ? N : N - 1;
+          for (let i = 0; i <= end; i++) {
+            const t = i / N;
+            if (isCameraTrack) track.sampleEye(_sp, seg, t);
+            else               track.samplePos(_sp, seg, t);
+            if (!first) p.line(_prev[0], _prev[1], _prev[2], _sp[0], _sp[1], _sp[2]);
+            _prev[0] = _sp[0]; _prev[1] = _sp[1]; _prev[2] = _sp[2];
+            first = false;
+          }
+        }
+      }
+    }
+
+    // ── CENTER: secondary sampled polyline (CameraTrack only) ────────────
+    if (hasCenter && n >= 1) {
+      if (n === 1) {
+        const pt = kfs[0].center;
+        p.point(pt[0], pt[1], pt[2]);
+      } else {
+        let first = true;
+        for (let seg = 0; seg < n - 1; seg++) {
+          const end = (seg === n - 2) ? N : N - 1;
+          for (let i = 0; i <= end; i++) {
+            const t = i / N;
+            track.sampleCenter(_sp2, seg, t);
+            if (!first) p.line(_prev[0], _prev[1], _prev[2], _sp2[0], _sp2[1], _sp2[2]);
+            _prev[0] = _sp2[0]; _prev[1] = _sp2[1]; _prev[2] = _sp2[2];
+            first = false;
+          }
+        }
+      }
+    }
+
+    // ── CONTROLS: straight control polygon between adjacent keyframes ────
+    if (hasControls && n >= 2) {
+      const field = isCameraTrack ? 'eye' : 'pos';
+      for (let i = 0; i < n - 1; i++) {
+        const a = kfs[i][field], b = kfs[i + 1][field];
+        p.line(a[0], a[1], a[2], b[0], b[1], b[2]);
+      }
+      if (isCameraTrack && hasCenter) {
+        // matching center control polygon when CENTER is on
+        for (let i = 0; i < n - 1; i++) {
+          const a = kfs[i].center, b = kfs[i + 1].center;
+          p.line(a[0], a[1], a[2], b[0], b[1], b[2]);
+        }
+      }
+    }
+
+    // ── TANGENTS_IN / TANGENTS_OUT: arrows at each keyframe ──────────────
+    if ((hasTangentsIn || hasTangentsOut) && n >= 1) {
+      const sampleTangents = isCameraTrack
+        ? (i) => track.sampleEyeTangents(_tIn, _tOut, i)
+        : (i) => track.sampleTangents(_tIn, _tOut, i);
+      const field = isCameraTrack ? 'eye' : 'pos';
+      for (let i = 0; i < n; i++) {
+        sampleTangents(i);
+        const kp = kfs[i][field];
+        if (hasTangentsIn) {
+          p.line(kp[0] - _tIn[0] * tanScale,
+                 kp[1] - _tIn[1] * tanScale,
+                 kp[2] - _tIn[2] * tanScale,
+                 kp[0], kp[1], kp[2]);
+        }
+        if (hasTangentsOut) {
+          p.line(kp[0], kp[1], kp[2],
+                 kp[0] + _tOut[0] * tanScale,
+                 kp[1] + _tOut[1] * tanScale,
+                 kp[2] + _tOut[2] * tanScale);
+        }
+      }
+
+      if (isCameraTrack && hasCenter) {
+        // matching center tangents when CENTER is on
+        for (let i = 0; i < n; i++) {
+          track.sampleCenterTangents(_tIn, _tOut, i);
+          const kp = kfs[i].center;
+          if (hasTangentsIn) {
+            p.line(kp[0] - _tIn[0] * tanScale,
+                   kp[1] - _tIn[1] * tanScale,
+                   kp[2] - _tIn[2] * tanScale,
+                   kp[0], kp[1], kp[2]);
+          }
+          if (hasTangentsOut) {
+            p.line(kp[0], kp[1], kp[2],
+                   kp[0] + _tOut[0] * tanScale,
+                   kp[1] + _tOut[1] * tanScale,
+                   kp[2] + _tOut[2] * tanScale);
+          }
+        }
+      }
+    }
+
+    // ── LOOKAT (camera only): eye→center line per keyframe ───────────────
+    if (hasLookat) {
+      for (let i = 0; i < n; i++) {
+        const e = kfs[i].eye, c = kfs[i].center;
+        p.line(e[0], e[1], e[2], c[0], c[1], c[2]);
+      }
+    }
+
+    // ── KEYFRAMES: axes marker oriented by keyframe pose ─────────────────
+    if (hasKeyframes) {
+      const markerBits = p5.Tree.X | p5.Tree.Y | p5.Tree.Z;  // no negatives, no labels
+      if (isCameraTrack) {
+        for (let i = 0; i < n; i++) {
+          const e = kfs[i].eye, c = kfs[i].center, u = kfs[i].up;
+          // Forward = (center - eye); qFromLookDir sends -Z to `dir`, so after
+          // rotation -Z points from eye to center — matches OpenGL camera
+          // convention where the camera looks down -Z in its own frame.
+          const dx = c[0]-e[0], dy = c[1]-e[1], dz = c[2]-e[2];
+          qFromLookDir(_kfRot, [dx, dy, dz], u);
+          p.push();
+          p.translate(e[0], e[1], e[2]);
+          this.rotateQuat(_kfRot);
+          this.axes({ size, semantic, bits: markerBits });
+          p.pop();
+        }
+      } else {
+        for (let i = 0; i < n; i++) {
+          const po = kfs[i].pos, r = kfs[i].rot;
+          p.push();
+          p.translate(po[0], po[1], po[2]);
+          this.rotateQuat(r);
+          this.axes({ size, semantic, bits: markerBits });
+          p.pop();
+        }
+      }
+    }
+
+    // ── FRUSTUMS (camera only): tiny viewFrustum at each keyframe ────────
+    if (hasFrustums) {
+      // Aspect from current canvas; near/far from current camera's projection.
+      const curProj = _projMat4(this);
+      const ndcZ    = getNdcZ();
+      const near    = projNear(curProj, ndcZ);
+      const far     = projFar(curProj);
+      const aspect  = (this.width && this.height) ? (this.width / this.height) : 1;
+
+      for (let i = 0; i < n; i++) {
+        const k = kfs[i];
+        // Build eye matrix from (eye, center, up).
+        const dx = k.center[0]-k.eye[0], dy = k.center[1]-k.eye[1], dz = k.center[2]-k.eye[2];
+        qFromLookDir(_kfRot, [dx, dy, dz], k.up);
+        qToMat4(_kfEye, _kfRot);
+        _kfEye[12] = k.eye[0]; _kfEye[13] = k.eye[1]; _kfEye[14] = k.eye[2];
+
+        // Build per-keyframe projection from fov or halfHeight + current near/far.
+        let hasProj = false;
+        if (k.fov != null) {
+          const hh = near * Math.tan(k.fov * 0.5);
+          const hw = hh * aspect;
+          mat4Persp(_kfPrj, -hw, hw, -hh, hh, near, far);
+          hasProj = true;
+        } else if (k.halfHeight != null) {
+          const hh = k.halfHeight;
+          const hw = hh * aspect;
+          mat4Ortho(_kfPrj, -hw, hw, -hh, hh, near, far);
+          hasProj = true;
+        }
+
+        if (hasProj) {
+          this.viewFrustum({
+            mat4Eye:  _kfEye,
+            mat4Proj: _kfPrj,
+            bits:     p5.Tree.NEAR | p5.Tree.FAR,
+            viewer:   () => {}   // keyframe axes already drawn by KEYFRAMES
+          });
+        }
+      }
+    }
   };
 }

@@ -39,6 +39,12 @@ export function installConstants(p5) {
     _k: CONST(C._k),
 
     // ── Addon-only constants (drawing / frustum bits) ─────────────────────
+    //
+    // Bit namespaces are gizmo-local: the same numeric value carries different
+    // meanings to different gizmos.  Users pass each gizmo its own bit set and
+    // never mix them.  This keeps the constant list short and predictable.
+
+    // axes bits
     X:      CONST(1 << 0),
     _X:     CONST(1 << 1),
     Y:      CONST(1 << 2),
@@ -47,9 +53,11 @@ export function installConstants(p5) {
     _Z:     CONST(1 << 5),
     LABELS: CONST(1 << 6),
 
+    // bullsEye shape
     CIRCLE: CONST(0),
     SQUARE: CONST(1),
 
+    // viewFrustum bits
     NEAR:   CONST(1 << 0),
     FAR:    CONST(1 << 1),
     LEFT:   CONST(1 << 2),
@@ -58,5 +66,16 @@ export function installConstants(p5) {
     TOP:    CONST(1 << 5),
     BODY:   CONST(1 << 6),
     APEX:   CONST(1 << 7),
+
+    // trackPath bits
+    PATH:         CONST(1 << 0),   // both — sampled polyline (pos / eye)
+    CENTER:       CONST(1 << 1),   // camera only — additional center-path polyline
+    KEYFRAMES:    CONST(1 << 2),   // both — markers (axes oriented by keyframe)
+    CONTROLS:     CONST(1 << 3),   // both — straight control polygon
+    TANGENTS_IN:  CONST(1 << 4),   // both — incoming tangent arrows at keyframes
+    TANGENTS_OUT: CONST(1 << 5),   // both — outgoing tangent arrows at keyframes
+    TANGENTS:     CONST((1 << 4) | (1 << 5)),  // convenience: TANGENTS_IN | TANGENTS_OUT
+    LOOKAT:       CONST(1 << 6),   // camera only — eye→center line at each keyframe
+    FRUSTUMS:     CONST(1 << 7),   // camera only — tiny viewFrustum per keyframe
   });
 }
