@@ -119,7 +119,7 @@ track.rotInterp = 'nlerp'    // faster, slightly non-constant speed
 track.rotInterp = 'step'     // snap to k0 quaternion
 ```
 
-`eval(out)` writes into a pre-allocated buffer — zero heap allocation per frame. Use `toMatrix(outMat4)` to evaluate directly into a column-major mat4.
+`eval(out)` writes into a pre-allocated buffer — zero heap allocation per frame. Use `mat4Model(outMat4)` to evaluate directly into a column-major mat4.
 
 ## CameraTrack — camera keyframe paths
 
@@ -686,7 +686,7 @@ cross([{ size }])
 bullsEye([{ size, shape }])
 viewFrustum({ pg, mat4Eye, mat4Proj, mat4View, bits, viewer })
 hermite(p0, m0, p1, m1, [{ samples }])
-trackPath(track, [{ bits, samples, size, tanScale, semantic }])
+trackPath(track, [{ bits, samples, marker }])
 ```
 
 Matrix params accept `Float32Array(16)` | `ArrayLike` | `p5.Matrix` throughout.
@@ -718,25 +718,82 @@ hermite(p0, m0, p1, m1, { samples: 64 })
 
 ## trackPath
 
-Visualises a `PoseTrack` or `CameraTrack`: sampled path polyline, keyframe markers (axes oriented by each keyframe's pose), control polygon, tangent arrows, and — for `CameraTrack` — eye→center lines and per-keyframe view frustums.
+Visualises a `PoseTrack` or `CameraTrack`: sampled path polyline, control polygon, tangent arrows, and a user-supplied per-keyframe **marker callback**.
 
-Bits: `p5.Tree.PATH`, `p5.Tree.KEYFRAMES`, `p5.Tree.CONTROLS`, `p5.Tree.TANGENTS_IN`, `p5.Tree.TANGENTS_OUT`, `p5.Tree.TANGENTS` (both). `CameraTrack` only: `p5.Tree.CENTER`, `p5.Tree.LOOKAT`, `p5.Tree.FRUSTUMS`. Default bits: `PATH | KEYFRAMES`.
+Bits: `p5.Tree.PATH`, `p5.Tree.CONTROLS`, `p5.Tree.TANGENTS_IN`, `p5.Tree.TANGENTS_OUT`, `p5.Tree.TANGENTS` (both). `CameraTrack` only: `p5.Tree.CENTER` (secondary polyline through the interpolated lookat targets). Default bits: `PATH`.
 
 All strokes come from the ambient `stroke(...)` state — multi-colour effects are composed by splitting the call, matching the `axes` / `viewFrustum` pattern:
 
 ```js
-const { PATH, KEYFRAMES, CONTROLS, TANGENTS_IN, TANGENTS_OUT } = p5.Tree
+const { PATH, CONTROLS, TANGENTS_IN, TANGENTS_OUT } = p5.Tree
 
 stroke(200);       trackPath(track, { bits: PATH })
-stroke(80);        trackPath(track, { bits: CONTROLS })
-stroke('cyan');    trackPath(track, { bits: TANGENTS_IN,  tanScale: 0.5 })
-stroke('magenta'); trackPath(track, { bits: TANGENTS_OUT, tanScale: 0.5 })
-trackPath(track, { bits: KEYFRAMES, size: 25 })
+stroke(80);        trackPath(track, { bits: CONTROLS, marker: null })
+stroke('cyan');    trackPath(track, { bits: TANGENTS_IN,  marker: null })
+stroke('magenta'); trackPath(track, { bits: TANGENTS_OUT, marker: null })
 ```
 
-`size` controls the per-keyframe axes marker size; `tanScale` scales the drawn tangent arrows. The `semantic` flag is forwarded to the `KEYFRAMES` axes markers (same meaning as for `axes` — pass `false` when you want markers to follow the ambient stroke).
+### marker
 
-`trackPath` reads the track's path through the zero-alloc samplers exposed by `@nakednous/tree` (`samplePos`, `sampleEye`, `sampleCenter`, `sampleTangents`, `sampleEyeTangents`, `sampleCenterTangents`). Users who want to render their own path visualisations can call those samplers directly — see the [core README](deps/tree/README.md#path-sampling).
+`trackPath` calls `marker(kf, index, track, ctx)` once per keyframe, where
+
+* `kf`     — the keyframe object (`{pos, rot, scl, ...}` for `PoseTrack`, `{eye, center, up, fov?, halfHeight?, ...}` for `CameraTrack`)
+* `index`  — keyframe index
+* `track`  — the track being drawn
+* `ctx`    — `{ near, far, aspect, ndcZMin }`, read from the current renderer projection
+
+The gizmo does **not** pre-translate or rotate before calling `marker` — markers are responsible for positioning themselves. This keeps the signature uniform across track types and avoids hidden matrix-stack ceremony. Markers that need matrices at path points reach into the track samplers directly (`track.mat4Model`, `track.mat4Eye`). Projection matrices are built from each keyframe's raw scalars (`kf.fov` or `kf.halfHeight`) via the free `mat4Persp` / `mat4Ortho` constructors.
+
+Defaults (when `marker` is not supplied):
+
+* `PoseTrack`   — draws all six axes (length 30) oriented by each keyframe's pose.
+* `CameraTrack` — draws the keyframe's view frustum (`NEAR | FAR`) using `track.mat4Eye(_, i, 0)` and a projection matrix constructed inline from `kf.fov` or `kf.halfHeight` with `ctx.near` / `ctx.far` / `ctx.aspect` / `ctx.ndcZMin`. If the keyframe carries neither `fov` nor `halfHeight`, the marker draws nothing.
+
+Pass `marker: null` to suppress per-keyframe markers (useful when layering strokes across multiple `trackPath` calls).
+
+Example of a custom marker:
+
+```js
+// PoseTrack — draw a small box oriented by each keyframe's pose
+trackPath(poseTrack, {
+  marker: (kf) => {
+    push()
+    translate(kf.pos[0], kf.pos[1], kf.pos[2])
+    rotateQuat(kf.rot)
+    noFill()
+    box(25)
+    pop()
+  }
+})
+
+// CameraTrack — frustum with a shorter visualization far plane
+const kfEye = new Float32Array(16)
+const kfPrj = new Float32Array(16)
+trackPath(camTrack, {
+  marker: (kf, i, track, ctx) => {
+    track.mat4Eye(kfEye, i, 0)
+    let prj = null
+    if (kf.fov != null) {
+      const hh = ctx.near * Math.tan(kf.fov * 0.5), hw = hh * ctx.aspect
+      prj = mat4Persp(kfPrj, -hw, hw, -hh, hh, ctx.near, 250, ctx.ndcZMin)
+    } else if (kf.halfHeight != null) {
+      const hh = kf.halfHeight, hw = hh * ctx.aspect
+      prj = mat4Ortho(kfPrj, -hw, hw, -hh, hh, ctx.near, 250, ctx.ndcZMin)
+    }
+    if (!prj) return
+    viewFrustum({
+      mat4Eye:  kfEye,
+      mat4Proj: kfPrj,
+      bits:     p5.Tree.NEAR | p5.Tree.FAR,
+      viewer:   () => {},
+    })
+  },
+})
+```
+
+### samplers
+
+`trackPath` reads the track's path through the zero-alloc samplers exposed by `@nakednous/tree`. The continuous family (`samplePos`, `sampleEye`, `sampleCenter`, `mat4Model`, `mat4Eye`) accepts both cursor and explicit `(seg, t)` forms; tangent samplers (`tangents`, `eyeTangents`, `centerTangents`) are keyframe-indexed. Projection matrices are not a track method — each `CameraTrack` keyframe stores `fov` or `halfHeight` directly on `track.keyframes[i]`, and callers build projections from those scalars with `mat4Persp` / `mat4Ortho`. See the [core README](deps/tree/README.md#path-sampling).
 
 ---
 

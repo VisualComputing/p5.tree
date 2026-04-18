@@ -170,23 +170,77 @@ For matrix-based capture use `track.add({ mat4Model: mat4Eye })` for full-fideli
 
 The interpolated path of a track can be sampled without advancing the transport cursor or firing hooks. All samplers are zero-alloc — the caller owns the output buffers — and honour the track's interpolation mode (`hermite` / `linear` / `step`) and the same stored-tangent → auto-CR fallback chain used by `eval()`.
 
+Two shapes of method, each playing a different role:
+
+* **Continuous samplers** — evaluate a path-evolving quantity at any point along the path. Accept either a cursor form (reads `track.seg` / `track.f`) or an explicit `(seg, t)` form, with `seg ∈ [0, segments−1]` and `t ∈ [0, 1]` local to that segment.
+* **Keyframe-indexed queries** — give a property of a specific keyframe. Tangents at a junction, or the per-keyframe projection matrix.
+
 **`PoseTrack`:**
 
 ```js
-track.samplePos(out, seg, t)            // interpolated pos at (seg, t ∈ [0, 1])
-track.sampleTangents(outIn, outOut, i)  // effective in/out tangents at keyframe i
+track.samplePos(out)                  // cursor form
+track.samplePos(out, seg, t)          // explicit
+
+track.mat4Model(out)                  // cursor form — TRS as model mat4
+track.mat4Model(out, seg, t)          // explicit
+
+track.tangents(outIn, outOut, i)      // effective in/out pos-tangents at keyframe i
 ```
 
 **`CameraTrack`:**
 
 ```js
-track.sampleEye(out, seg, t)
-track.sampleCenter(out, seg, t)
-track.sampleEyeTangents(outIn, outOut, i)
-track.sampleCenterTangents(outIn, outOut, i)
+track.sampleEye(out)                  track.sampleEye(out, seg, t)
+track.sampleCenter(out)               track.sampleCenter(out, seg, t)
+
+track.mat4Eye(out)                    // cursor form — lookat eye matrix
+track.mat4Eye(out, seg, t)            // explicit
+
+track.eyeTangents(outIn, outOut, i)
+track.centerTangents(outIn, outOut, i)
 ```
 
-Tangent samplers mirror the missing side at boundary keyframes so the first and last keyframes produce visible tangent vectors. Intended uses: custom rendering of the path (polyline overlays, arclength-based placement), pedagogical visualisations of Hermite / Catmull-Rom, and gizmos — `p5.tree`'s `trackPath` is built on top of these.
+Tangent samplers mirror the missing side at boundary keyframes so the first and last keyframes produce visible tangent vectors.
+
+**Projection matrices are not a track method.** Each `CameraTrack` keyframe stores `fov` (perspective) or `halfHeight` (orthographic) as a raw scalar on `track.keyframes[i]` — callers wanting a projection build one from those scalars using `mat4Persp` / `mat4Ortho` directly:
+
+```js
+const kf = track.keyframes[i]
+if (kf.fov != null) {
+  const hh = near * Math.tan(kf.fov * 0.5), hw = hh * aspect
+  mat4Persp(out, -hw, hw, -hh, hh, near, far, ndcZMin)
+} else if (kf.halfHeight != null) {
+  const hh = kf.halfHeight, hw = hh * aspect
+  mat4Ortho(out, -hw, hw, -hh, hh, near, far, ndcZMin)
+}
+```
+
+Animated `fov` or `halfHeight` in sketches flows through the bridge's camera-binding: `p5.tree` reads `eval().fov` / `eval().halfHeight` each frame and calls `cam.perspective()` / `cam.ortho()` accordingly — none of this touches matrix construction.
+
+Callers who want an interpolated projection matrix at mid-segment `(seg, t)` lerp the raw scalars from adjacent keyframes before building:
+
+```js
+import { mat4Persp, mat4Ortho } from '@nakednous/tree'
+
+function mat4ProjAt(out, track, seg, t, near, far, aspect, ndcZMin, ndcYSign = 1) {
+  const k0 = track.keyframes[seg]
+  const k1 = track.keyframes[seg + 1] ?? k0
+
+  if (k0.fov != null && k1.fov != null) {
+    const fov = k0.fov + t * (k1.fov - k0.fov)
+    const hh = near * Math.tan(fov * 0.5), hw = hh * aspect
+    return mat4Persp(out, -hw, hw, -hh, hh, near, far, ndcZMin, ndcYSign)
+  }
+  if (k0.halfHeight != null && k1.halfHeight != null) {
+    const hh = k0.halfHeight + t * (k1.halfHeight - k0.halfHeight)
+    const hw = hh * aspect
+    return mat4Ortho(out, -hw, hw, -hh, hh, near, far, ndcZMin, ndcYSign)
+  }
+  return null
+}
+```
+
+Intended uses of the samplers: custom rendering of the path (polyline overlays, arclength-based placement), pedagogical visualisations of Hermite / Catmull-Rom, and gizmos — `p5.tree`'s `trackPath` is built on top of these.
 
 ---
 

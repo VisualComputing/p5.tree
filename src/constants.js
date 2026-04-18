@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.38'),
+    VERSION: CONST('0.0.39'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)
@@ -38,11 +38,11 @@ export function installConstants(p5) {
     _j: CONST(C._j),
     _k: CONST(C._k),
 
-    // ── Addon-only constants (drawing / frustum bits) ─────────────────────
+    // ── Addon-only constants (drawing / frustum / trackPath bits) ─────────
     //
     // Bit namespaces are gizmo-local: the same numeric value carries different
     // meanings to different gizmos.  Users pass each gizmo its own bit set and
-    // never mix them.  This keeps the constant list short and predictable.
+    // never mix them across gizmos.
 
     // axes bits
     X:      CONST(1 << 0),
@@ -68,14 +68,11 @@ export function installConstants(p5) {
     APEX:   CONST(1 << 7),
 
     // trackPath bits
-    PATH:         CONST(1 << 0),   // both — sampled polyline (pos / eye)
-    CENTER:       CONST(1 << 1),   // camera only — additional center-path polyline
-    KEYFRAMES:    CONST(1 << 2),   // both — markers (axes oriented by keyframe)
-    CONTROLS:     CONST(1 << 3),   // both — straight control polygon
-    TANGENTS_IN:  CONST(1 << 4),   // both — incoming tangent arrows at keyframes
-    TANGENTS_OUT: CONST(1 << 5),   // both — outgoing tangent arrows at keyframes
-    TANGENTS:     CONST((1 << 4) | (1 << 5)),  // convenience: TANGENTS_IN | TANGENTS_OUT
-    LOOKAT:       CONST(1 << 6),   // camera only — eye→center line at each keyframe
-    FRUSTUMS:     CONST(1 << 7),   // camera only — tiny viewFrustum per keyframe
+    PATH:         CONST(1 << 0),   // both   — sampled polyline (pos / eye)
+    CENTER:       CONST(1 << 1),   // camera — additional center-path polyline
+    CONTROLS:     CONST(1 << 2),   // both   — straight control polygon
+    TANGENTS_IN:  CONST(1 << 3),   // both   — incoming tangent arrows at keyframes
+    TANGENTS_OUT: CONST(1 << 4),   // both   — outgoing tangent arrows at keyframes
+    TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience
   });
 }

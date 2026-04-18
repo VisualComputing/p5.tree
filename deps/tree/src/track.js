@@ -3,15 +3,15 @@
  * @module tree/track
  * @license AGPL-3.0-only
  *
- * Quaternion algebra is provided by quat.js — this module imports and uses
- * it but does not define it. Spline helpers (hermiteVec3, lerpVec3) and
- * TRS↔mat4 conversions (transformToMat4, mat4ToTransform) remain here
- * because they are tightly coupled to the PoseTrack keyframe shape.
+ * Quaternion algebra is provided by quat.js; projection matrix construction
+ * by form.js. Spline helpers (hermiteVec3, lerpVec3) and TRS↔mat4 conversions
+ * (transformToMat4, mat4ToTransform) live here because they are tightly
+ * coupled to the PoseTrack keyframe shape.
  *
  * Zero dependencies on p5, DOM, WebGL, or WebGPU.
  *
- * ── Exports ──────────────────────────────────────────────────────────────────
- *  Quaternion helpers  (re-exported from quat.js)
+ * ── Exports ──────────────────────────────────────────────────────────────
+ *  Quaternion helpers   (re-exported from quat.js)
  *    qSet qCopy qDot qNormalize qNegate qMul qSlerp qNlerp
  *    qFromAxisAngle qFromLookDir qFromRotMat3x3 qFromMat4 qToMat4
  *    qToAxisAngle
@@ -21,41 +21,64 @@
  *    transformToMat4  mat4ToTransform
  *  Tracks
  *    PoseTrack    — { pos, rot, scl } TRS keyframes
- *    CameraTrack  — { eye, center, up } lookat keyframes
+ *    CameraTrack  — { eye, center, up, fov?, halfHeight? } lookat keyframes
  *
- * ── Class hierarchy ───────────────────────────────────────────────────────────
+ * ── Public path access (all zero-alloc, no cursor side effects) ──────────
+ *  PoseTrack
+ *    samplePos        (out)  |  (out, seg, t)              vec3
+ *    mat4Model        (out)  |  (out, seg, t)              mat4  — TRS model
+ *    tangents         (outIn, outOut, index)               vec3 × 2 at keyframe
+ *    eval             (out?)                               TRS object at cursor
+ *
+ *  CameraTrack
+ *    sampleEye        (out)  |  (out, seg, t)              vec3
+ *    sampleCenter     (out)  |  (out, seg, t)              vec3
+ *    mat4Eye          (out)  |  (out, seg, t)              mat4  — lookat frame
+ *    eyeTangents      (outIn, outOut, index)               vec3 × 2 at keyframe
+ *    centerTangents   (outIn, outOut, index)               vec3 × 2 at keyframe
+ *    eval             (out?)                               { eye, center, up,
+ *                                                            fov, halfHeight }
+ *
+ *  Two arities for the continuous family:
+ *    (out)          cursor form — reads track.seg / track.f. Useful when the
+ *                   track's own transport is driving the animation.
+ *    (out, seg, t)  explicit form — continuous (seg, t) coordinate, no cursor
+ *                   side effects. seg ∈ [0, segments−1] integer, t ∈ [0, 1]
+ *                   local to that segment. As a convenience, seg === segments
+ *                   is accepted and rewritten to (segments−1, 1) — so the
+ *                   idiom sampleX(out, i, 0) uniformly addresses keyframe i
+ *                   for every i ∈ [0, keyframes.length−1].
+ *
+ *  All honour the track's interpolation mode (hermite / linear / step) and
+ *  the same stored-tangent → centripetal-CR fallback chain that eval() uses.
+ *
+ *  `tangents` / `eyeTangents` / `centerTangents` are keyframe-indexed — a
+ *  keyframe's incoming tangent belongs to the previous segment, outgoing to
+ *  the next. At boundary keyframes the missing side mirrors the present one
+ *  so drawing arrows at endpoints always yields a visible vector.
+ *
+ *  Projection matrices are deliberately not exposed as a track method. Each
+ *  CameraTrack keyframe stores `fov` (perspective) or `halfHeight` (ortho)
+ *  directly on track.keyframes[i] — callers wanting a projection build one
+ *  with the free mat4Persp / mat4Ortho constructors. Animated fov in
+ *  sketches flows through the bridge's camera-binding via eval().fov and
+ *  eval().halfHeight (the bridge calls cam.perspective() / cam.ortho() each
+ *  frame).
+ *
+ * ── Class hierarchy ──────────────────────────────────────────────────────
  *  Track (unexported, never instantiated directly)
  *    └── PoseTrack   (exported)
  *    └── CameraTrack (exported)
  *
- *  Track holds all transport machinery: cursor, play/stop/seek/tick,
- *  hooks, rate semantics.  Subclasses add only keyframe storage and
- *  add() / eval() for their respective data shape.
+ * ── Hook architecture ────────────────────────────────────────────────────
+ *  Lib-space hooks (underscore prefix — host layer / UI layer):
+ *    _onActivate / _onDeactivate  — fire on playing false→true / true→false.
+ *    _onPlay / _onEnd / _onStop   — mirror the user-space hooks.
  *
- * ── Path samplers (public, zero-alloc, no cursor side effects) ──────────────
- *  PoseTrack
- *    samplePos(out, seg, t)            writes interpolated pos at (seg, t∈[0,1])
- *    sampleTangents(outIn, outOut, i)  effective in/out tangents at keyframe i
- *  CameraTrack
- *    sampleEye(out, seg, t)
- *    sampleCenter(out, seg, t)
- *    sampleEyeTangents(outIn, outOut, i)
- *    sampleCenterTangents(outIn, outOut, i)
- *
- *  Samplers honour the corresponding interpolation mode (hermite/linear/step)
- *  and the stored-tangent / auto-CR fallback chain used by eval().
- *
- * ── Hook architecture ─────────────────────────────────────────────────────────
- *  Lib-space hooks (underscore prefix — reserved for host layer / UI layer):
- *    _onActivate / _onDeactivate  — fire on playing transitions false→true / true→false.
- *    _onPlay / _onEnd / _onStop   — mirror the user-space hooks; used by the UI layer
- *                                   so it can sync without chaining the public slots.
- *
- *  User-space hooks (public):
+ *  User-space hooks:
  *    onPlay : fires in play()  on false→true transition.
  *    onEnd  : fires in tick()  at natural boundary (once mode only).
- *    onStop : fires in stop() / reset() — explicit deactivation.
- *    onEnd and onStop are mutually exclusive per event.
+ *    onStop : fires in stop() / reset().
  *
  *  Firing order:
  *    play()  → onPlay → _onPlay → _onActivate
@@ -63,18 +86,14 @@
  *    stop()  → onStop → _onStop → _onDeactivate
  *    reset() → onStop → _onStop → _onDeactivate
  *
- * ── Loop modes ────────────────────────────────────────────────────────────────
+ * ── Loop modes ───────────────────────────────────────────────────────────
  *  loop:false, bounce:false  — play once, stop at end (fires onEnd)
  *  loop:true,  bounce:false  — repeat, wrap back to start
  *  loop:true,  bounce:true   — bounce forever at boundaries
  *  loop:false, bounce:true   — bounce once: flip at far boundary, stop at origin
  *
- *  bounce and loop are fully independent flags — no exclusivity enforced.
- *
- * ── Playback semantics (rate + _dir) ─────────────────────────────────────────
- *  rate > 0   forward
- *  rate < 0   backward
- *  rate === 0 frozen: tick() no-op; playing unchanged
+ * ── Playback semantics (rate + _dir) ─────────────────────────────────────
+ *  rate > 0   forward       rate < 0   backward       rate === 0 frozen
  *
  *  play() is the sole setter of playing = true.
  *  stop() is the sole setter of playing = false.
@@ -82,11 +101,9 @@
  *
  *  _dir (internal, ±1) tracks the current bounce travel direction.
  *  tick() advances by rate * _dir and flips _dir at boundaries.
- *  rate always holds the user-set value — it is never mutated by bounce.
- *  _dir is reset to 1 only in reset() (keyframes cleared) — stop/replay
- *  preserves the current travel direction.
+ *  _dir is reset to 1 only in reset().
  *
- * ── One-keyframe behaviour ────────────────────────────────────────────────────
+ * ── One-keyframe behaviour ───────────────────────────────────────────────
  *  play() with exactly one keyframe snaps eval() to that keyframe without
  *  setting playing = true and without firing hooks.
  */
@@ -104,6 +121,8 @@ import {
   qSlerp, qNlerp, qMul, qFromAxisAngle, qFromLookDir, qFromRotMat3x3, qToMat4,
 } from './quat.js';
 
+import { mat4Eye as _buildMat4Eye } from './form.js';
+
 // =========================================================================
 // S2  Spline / vector helpers
 // =========================================================================
@@ -115,12 +134,11 @@ function _dist3(a, b) {
 
 /**
  * Cubic Hermite interpolation between p0 and p1 with explicit tangents.
- * Catmull-Rom is a special case where m0/m1 are auto-computed from neighbors.
  * @param {number[]} out  3-element result.
  * @param {number[]} p0   Segment start.
- * @param {number[]} m0   Outgoing tangent at p0 (world-space, dp/dt scaled to segment).
+ * @param {number[]} m0   Outgoing tangent at p0.
  * @param {number[]} p1   Segment end.
- * @param {number[]} m1   Incoming tangent at p1 (world-space, dp/dt scaled to segment).
+ * @param {number[]} m1   Incoming tangent at p1.
  * @param {number}   t    Blend [0, 1].
  * @returns {number[]} out
  */
@@ -133,7 +151,7 @@ export const hermiteVec3 = (out, p0, m0, p1, m1, t) => {
   return out;
 };
 
-// Centripetal CR outgoing tangent at p1 for segment p1→p2, scaled by dt1.
+// Centripetal CR outgoing tangent at p1 for segment p1→p2.
 // Signature: (out, p0, p1, p2). Returns tangent AT p1 (the middle point).
 const _crTanOut = (out, p0, p1, p2) => {
   const dt0=Math.pow(_dist3(p0,p1),0.5)||1, dt1=Math.pow(_dist3(p1,p2),0.5)||1;
@@ -141,7 +159,7 @@ const _crTanOut = (out, p0, p1, p2) => {
   return out;
 };
 
-// Centripetal CR incoming tangent at p2 for segment p1→p2, scaled by dt1.
+// Centripetal CR incoming tangent at p2 for segment p1→p2.
 // Signature: (out, p1, p2, p3). Returns tangent AT p2 (the middle point).
 const _crTanIn = (out, p1, p2, p3) => {
   const dt1=Math.pow(_dist3(p1,p2),0.5)||1, dt2=Math.pow(_dist3(p2,p3),0.5)||1;
@@ -149,16 +167,13 @@ const _crTanIn = (out, p1, p2, p3) => {
   return out;
 };
 
-// Module-level scratch — shared across all track instances (non-reentrant hot path).
+// Module-level scratch — shared across track instances (non-reentrant hot path).
 const _m0=[0,0,0], _m1=[0,0,0];
+const _trsScratch = { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] };
+const _eyeScratch = { eye:[0,0,0], center:[0,0,0], up:[0,1,0] };
 
 /**
  * Linear interpolation between two vec3s.
- * @param {number[]} out
- * @param {number[]} a
- * @param {number[]} b
- * @param {number}   t  Blend [0, 1].
- * @returns {number[]} out
  */
 export const lerpVec3 = (out, a, b, t) => {
   out[0]=a[0]+t*(b[0]-a[0]);
@@ -170,27 +185,8 @@ export const lerpVec3 = (out, a, b, t) => {
 // =========================================================================
 // S2b  Path samplers — shared core
 // =========================================================================
-//
-// These helpers factor out the per-field interpolation from eval(), so that
-// the samplers (samplePos / sampleEye / sampleCenter / sampleTangents / ...)
-// can write into caller buffers without touching the cursor state.
-//
-// The field name and its associated tangent field names are passed as keys
-// so the same core serves 'pos'/'tanIn'/'tanOut' for PoseTrack and
-// 'eye'|'center' + matching tangent keys for CameraTrack.
 
-/**
- * Sample interpolated vec3 path at (seg, t) into out.
- * @private
- * @param {number[]} out
- * @param {Array} kfs         keyframe array
- * @param {string} interp     'hermite' | 'linear' | 'step'
- * @param {string} field      keyframe property holding the vec3 path point
- * @param {string} tanInName  keyframe property for incoming tangent
- * @param {string} tanOutName keyframe property for outgoing tangent
- * @param {number} seg        segment index
- * @param {number} t          local parameter in [0,1]
- */
+/** @private — sample interpolated vec3 path at (seg, t) into out. */
 function _samplePathCore(out, kfs, interp, field, tanInName, tanOutName, seg, t) {
   const n = kfs.length;
   if (n === 0) { out[0]=0; out[1]=0; out[2]=0; return out; }
@@ -200,7 +196,9 @@ function _samplePathCore(out, kfs, interp, field, tanInName, tanOutName, seg, t)
     return out;
   }
   const nSeg = n - 1;
-  seg = _clampS(seg | 0, 0, nSeg - 1);
+  seg = seg | 0;
+  if (seg >= nSeg) { seg = nSeg - 1; t = 1; }
+  else if (seg < 0) { seg = 0; t = 0; }
   t   = _clamp01(t);
   const k0 = kfs[seg];
   const k1 = kfs[seg + 1];
@@ -214,7 +212,6 @@ function _samplePathCore(out, kfs, interp, field, tanInName, tanOutName, seg, t)
     return lerpVec3(out, k0[field], k1[field], t);
   }
 
-  // hermite (default)
   const p0 = seg > 0      ? kfs[seg - 1][field] : k0[field];
   const p3 = seg + 2 < n  ? kfs[seg + 2][field] : k1[field];
   const m0 = k0[tanOutName] != null ? k0[tanOutName]
@@ -226,19 +223,7 @@ function _samplePathCore(out, kfs, interp, field, tanInName, tanOutName, seg, t)
   return hermiteVec3(out, k0[field], m0, k1[field], m1, t);
 }
 
-/**
- * Write the effective in/out tangents at keyframe i.
- *
- * Stored tanIn/tanOut take precedence, then each mirrors the other when only
- * one is stored, else centripetal Catmull-Rom tangents are auto-computed from
- * neighbours.
- *
- * At endpoints one side has no adjacent segment; that side mirrors the other
- * side's tangent. Callers drawing arrows at endpoints therefore see a vector
- * that matches the curve's derivative into / out of the curve's boundary.
- *
- * @private
- */
+/** @private — write effective in/out tangents at keyframe i. */
 function _sampleTangentsCore(outIn, outOut, kfs, field, tanInName, tanOutName, i) {
   const n = kfs.length;
   if (n === 0) {
@@ -250,7 +235,6 @@ function _sampleTangentsCore(outIn, outOut, kfs, field, tanInName, tanOutName, i
   const hasTI = ki[tanInName]  != null;
   const hasTO = ki[tanOutName] != null;
 
-  // ── outgoing tangent at keyframe i (for segment i → i+1) ──────────────
   if (hasTO) {
     outOut[0]=ki[tanOutName][0]; outOut[1]=ki[tanOutName][1]; outOut[2]=ki[tanOutName][2];
   } else if (hasTI) {
@@ -260,10 +244,9 @@ function _sampleTangentsCore(outIn, outOut, kfs, field, tanInName, tanOutName, i
     const p0 = i > 0 ? kfs[i - 1][field] : ki[field];
     _crTanOut(outOut, p0, ki[field], k1[field]);
   } else {
-    outOut[0]=0; outOut[1]=0; outOut[2]=0;  // filled below by mirror
+    outOut[0]=0; outOut[1]=0; outOut[2]=0;
   }
 
-  // ── incoming tangent at keyframe i (for segment i-1 → i) ──────────────
   if (hasTI) {
     outIn[0]=ki[tanInName][0];  outIn[1]=ki[tanInName][1];  outIn[2]=ki[tanInName][2];
   } else if (hasTO) {
@@ -276,7 +259,6 @@ function _sampleTangentsCore(outIn, outOut, kfs, field, tanInName, tanOutName, i
     outIn[0]=outOut[0]; outIn[1]=outOut[1]; outIn[2]=outOut[2];
   }
 
-  // Boundary mirror the other way: last keyframe with no stored tangents.
   if (i === n - 1 && !hasTO && !hasTI) {
     outOut[0]=outIn[0]; outOut[1]=outIn[1]; outOut[2]=outIn[2];
   }
@@ -288,9 +270,6 @@ function _sampleTangentsCore(outIn, outOut, kfs, field, tanInName, tanOutName, i
 
 /**
  * Write a TRS transform into a column-major mat4.
- * @param {Float32Array|number[]} out  16-element column-major mat4.
- * @param {{ pos:number[], rot:number[], scl:number[] }} xform
- * @returns {Float32Array|number[]} out
  */
 export const transformToMat4 = (out, xform) => {
   qToMat4(out, xform.rot);
@@ -304,10 +283,6 @@ export const transformToMat4 = (out, xform) => {
 
 /**
  * Decompose a column-major mat4 into a TRS transform.
- * Assumes no shear. Scale extracted from column lengths.
- * @param {{ pos:number[], rot:number[], scl:number[] }} out
- * @param {Float32Array|number[]} m  Column-major mat4.
- * @returns {{ pos:number[], rot:number[], scl:number[] }} out
  */
 export const mat4ToTransform = (out, m) => {
   out.pos[0]=m[12]; out.pos[1]=m[13]; out.pos[2]=m[14];
@@ -338,7 +313,6 @@ function _parseVec3(v) {
   return null;
 }
 
-// Euler: unit axis vectors and the six valid intrinsic orderings.
 const _EULER_AXES   = { X:[1,0,0], Y:[0,1,0], Z:[0,0,1] };
 const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
 
@@ -346,14 +320,13 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
  * Parse any rotation representation into a unit quaternion [x,y,z,w].
  *
  * Accepted forms:
- *
  *   [x,y,z,w]                        — raw quaternion array
- *   { axis:[x,y,z], angle }          — axis-angle
+ *   { axis:[x,y,z], angle }          — axis-angle (angle in radians)
  *   { dir:[x,y,z], up?:[x,y,z] }     — forward direction (−Z) with optional up
  *   { mat4Eye: mat4 }                — rotation block of an eye matrix
  *   { mat3: mat3 }                   — column-major 3×3 rotation matrix
  *   { euler:[rx,ry,rz], order? }     — intrinsic Euler (default order: YXZ)
- *   { from:[x,y,z], to:[x,y,z] }     — shortest-arc rotation
+ *   { from:[x,y,z], to:[x,y,z] }     — shortest-arc rotation between two vectors
  *
  * @param {*} v
  * @returns {number[]|null}  [x,y,z,w] or null if unparseable.
@@ -361,7 +334,7 @@ const _EULER_ORDERS = new Set(['XYZ','XZY','YXZ','YZX','ZXY','ZYX']);
 function _parseQuat(v) {
   if (!v) return null;
 
-  // Raw array [x,y,z,w]
+  // [x,y,z,w]
   if (Array.isArray(v) && v.length === 4) return [v[0],v[1],v[2],v[3]];
   if (ArrayBuffer.isView(v) && v.length >= 4) return [v[0],v[1],v[2],v[3]];
 
@@ -390,8 +363,7 @@ function _parseQuat(v) {
 
   // { mat3 }
   if (v.mat3 != null) {
-    const m = (ArrayBuffer.isView(v.mat3) || Array.isArray(v.mat3))
-      ? v.mat3 : null;
+    const m = (ArrayBuffer.isView(v.mat3) || Array.isArray(v.mat3)) ? v.mat3 : null;
     if (!m || m.length < 9) return null;
     return qFromRotMat3x3([0,0,0,1], m[0],m[3],m[6], m[1],m[4],m[7], m[2],m[5],m[8]);
   }
@@ -401,8 +373,7 @@ function _parseQuat(v) {
     const e = v.euler;
     if (!Array.isArray(e) || e.length < 3) return null;
     const order = (v.order && _EULER_ORDERS.has(v.order)) ? v.order : 'YXZ';
-    const q = [0,0,0,1];
-    const s = [0,0,0,1];
+    const q = [0,0,0,1], s = [0,0,0,1];
     for (let i = 0; i < 3; i++) {
       const ax = _EULER_AXES[order[i]];
       qMul(q, q, qFromAxisAngle(s, ax[0],ax[1],ax[2], e[i]));
@@ -437,22 +408,22 @@ function _parseQuat(v) {
 }
 
 /**
- * Parse a PoseTrack keyframe spec.
+ * Parse a PoseTrack keyframe spec into internal form.
  *
  * Accepted forms:
- *
  *   { mat4Model }
  *     Decompose a column-major mat4 into TRS via mat4ToTransform.
  *     Float32Array(16), plain Array, or { mat4 } wrapper.
  *
  *   { pos?, rot?, scl?, tanIn?, tanOut? }
- *     Explicit TRS.  pos and scl are vec3, rot accepts any form from _parseQuat.
+ *     Explicit TRS. pos and scl are vec3; rot accepts any form from _parseQuat.
  *     All fields are optional — missing pos/scl default to [0,0,0] / [1,1,1],
  *     missing rot defaults to identity.
  *     tanIn/tanOut are optional vec3 tangents for Hermite interpolation.
  *
  * @param {Object} spec
- * @returns {{ pos:number[], rot:number[], scl:number[], tanIn:number[]|null, tanOut:number[]|null }|null}
+ * @returns {{ pos:number[], rot:number[], scl:number[],
+ *             tanIn:number[]|null, tanOut:number[]|null } | null}
  */
 function _parseSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
@@ -467,6 +438,7 @@ function _parseSpec(spec) {
     return kf;
   }
 
+  // { pos?, rot?, scl?, tanIn?, tanOut? } — explicit TRS
   const pos    = _parseVec3(spec.pos)    || [0,0,0];
   const rot    = _parseQuat(spec.rot)    || [0,0,0,1];
   const scl    = _parseVec3(spec.scl)    || [1,1,1];
@@ -486,26 +458,21 @@ function _sameTransform(a, b) {
 // =========================================================================
 
 /**
- * Parse a camera keyframe spec into internal { eye, center, up } form.
+ * Parse a CameraTrack keyframe spec into internal form.
  *
- * Accepted forms:
- *
- *   { eye, center?, up?, fov?, halfHeight?,
- *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
- *     Explicit lookat.  center defaults to [0,0,0], up defaults to [0,1,0].
- *     eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite.
- *     When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
+ * Required: eye (vec3). Everything else is optional.
+ *   center       defaults to [0, 0, 0]
+ *   up           defaults to [0, 1, 0] and is normalised
+ *   fov          vertical fov (radians), perspective only — null if absent
+ *   halfHeight   world-unit half-height of ortho frustum — null if absent
+ *   eyeTanIn/Out       optional Hermite tangents for the eye path
+ *   centerTanIn/Out    optional Hermite tangents for the center path
  *
  * @param {Object} spec
- * @returns {{ eye:number[], center:number[], up:number[],
- *             fov:number|null, halfHeight:number|null,
- *             eyeTanIn:number[]|null, eyeTanOut:number[]|null,
- *             centerTanIn:number[]|null, centerTanOut:number[]|null }|null}
+ * @returns {Object|null}  Parsed keyframe or null if eye is missing/malformed.
  */
 function _parseCameraSpec(spec) {
   if (!spec || typeof spec !== 'object') return null;
-
-  // { eye, center?, up? } — explicit lookat
   const eye = _parseVec3(spec.eye);
   if (!eye) return null;
   const center = _parseVec3(spec.center) || [0,0,0];
@@ -543,41 +510,39 @@ class Track {
   constructor() {
     /** @type {Array} Keyframe array — shape depends on subclass. */
     this.keyframes = [];
-    /** Whether playback is active. @type {boolean} */
+    /** Whether playback is currently active. @type {boolean} */
     this.playing   = false;
     /** Loop at boundaries. @type {boolean} */
     this.loop      = false;
-    /** Ping-pong bounce (independent of loop). @type {boolean} */
+    /** Ping-pong bounce at boundaries (independent of loop). @type {boolean} */
     this.bounce    = false;
     /** Frames per segment (≥1). @type {number} */
     this.duration  = 30;
     /** Current segment index. @type {number} */
     this.seg       = 0;
-    /** Frame offset within segment (can be fractional). @type {number} */
+    /** Frame offset within current segment (can be fractional). @type {number} */
     this.f         = 0;
 
-    // Internal rate — never directly starts/stops playback
+    // Playback rate (signed: negative = reverse; 0 = frozen).
     this._rate = 1;
-    // Internal bounce direction: +1 forward, -1 backward.
+    // Current bounce travel direction (±1). Reset to 1 only on reset().
     this._dir  = 1;
-    // Scratch: true once _dir has been flipped in bounce-once mode.
+    // Whether a bounce-once has already flipped direction.
     this._bounced = false;
 
-    // User-space hooks
-    /** @type {Function|null} */ this.onPlay = null;
-    /** @type {Function|null} */ this.onEnd  = null;
-    /** @type {Function|null} */ this.onStop = null;
+    /** User hook: fires on play() false→true transition. @type {Function|null} */
+    this.onPlay = null;
+    /** User hook: fires on natural boundary in once mode. @type {Function|null} */
+    this.onEnd  = null;
+    /** User hook: fires on stop() / reset() / end-of-bounce-once. @type {Function|null} */
+    this.onStop = null;
 
-    // Lib-space hooks (set by host layer, e.g. p5 bridge)
-    /** @type {Function|null} */ this._onActivate   = null;
-    /** @type {Function|null} */ this._onDeactivate = null;
-    // Lib-space event mirrors — set by UI layer (trackUI), never touched by user code
-    /** @type {Function|null} */ this._onPlay = null;
-    /** @type {Function|null} */ this._onEnd  = null;
-    /** @type {Function|null} */ this._onStop = null;
+    // Lib-space hooks (underscore prefix — host layer / UI layer only).
+    this._onActivate = null; this._onDeactivate = null;
+    this._onPlay     = null; this._onEnd         = null; this._onStop = null;
   }
 
-  /** Playback rate. Assigning never starts/stops playback. @type {number} */
+  /** Playback rate. Signed: negative reverses, 0 freezes. Assigning never starts or stops playback. @type {number} */
   get rate()  { return this._rate; }
   set rate(v) { this._rate = (_isNum(v)) ? v : 1; }
 
@@ -585,31 +550,46 @@ class Track {
   get segments() { return Math.max(0, this.keyframes.length - 1); }
 
   /**
-   * Start or update playback.
-   * @param {number|Object} [rateOrOpts]  Numeric rate or options object:
-   *   { rate, duration, loop, bounce, onPlay, onEnd, onStop }
+   * @private — resolve cursor (seg, f) into continuous (seg, t).
+   * Shared backing of every cursor-form sampler / matrix method.
+   */
+  _cursorSegT() {
+    const nSeg = this.segments;
+    const dur  = Math.max(1, this.duration | 0);
+    const seg  = nSeg > 0 ? _clampS(this.seg, 0, nSeg - 1) : 0;
+    const t    = _clamp01(this.f / dur);
+    return [seg, t];
+  }
+
+  /**
+   * Start or update playback. Sole setter of `playing = true`.
+   *
+   * Fires `onPlay → _onPlay → _onActivate` only on a false→true transition.
+   * Zero keyframes: no-op. Exactly one keyframe: snaps eval() to it but does
+   * not set `playing` and fires no hooks.
+   *
+   * @param {number|{duration?:number,loop?:boolean,bounce?:boolean,
+   *                 rate?:number,onPlay?:Function,onEnd?:Function,
+   *                 onStop?:Function}} [rateOrOpts]
+   *        A bare number is taken as `rate`; an object configures multiple
+   *        fields in one call.
    * @returns {Track} this
    */
   play(rateOrOpts) {
     if (this.keyframes.length === 0) return this;
-
-    // One keyframe: snap cursor, no animation
-    if (this.keyframes.length === 1) {
-      this.seg = 0; this.f = 0;
-      return this;
-    }
+    if (this.keyframes.length === 1) { this.seg = 0; this.f = 0; return this; }
 
     if (typeof rateOrOpts === 'number' && Number.isFinite(rateOrOpts)) {
       this._rate = rateOrOpts;
     } else if (rateOrOpts && typeof rateOrOpts === 'object') {
       const o = rateOrOpts;
-      if (_isNum(o.duration))             this.duration  = Math.max(1, o.duration | 0);
+      if (_isNum(o.duration))             this.duration = Math.max(1, o.duration | 0);
       if ('loop'   in o) this.loop   = !!o.loop;
       if ('bounce' in o) this.bounce = !!o.bounce;
-      if (typeof o.onPlay === 'function') this.onPlay   = o.onPlay;
-      if (typeof o.onEnd  === 'function') this.onEnd    = o.onEnd;
-      if (typeof o.onStop === 'function') this.onStop   = o.onStop;
-      if (_isNum(o.rate))                 this._rate    = o.rate;
+      if (typeof o.onPlay === 'function') this.onPlay = o.onPlay;
+      if (typeof o.onEnd  === 'function') this.onEnd  = o.onEnd;
+      if (typeof o.onStop === 'function') this.onStop = o.onStop;
+      if (_isNum(o.rate))                 this._rate  = o.rate;
     }
 
     const nSeg = this.segments, dur = Math.max(1, this.duration | 0);
@@ -630,8 +610,11 @@ class Track {
   }
 
   /**
-   * Stop playback.
-   * @param {boolean} [rewind=false]  Seek to origin after stopping.
+   * Stop playback. Sole setter of `playing = false`. Fires
+   * `onStop → _onStop → _onDeactivate` on a true→false transition.
+   *
+   * @param {boolean} [rewind]  If true, seek to the origin end after stopping
+   *                            (0 when playing forward, 1 when playing backward).
    * @returns {Track} this
    */
   stop(rewind) {
@@ -648,7 +631,8 @@ class Track {
   }
 
   /**
-   * Clear all keyframes and stop.
+   * Clear all keyframes and stop. Fires stop-side hooks if it was playing.
+   * Unlike stop(), this also resets `_dir` to +1.
    * @returns {Track} this
    */
   reset() {
@@ -665,9 +649,10 @@ class Track {
   }
 
   /**
-   * Remove the keyframe at index. Adjusts cursor if needed.
+   * Remove the keyframe at `index`. Adjusts the cursor if the removal shrinks
+   * the track below the current segment.
    * @param {number} index
-   * @returns {boolean}
+   * @returns {boolean}  true if removed; false if index was invalid.
    */
   remove(index) {
     if (!_isNum(index)) return false;
@@ -681,9 +666,15 @@ class Track {
   }
 
   /**
-   * Seek to a normalised position [0,1] across the full path.
-   * @param {number} t           Normalised time [0, 1].
-   * @param {number} [segIndex]  Optional segment override.
+   * Move the cursor.
+   *   seek(t)            Scrub to normalised position t ∈ [0, 1] across the
+   *                      whole track.
+   *   seek(t, segIndex)  Position within a specific segment — t is local to
+   *                      that segment.
+   * Does not affect `playing`.
+   *
+   * @param {number} t
+   * @param {number} [segIndex]
    * @returns {Track} this
    */
   seek(t, segIndex) {
@@ -700,8 +691,8 @@ class Track {
   }
 
   /**
-   * Normalised playback position [0,1].
-   * @returns {number}
+   * Normalised cursor position across the whole track.
+   * @returns {number}  ∈ [0, 1]; 0 when there are no segments.
    */
   time() {
     const nSeg = this.segments;
@@ -711,8 +702,11 @@ class Track {
   }
 
   /**
-   * Snapshot of transport state.
-   * @returns {Object}
+   * Snapshot of transport state. Allocates a new object per call — intended
+   * for UI / debugging, not hot loops.
+   * @returns {{keyframes:number, segments:number, seg:number, f:number,
+   *            playing:boolean, loop:boolean, bounce:boolean, rate:number,
+   *            duration:number, time:number}}
    */
   info() {
     return {
@@ -730,16 +724,19 @@ class Track {
   }
 
   /**
-   * Advance cursor by rate frames.
-   * Returns true while playing, false when stopping.
-   * @returns {boolean}
+   * Advance the cursor by `rate * _dir` in frames. Handles loop / bounce /
+   * once modes per the table in the module header. Fires `onEnd → _onEnd →
+   * _onDeactivate` at a natural boundary in once mode.
+   *
+   * Intended to be called once per animation frame by the bridge / UI layer.
+   * rate === 0 freezes the cursor but keeps `playing` unchanged.
+   *
+   * @returns {boolean}  Current `playing` state after advancing.
    */
   tick() {
     if (!this.playing) return false;
     const nSeg = this.segments;
-    if (nSeg === 0) {
-      this.playing = false; this._onDeactivate?.(); return false;
-    }
+    if (nSeg === 0) { this.playing = false; this._onDeactivate?.(); return false; }
     if (this._rate === 0) return true;
 
     const dur   = Math.max(1, this.duration | 0);
@@ -747,7 +744,6 @@ class Track {
     const s     = _clampS(this.seg * dur + this.f, 0, total);
     const next  = s + this._rate * this._dir;
 
-    // ── loop:true, bounce:true — bounce forever ───────────────────────────
     if (this.loop && this.bounce) {
       let pos = next, flips = 0;
       while (pos < 0 || pos > total) {
@@ -759,7 +755,6 @@ class Track {
       return true;
     }
 
-    // ── loop:false, bounce:true — bounce once, stop at origin ────────────
     if (!this.loop && this.bounce) {
       if (next >= total) {
         this._setCursorFromScalar(Math.min(total, 2 * total - next));
@@ -780,13 +775,11 @@ class Track {
       return true;
     }
 
-    // ── loop:true, bounce:false — repeat forever ──────────────────────────
     if (this.loop) {
       this._setCursorFromScalar(((next % total) + total) % total);
       return true;
     }
 
-    // ── loop:false, bounce:false — play once, stop at boundary ───────────
     if (next <= 0) {
       this._setCursorFromScalar(0);
       this.playing = false;
@@ -831,7 +824,7 @@ class Track {
  *
  * tanIn  — incoming position tangent at this keyframe (Hermite mode).
  * tanOut — outgoing position tangent at this keyframe (Hermite mode).
- * When only one is supplied, the other mirrors it.
+ * When only one is supplied, the other mirrors it at sample time.
  * When neither is supplied, centripetal Catmull-Rom tangents are auto-computed.
  */
 export class PoseTrack extends Track {
@@ -839,8 +832,8 @@ export class PoseTrack extends Track {
     super();
     /**
      * Position interpolation mode.
-     * - 'hermite' — cubic Hermite; auto-computes centripetal Catmull-Rom tangents
-     *               when none are stored (default)
+     * - 'hermite' — cubic Hermite; auto-computes centripetal Catmull-Rom
+     *               tangents when none are stored (default)
      * - 'linear'  — lerp
      * - 'step'    — snap to k0; useful for discrete state changes
      * @type {'hermite'|'linear'|'step'}
@@ -850,26 +843,20 @@ export class PoseTrack extends Track {
      * Rotation interpolation mode.
      * - 'slerp'  — constant angular velocity (default)
      * - 'nlerp'  — normalised lerp; cheaper, slightly non-constant speed
-     * - 'step'   — snap to k0 quaternion; useful for discrete state changes
+     * - 'step'   — snap to k0 quaternion
      * @type {'slerp'|'nlerp'|'step'}
      */
     this.rotInterp = 'slerp';
-    // Scratch for toMatrix() — avoids hot-path allocations
-    this._pos = [0,0,0];
-    this._rot = [0,0,0,1];
-    this._scl = [1,1,1];
   }
 
   /**
    * Append one or more keyframes. Adjacent duplicates are skipped by default.
+   * Accepts any spec form understood by _parseSpec, or an array of them.
    * @param {Object|Object[]} spec
    * @param {{ deduplicate?: boolean }} [opts]
    */
   add(spec, opts) {
-    if (Array.isArray(spec)) {
-      for (const s of spec) this.add(s, opts);
-      return;
-    }
+    if (Array.isArray(spec)) { for (const s of spec) this.add(s, opts); return; }
     const kf = _parseSpec(spec);
     if (!kf) return;
     const dedup = !opts || opts.deduplicate !== false;
@@ -880,10 +867,11 @@ export class PoseTrack extends Track {
   }
 
   /**
-   * Replace (or append at end) the keyframe at index.
+   * Replace the keyframe at `index`, or append at the end if `index` equals
+   * the current keyframe count.
    * @param {number} index
-   * @param {Object} spec
-   * @returns {boolean}
+   * @param {Object} spec  Any spec form understood by _parseSpec.
+   * @returns {boolean}  true on success; false for invalid index or spec.
    */
   set(index, spec) {
     if (!_isNum(index)) return false;
@@ -895,36 +883,91 @@ export class PoseTrack extends Track {
   }
 
   /**
-   * Sample the position path at (seg, t).
+   * Sample the position path. Zero-alloc, no cursor side effects. Honours
+   * posInterp and the stored-tangent → auto-CR fallback chain.
    *
-   * Pure function of the keyframes — does not read or modify the transport
-   * cursor, fires no hooks, allocates nothing.  seg is clamped to
-   * [0, segments-1] and t to [0, 1].
+   * Two signatures:
+   *   samplePos(out)              cursor form — reads current seg/f
+   *   samplePos(out, seg, t)      explicit (seg, t), continuous on the path
    *
    * @param {number[]} out  3-element result buffer.
-   * @param {number} seg    Segment index.
-   * @param {number} t      Local parameter in [0, 1].
+   * @param {number} [seg]  Segment index in [0, segments−1]. Omit for cursor.
+   * @param {number} [t]    Local parameter in [0, 1]. Omit for cursor.
    * @returns {number[]} out
    */
   samplePos(out, seg, t) {
+    if (arguments.length < 3) [seg, t] = this._cursorSegT();
     return _samplePathCore(out, this.keyframes, this.posInterp, 'pos', 'tanIn', 'tanOut', seg, t);
   }
 
   /**
-   * Write the effective incoming / outgoing tangents at keyframe i.
-   * Stored tanIn/tanOut take precedence, then each mirrors the other when
-   * only one is stored, else centripetal Catmull-Rom tangents are auto-
-   * computed from neighbours.  Endpoint tangents mirror across the missing
-   * side so drawing arrows at boundary keyframes produces a visible vector.
+   * Write the TRS pose as a column-major model mat4. Zero-alloc, no cursor
+   * side effects.
    *
-   * @param {number[]} outIn   3-element result — incoming tangent at kf i.
-   * @param {number[]} outOut  3-element result — outgoing tangent at kf i.
-   * @param {number} i         Keyframe index.
+   * Two signatures:
+   *   mat4Model(out)              cursor form — reads current seg/f
+   *   mat4Model(out, seg, t)      explicit (seg, t), continuous on the path
+   *
+   * Replaces the previous toMatrix() method.
+   *
+   * @param {Float32Array|number[]} out  16-element result buffer.
+   * @param {number} [seg]  Segment index in [0, segments−1]. Omit for cursor.
+   * @param {number} [t]    Local parameter in [0, 1]. Omit for cursor.
+   * @returns {Float32Array|number[]} out
+   */
+  mat4Model(out, seg, t) {
+    if (arguments.length < 3) [seg, t] = this._cursorSegT();
+    this._sampleTRS(_trsScratch, seg, t);
+    return transformToMat4(out, _trsScratch);
+  }
+
+  /**
+   * Effective incoming / outgoing position tangents at keyframe `index`.
+   * Stored tanIn/tanOut take precedence; each mirrors the other when only
+   * one is stored; else centripetal Catmull-Rom tangents are auto-computed
+   * from neighbours. Boundary keyframes mirror across the missing side.
+   *
+   * @param {number[]} outIn   3-element result — incoming tangent.
+   * @param {number[]} outOut  3-element result — outgoing tangent.
+   * @param {number} index     Keyframe index.
    * @returns {PoseTrack} this
    */
-  sampleTangents(outIn, outOut, i) {
-    _sampleTangentsCore(outIn, outOut, this.keyframes, 'pos', 'tanIn', 'tanOut', i);
+  tangents(outIn, outOut, index) {
+    _sampleTangentsCore(outIn, outOut, this.keyframes, 'pos', 'tanIn', 'tanOut', index);
     return this;
+  }
+
+  /** @private — write interpolated TRS at (seg, t). */
+  _sampleTRS(out, seg, t) {
+    const n = this.keyframes.length;
+    if (n === 0) return out;
+    if (n === 1) {
+      const k = this.keyframes[0];
+      out.pos[0]=k.pos[0]; out.pos[1]=k.pos[1]; out.pos[2]=k.pos[2];
+      out.rot[0]=k.rot[0]; out.rot[1]=k.rot[1]; out.rot[2]=k.rot[2]; out.rot[3]=k.rot[3];
+      out.scl[0]=k.scl[0]; out.scl[1]=k.scl[1]; out.scl[2]=k.scl[2];
+      return out;
+    }
+    const nSeg = n - 1;
+    seg = seg | 0;
+    if (seg >= nSeg) { seg = nSeg - 1; t = 1; }
+    else if (seg < 0) { seg = 0; t = 0; }
+    t   = _clamp01(t);
+    const k0 = this.keyframes[seg];
+    const k1 = this.keyframes[seg + 1];
+
+    _samplePathCore(out.pos, this.keyframes, this.posInterp, 'pos', 'tanIn', 'tanOut', seg, t);
+
+    if (this.rotInterp === 'step') {
+      out.rot[0]=k0.rot[0]; out.rot[1]=k0.rot[1]; out.rot[2]=k0.rot[2]; out.rot[3]=k0.rot[3];
+    } else if (this.rotInterp === 'nlerp') {
+      qNlerp(out.rot, k0.rot, k1.rot, t);
+    } else {
+      qSlerp(out.rot, k0.rot, k1.rot, t);
+    }
+
+    lerpVec3(out.scl, k0.scl, k1.scl, t);
+    return out;
   }
 
   /**
@@ -936,48 +979,9 @@ export class PoseTrack extends Track {
     out = out || { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] };
     const n = this.keyframes.length;
     if (n === 0) return out;
-
-    if (n === 1) {
-      const k = this.keyframes[0];
-      out.pos[0]=k.pos[0]; out.pos[1]=k.pos[1]; out.pos[2]=k.pos[2];
-      out.rot[0]=k.rot[0]; out.rot[1]=k.rot[1]; out.rot[2]=k.rot[2]; out.rot[3]=k.rot[3];
-      out.scl[0]=k.scl[0]; out.scl[1]=k.scl[1]; out.scl[2]=k.scl[2];
-      return out;
-    }
-
-    const nSeg = n - 1;
-    const dur  = Math.max(1, this.duration | 0);
-    const seg  = _clampS(this.seg, 0, nSeg - 1);
-    const t    = _clamp01(this.f / dur);
-    const k0   = this.keyframes[seg];
-    const k1   = this.keyframes[seg + 1];
-
-    // pos — shared sampler (respects posInterp + tangent fallback chain)
-    _samplePathCore(out.pos, this.keyframes, this.posInterp, 'pos', 'tanIn', 'tanOut', seg, t);
-
-    // rot — step, slerp, or nlerp
-    if (this.rotInterp === 'step') {
-      out.rot[0]=k0.rot[0]; out.rot[1]=k0.rot[1]; out.rot[2]=k0.rot[2]; out.rot[3]=k0.rot[3];
-    } else if (this.rotInterp === 'nlerp') {
-      qNlerp(out.rot, k0.rot, k1.rot, t);
-    } else {
-      qSlerp(out.rot, k0.rot, k1.rot, t);
-    }
-
-    // scl — lerp
-    lerpVec3(out.scl, k0.scl, k1.scl, t);
-
-    return out;
-  }
-
-  /**
-   * Evaluate into an existing column-major mat4.
-   * @param {Float32Array|number[]} outMat4  16-element array.
-   * @returns {Float32Array|number[]} outMat4
-   */
-  toMatrix(outMat4) {
-    const xf = this.eval({ pos: this._pos, rot: this._rot, scl: this._scl });
-    return transformToMat4(outMat4, xf);
+    if (n === 1) return this._sampleTRS(out, 0, 0);
+    const [seg, t] = this._cursorSegT();
+    return this._sampleTRS(out, seg, t);
   }
 }
 
@@ -996,21 +1000,18 @@ export class PoseTrack extends Track {
  * fov        — vertical fov (radians) for perspective cameras; null for ortho.
  * halfHeight — world-unit half-height of ortho frustum; null for perspective.
  * Both are optional and nullable. eval() lerps each only when both adjacent
- * keyframes carry a non-null value for that field.
+ * keyframes carry a non-null value for that field; mixed or missing entries
+ * pass `null` through.
  *
  * eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite
- * interpolation of the eye and center paths respectively.
- * When absent, centripetal Catmull-Rom tangents are auto-computed at eval time.
+ * interpolation of the eye and center paths respectively. When absent,
+ * centripetal Catmull-Rom tangents are auto-computed at sample time.
  *
  * Missing fields default to: center → [0,0,0], up → [0,1,0].
  *
- * add() accepts individual specs or a bulk array of specs:
- *
- *   { eye, center?, up?, fov?, halfHeight?,
- *     eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? }
- *
- * To capture a matrix-based pose, use PoseTrack.add({ mat4Model: mat4Eye })
- * for full-fidelity including roll, or cam.capturePose() for lookat-style.
+ * For matrix-based capture of a camera-like pose use
+ * PoseTrack.add({ mat4Model: mat4Eye }) for full TRS fidelity including roll,
+ * or a lookat spec here for camera-style interpolation.
  */
 export class CameraTrack extends Track {
   constructor() {
@@ -1028,15 +1029,13 @@ export class CameraTrack extends Track {
   }
 
   /**
-   * Append one or more camera keyframes. Adjacent duplicates are skipped by default.
+   * Append one or more camera keyframes. Adjacent duplicates are skipped by
+   * default.
    * @param {Object|Object[]} spec
    * @param {{ deduplicate?: boolean }} [opts]
    */
   add(spec, opts) {
-    if (Array.isArray(spec)) {
-      for (const s of spec) this.add(s, opts);
-      return;
-    }
+    if (Array.isArray(spec)) { for (const s of spec) this.add(s, opts); return; }
     const kf = _parseCameraSpec(spec);
     if (!kf) return;
     const dedup = !opts || opts.deduplicate !== false;
@@ -1047,7 +1046,8 @@ export class CameraTrack extends Track {
   }
 
   /**
-   * Replace (or append at end) the camera keyframe at index.
+   * Replace the camera keyframe at `index`, or append at the end if `index`
+   * equals the current keyframe count.
    * @param {number} index
    * @param {Object} spec
    * @returns {boolean}
@@ -1062,91 +1062,129 @@ export class CameraTrack extends Track {
   }
 
   /**
-   * Sample the eye path at (seg, t). See PoseTrack.samplePos for semantics.
+   * Sample the eye path. Zero-alloc, no cursor side effects.
+   *
+   * Two signatures:
+   *   sampleEye(out)              cursor form — reads current seg/f
+   *   sampleEye(out, seg, t)      explicit (seg, t), continuous on the path
+   *
    * @param {number[]} out
-   * @param {number} seg
-   * @param {number} t
+   * @param {number} [seg]
+   * @param {number} [t]
    * @returns {number[]} out
    */
   sampleEye(out, seg, t) {
+    if (arguments.length < 3) [seg, t] = this._cursorSegT();
     return _samplePathCore(out, this.keyframes, this.eyeInterp, 'eye', 'eyeTanIn', 'eyeTanOut', seg, t);
   }
 
   /**
-   * Sample the center path at (seg, t). See PoseTrack.samplePos for semantics.
+   * Sample the center path. Zero-alloc, no cursor side effects.
+   *
+   * Two signatures:
+   *   sampleCenter(out)              cursor form — reads current seg/f
+   *   sampleCenter(out, seg, t)      explicit (seg, t)
+   *
    * @param {number[]} out
-   * @param {number} seg
-   * @param {number} t
+   * @param {number} [seg]
+   * @param {number} [t]
    * @returns {number[]} out
    */
   sampleCenter(out, seg, t) {
+    if (arguments.length < 3) [seg, t] = this._cursorSegT();
     return _samplePathCore(out, this.keyframes, this.centerInterp, 'center', 'centerTanIn', 'centerTanOut', seg, t);
   }
 
   /**
-   * Effective in/out eye tangents at keyframe i. See PoseTrack.sampleTangents.
-   * @param {number[]} outIn
-   * @param {number[]} outOut
-   * @param {number} i
-   * @returns {CameraTrack} this
-   */
-  sampleEyeTangents(outIn, outOut, i) {
-    _sampleTangentsCore(outIn, outOut, this.keyframes, 'eye', 'eyeTanIn', 'eyeTanOut', i);
-    return this;
-  }
-
-  /**
-   * Effective in/out center tangents at keyframe i. See PoseTrack.sampleTangents.
-   * @param {number[]} outIn
-   * @param {number[]} outOut
-   * @param {number} i
-   * @returns {CameraTrack} this
-   */
-  sampleCenterTangents(outIn, outOut, i) {
-    _sampleTangentsCore(outIn, outOut, this.keyframes, 'center', 'centerTanIn', 'centerTanOut', i);
-    return this;
-  }
-
-  /**
-   * Evaluate interpolated camera pose at current cursor.
+   * Write the interpolated lookat eye matrix as a column-major mat4
+   * (eye→world rigid frame). Zero-alloc, no cursor side effects.
    *
-   * @param {{ eye:number[], center:number[], up:number[] }} [out]
-   * @returns {{ eye:number[], center:number[], up:number[] }} out
+   * Two signatures:
+   *   mat4Eye(out)              cursor form — reads current seg/f
+   *   mat4Eye(out, seg, t)      explicit (seg, t), continuous on the path
+   *
+   * @param {Float32Array|number[]} out  16-element result buffer.
+   * @param {number} [seg]
+   * @param {number} [t]
+   * @returns {Float32Array|number[]} out
    */
-  eval(out) {
-    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+  mat4Eye(out, seg, t) {
+    if (arguments.length < 3) [seg, t] = this._cursorSegT();
+    this._sampleEyePose(_eyeScratch, seg, t);
+    const e = _eyeScratch;
+    return _buildMat4Eye(out,
+      e.eye[0], e.eye[1], e.eye[2],
+      e.center[0], e.center[1], e.center[2],
+      e.up[0], e.up[1], e.up[2]);
+  }
+
+  /**
+   * Effective in/out eye tangents at keyframe `index`.
+   */
+  eyeTangents(outIn, outOut, index) {
+    _sampleTangentsCore(outIn, outOut, this.keyframes, 'eye', 'eyeTanIn', 'eyeTanOut', index);
+    return this;
+  }
+
+  /**
+   * Effective in/out center tangents at keyframe `index`.
+   */
+  centerTangents(outIn, outOut, index) {
+    _sampleTangentsCore(outIn, outOut, this.keyframes, 'center', 'centerTanIn', 'centerTanOut', index);
+    return this;
+  }
+
+  /** @private — write interpolated { eye, center, up } at (seg, t). */
+  _sampleEyePose(out, seg, t) {
     const n = this.keyframes.length;
     if (n === 0) return out;
-
     if (n === 1) {
       const k = this.keyframes[0];
       out.eye[0]=k.eye[0];       out.eye[1]=k.eye[1];       out.eye[2]=k.eye[2];
       out.center[0]=k.center[0]; out.center[1]=k.center[1]; out.center[2]=k.center[2];
       out.up[0]=k.up[0];         out.up[1]=k.up[1];         out.up[2]=k.up[2];
-      out.fov        = k.fov;
-      out.halfHeight = k.halfHeight;
       return out;
     }
-
     const nSeg = n - 1;
-    const dur  = Math.max(1, this.duration | 0);
-    const seg  = _clampS(this.seg, 0, nSeg - 1);
-    const t    = _clamp01(this.f / dur);
-    const k0   = this.keyframes[seg];
-    const k1   = this.keyframes[seg + 1];
+    seg = seg | 0;
+    if (seg >= nSeg) { seg = nSeg - 1; t = 1; }
+    else if (seg < 0) { seg = 0; t = 0; }
+    t   = _clamp01(t);
+    const k0 = this.keyframes[seg];
+    const k1 = this.keyframes[seg + 1];
 
-    // eye — shared sampler
-    _samplePathCore(out.eye, this.keyframes, this.eyeInterp, 'eye', 'eyeTanIn', 'eyeTanOut', seg, t);
-
-    // center — shared sampler
+    _samplePathCore(out.eye,    this.keyframes, this.eyeInterp,    'eye',    'eyeTanIn',    'eyeTanOut',    seg, t);
     _samplePathCore(out.center, this.keyframes, this.centerInterp, 'center', 'centerTanIn', 'centerTanOut', seg, t);
 
-    // up — nlerp on unit sphere
     lerpVec3(out.up, k0.up, k1.up, t);
-    const ul=Math.sqrt(out.up[0]*out.up[0]+out.up[1]*out.up[1]+out.up[2]*out.up[2])||1;
+    const ul = Math.sqrt(out.up[0]*out.up[0]+out.up[1]*out.up[1]+out.up[2]*out.up[2]) || 1;
     out.up[0]/=ul; out.up[1]/=ul; out.up[2]/=ul;
+    return out;
+  }
 
-    // fov / halfHeight — lerp when both keyframes carry non-null values
+  /**
+   * Evaluate interpolated camera pose at current cursor.
+   * @param {{ eye:number[], center:number[], up:number[],
+   *           fov:number|null, halfHeight:number|null }} [out]
+   * @returns {{ eye:number[], center:number[], up:number[],
+   *             fov:number|null, halfHeight:number|null }} out
+   */
+  eval(out) {
+    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+    const n = this.keyframes.length;
+    if (n === 0) return out;
+    if (n === 1) {
+      const k = this.keyframes[0];
+      this._sampleEyePose(out, 0, 0);
+      out.fov = k.fov; out.halfHeight = k.halfHeight;
+      return out;
+    }
+    const [seg, t] = this._cursorSegT();
+    const k0 = this.keyframes[seg];
+    const k1 = this.keyframes[seg + 1];
+
+    this._sampleEyePose(out, seg, t);
+
     out.fov = (k0.fov != null && k1.fov != null)
       ? k0.fov + t * (k1.fov - k0.fov) : (k0.fov ?? k1.fov ?? null);
     out.halfHeight = (k0.halfHeight != null && k1.halfHeight != null)
