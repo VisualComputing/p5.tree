@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.39'),
+    VERSION: CONST('0.0.40'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)
@@ -67,12 +67,14 @@ export function installConstants(p5) {
     BODY:   CONST(1 << 6),
     APEX:   CONST(1 << 7),
 
-    // trackPath bits
-    PATH:         CONST(1 << 0),   // both   — sampled polyline (pos / eye)
-    CENTER:       CONST(1 << 1),   // camera — additional center-path polyline
-    CONTROLS:     CONST(1 << 2),   // both   — straight control polygon
-    TANGENTS_IN:  CONST(1 << 3),   // both   — incoming tangent arrows at keyframes
-    TANGENTS_OUT: CONST(1 << 4),   // both   — outgoing tangent arrows at keyframes
-    TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience
+    // trackPath bits — CameraTrack-aware: PATH/CONTROLS/TANGENTS_* respect
+    // the `target: 'eye' | 'center'` opt; CENTER is camera-only and always
+    // draws the gaze relationship (not a polyline).
+    PATH:         CONST(1 << 0),   // sampled polyline along the target path
+    CENTER:       CONST(1 << 1),   // camera — gaze line eye→center + endpoint dot at kf.center
+    CONTROLS:     CONST(1 << 2),   // straight control polygon along the target path
+    TANGENTS_IN:  CONST(1 << 3),   // incoming tangent arrows at keyframes of the target path
+    TANGENTS_OUT: CONST(1 << 4),   // outgoing tangent arrows at keyframes of the target path
+    TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
   });
 }

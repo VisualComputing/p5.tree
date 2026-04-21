@@ -613,7 +613,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.39'
+p5.Tree.VERSION   // '0.0.40'
 ```
 
 ## Shader helpers
@@ -686,7 +686,7 @@ cross([{ size }])
 bullsEye([{ size, shape }])
 viewFrustum({ pg, mat4Eye, mat4Proj, mat4View, bits, viewer })
 hermite(p0, m0, p1, m1, [{ samples }])
-trackPath(track, [{ bits, samples, marker }])
+trackPath(track, [{ bits, samples, target, marker }])
 ```
 
 Matrix params accept `Float32Array(16)` | `ArrayLike` | `p5.Matrix` throughout.
@@ -718,19 +718,39 @@ hermite(p0, m0, p1, m1, { samples: 64 })
 
 ## trackPath
 
-Visualises a `PoseTrack` or `CameraTrack`: sampled path polyline, control polygon, tangent arrows, and a user-supplied per-keyframe **marker callback**.
+Visualises a `PoseTrack` or `CameraTrack`: sampled path polyline, control polygon, tangent arrows, per-keyframe marker, and — on `CameraTrack` only — gaze rays from each eye keyframe to its center.
 
-Bits: `p5.Tree.PATH`, `p5.Tree.CONTROLS`, `p5.Tree.TANGENTS_IN`, `p5.Tree.TANGENTS_OUT`, `p5.Tree.TANGENTS` (both). `CameraTrack` only: `p5.Tree.CENTER` (secondary polyline through the interpolated lookat targets). Default bits: `PATH`.
+Bits:
 
-All strokes come from the ambient `stroke(...)` state — multi-colour effects are composed by splitting the call, matching the `axes` / `viewFrustum` pattern:
+| Bit                    | Effect                                                                    |
+|------------------------|---------------------------------------------------------------------------|
+| `p5.Tree.PATH`         | Sampled polyline along the target path.                                   |
+| `p5.Tree.CONTROLS`     | Straight control polygon along the target path.                           |
+| `p5.Tree.TANGENTS_IN`  | Incoming tangent arrow at each keyframe of the target path.               |
+| `p5.Tree.TANGENTS_OUT` | Outgoing tangent arrow at each keyframe of the target path.               |
+| `p5.Tree.TANGENTS`     | Convenience alias — `TANGENTS_IN \| TANGENTS_OUT`.                        |
+| `p5.Tree.CENTER`       | `CameraTrack` only. Gaze line from `kf.eye` to `kf.center` at each keyframe, with a `point()` at `kf.center`. Target-independent. |
+
+Default bits: `PATH`.
+
+`opts.target` — `'eye'` (default) or `'center'`. `CameraTrack` only: redirects `PATH` / `CONTROLS` / `TANGENTS_IN` / `TANGENTS_OUT` to the center path instead of the eye path. `PoseTrack` ignores `target` (there is only one path). `CENTER` is target-independent — it is inherently an eye→center relationship. Call `trackPath` twice (once per target) to decorate both paths with distinct `stroke()`s.
+
+All strokes come from the ambient `stroke(...)` state — multi-colour effects compose by splitting the call, matching the `axes` / `viewFrustum` pattern:
 
 ```js
-const { PATH, CONTROLS, TANGENTS_IN, TANGENTS_OUT } = p5.Tree
+const { PATH, CONTROLS, TANGENTS_IN, TANGENTS_OUT, CENTER } = p5.Tree
 
-stroke(200);       trackPath(track, { bits: PATH })
-stroke(80);        trackPath(track, { bits: CONTROLS, marker: null })
+// eye path (default target)
+stroke('white');   trackPath(track, { bits: PATH })
+stroke('gray');    trackPath(track, { bits: CONTROLS,     marker: null })
 stroke('cyan');    trackPath(track, { bits: TANGENTS_IN,  marker: null })
 stroke('magenta'); trackPath(track, { bits: TANGENTS_OUT, marker: null })
+
+// center path (CameraTrack) — same bits, redirected via target
+stroke('orange');  trackPath(track, { bits: PATH | CONTROLS, target: 'center', marker: null })
+
+// gaze rays from each eye keyframe to its center
+stroke('lime');    trackPath(track, { bits: CENTER, marker: null })
 ```
 
 ### marker
@@ -746,12 +766,11 @@ The gizmo does **not** pre-translate or rotate before calling `marker` — marke
 
 Defaults (when `marker` is not supplied):
 
-* `PoseTrack`   — draws all six axes (length 30) oriented by each keyframe's pose.
-* `CameraTrack` — draws the keyframe's view frustum (`NEAR | FAR`) using `track.mat4Eye(_, i, 0)` and a projection matrix constructed inline from `kf.fov` or `kf.halfHeight` with `ctx.near` / `ctx.far` / `ctx.aspect` / `ctx.ndcZMin`. If the keyframe carries neither `fov` nor `halfHeight`, the marker draws nothing.
+* `PoseTrack` — six axes (length 30) oriented by each keyframe's pose.
+* `CameraTrack`, `target: 'eye'` (default) — pose triad at each keyframe's eye, oriented by the lookat basis via `track.mat4Eye(_, i, 0)`. Size auto-scales with the mean inter-keyframe eye distance, so markers stay proportional to the track at any scene scale — independent of the main camera's projection.
+* `CameraTrack`, `target: 'center'` — a `point()` at each keyframe's center.
 
-Pass `marker: null` to suppress per-keyframe markers (useful when layering strokes across multiple `trackPath` calls).
-
-Example of a custom marker:
+Pass `marker: null` to suppress per-keyframe markers (useful when layering strokes across multiple `trackPath` calls). Frustum-style markers are no longer a default — they coupled to the main camera's projection and scaled poorly at typical p5 v2 `near` / `far` values. Pass a custom `marker` to build a frustum per keyframe:
 
 ```js
 // PoseTrack — draw a small box oriented by each keyframe's pose
@@ -766,7 +785,8 @@ trackPath(poseTrack, {
   }
 })
 
-// CameraTrack — frustum with a shorter visualization far plane
+// CameraTrack — frustum with a short visualization far plane, independent
+// of the viewing camera's own far.
 const kfEye = new Float32Array(16)
 const kfPrj = new Float32Array(16)
 trackPath(camTrack, {
@@ -808,9 +828,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.39/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.39/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.39/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.39/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.39/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.39/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.esm.js)
 
 ---
 

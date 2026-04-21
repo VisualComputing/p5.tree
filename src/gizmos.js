@@ -22,7 +22,6 @@ import {
   projIsOrtho, projNear, projFar,
   projLeft, projRight, projTop, projBottom,
   hermiteVec3,
-  mat4Persp, mat4Ortho,
 } from '@nakednous/tree';
 
 import { getNdcZ } from './matrix.js';
@@ -37,12 +36,10 @@ const _eye   = new Float32Array(16);
 
 // trackPath sample buffers
 const _sp    = new Float32Array(3);
-const _sp2   = new Float32Array(3);
 const _prev  = new Float32Array(3);
 const _tIn   = new Float32Array(3);
 const _tOut  = new Float32Array(3);
 const _kfEye = new Float32Array(16);
-const _kfPrj = new Float32Array(16);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Local p5 state accessors
@@ -336,7 +333,25 @@ export function installGizmos(p5, fn) {
 
   /**
    * Visualise a PoseTrack or CameraTrack: sampled path polyline, control
-   * polygon, tangent arrows, and a user-supplied per-keyframe marker fn.
+   * polygon, tangent arrows, per-keyframe marker, and (CameraTrack only)
+   * gaze rays from each eye keyframe to its center.
+   *
+   * Bits:
+   *   PATH          — sampled polyline along the target path.
+   *   CONTROLS      — straight control polygon along the target path.
+   *   TANGENTS_IN   — incoming tangent arrow at each keyframe.
+   *   TANGENTS_OUT  — outgoing tangent arrow at each keyframe.
+   *   TANGENTS      — convenience alias (IN | OUT).
+   *   CENTER        — CameraTrack only. Gaze line from each kf.eye to
+   *                   kf.center, with a point() at kf.center. Target-
+   *                   independent — always expresses the eye→center
+   *                   relationship regardless of opts.target.
+   *
+   * opts.target — 'eye' (default) or 'center'. CameraTrack only: redirects
+   * PATH / CONTROLS / TANGENTS_IN / TANGENTS_OUT to the center path instead
+   * of the eye path. PoseTrack ignores target (there is only one path).
+   * Call trackPath twice (once per target) to decorate both paths with
+   * different ambient stroke() colours.
    *
    * The `marker` callback is called once per keyframe with
    *   marker(kf, index, track, ctx)
@@ -345,23 +360,30 @@ export function installGizmos(p5, fn) {
    * before calling marker — markers position themselves using kf.pos/kf.rot
    * (PoseTrack) or kf.eye/kf.center/kf.up (CameraTrack) — or reach into
    * track.mat4Model / track.mat4Eye if they need matrices at arbitrary
-   * path coordinates. Projection matrices are built from the keyframe's
-   * raw scalars (kf.fov or kf.halfHeight) via the free mat4Persp /
-   * mat4Ortho constructors.
+   * path coordinates. Projection matrices (e.g. for a frustum marker) are
+   * built from the keyframe's raw scalars (kf.fov or kf.halfHeight) via
+   * the free mat4Persp / mat4Ortho constructors.
    *
-   * Defaults:
-   *   PoseTrack    — all six axes at the keyframe's pose.
-   *   CameraTrack  — view frustum at each keyframe, built from
-   *                  track.mat4Eye(_, i, 0) and a projection matrix
-   *                  constructed inline from kf.fov or kf.halfHeight
-   *                  using ctx.near / ctx.far / ctx.aspect / ctx.ndcZMin.
+   * Defaults (when `marker` is not supplied):
+   *   PoseTrack                    — six axes (length 30) at the keyframe's pose.
+   *   CameraTrack, target='eye'    — pose triad at each keyframe's eye,
+   *                                  oriented by the lookat basis via
+   *                                  track.mat4Eye(_, i, 0). Size auto-
+   *                                  scales with the mean inter-keyframe
+   *                                  eye distance — independent of the
+   *                                  main camera's projection.
+   *   CameraTrack, target='center' — point() at each keyframe's center.
    *
-   * Pass `marker: null` to suppress per-keyframe markers entirely.
+   * Pass `marker: null` to suppress per-keyframe markers entirely. Frustum-
+   * style markers are not a default (they coupled to the main camera's
+   * projection and scaled poorly); pass a custom marker that calls
+   * viewFrustum({...}) when frustum visualisation is wanted.
    *
    * @param {PoseTrack|CameraTrack} track
    * @param {{
    *   bits?:    number,
    *   samples?: number,
+   *   target?:  'eye' | 'center',
    *   marker?:  Function | null,
    * }} [opts]
    */
@@ -379,14 +401,25 @@ export function installGizmos(p5, fn) {
     const {
       bits    = p5.Tree.PATH,
       samples = 32,
+      target  = 'eye',
     } = opts;
     const N = Math.max(2, samples | 0);
+
+    // Target resolves field + samplers for PATH / CONTROLS / TANGENTS.
+    // PoseTrack ignores target; CameraTrack redirects to the center path
+    // when target === 'center'.
+    const useCenter   = isCameraTrack && target === 'center';
+    const pathField   = isCameraTrack ? (useCenter ? 'center'         : 'eye')        : 'pos';
+    const pathSampler = isCameraTrack ? (useCenter ? 'sampleCenter'   : 'sampleEye')  : 'samplePos';
+    const tangentsFn  = isCameraTrack ? (useCenter ? 'centerTangents' : 'eyeTangents'): 'tangents';
 
     let marker;
     if ('marker' in opts) {
       marker = opts.marker;
     } else {
-      marker = isCameraTrack ? _defaultCameraMarker(this, p5) : _defaultPoseMarker(this, p5);
+      marker = isCameraTrack
+        ? _defaultCameraMarker(this, p5, track, useCenter)
+        : _defaultPoseMarker(this, p5);
     }
 
     let ctx = null;
@@ -401,16 +434,16 @@ export function installGizmos(p5, fn) {
       };
     }
 
-    const hasPath         = (bits & p5.Tree.PATH)         !== 0;
-    const hasCenter       = isCameraTrack && (bits & p5.Tree.CENTER) !== 0;
-    const hasControls     = (bits & p5.Tree.CONTROLS)     !== 0;
-    const hasTangentsIn   = (bits & p5.Tree.TANGENTS_IN)  !== 0;
-    const hasTangentsOut  = (bits & p5.Tree.TANGENTS_OUT) !== 0;
+    const hasPath        = (bits & p5.Tree.PATH)         !== 0;
+    const hasControls    = (bits & p5.Tree.CONTROLS)     !== 0;
+    const hasTangentsIn  = (bits & p5.Tree.TANGENTS_IN)  !== 0;
+    const hasTangentsOut = (bits & p5.Tree.TANGENTS_OUT) !== 0;
+    const hasCenter      = isCameraTrack && (bits & p5.Tree.CENTER) !== 0;
 
-    // ── PATH: primary sampled polyline (pos or eye) ──────────────────────
+    // ── PATH: sampled polyline along the target path ─────────────────────
     if (hasPath) {
       if (n === 1) {
-        const pt = isCameraTrack ? kfs[0].eye : kfs[0].pos;
+        const pt = kfs[0][pathField];
         p.point(pt[0], pt[1], pt[2]);
       } else {
         let first = true;
@@ -418,8 +451,7 @@ export function installGizmos(p5, fn) {
           const end = (seg === n - 2) ? N : N - 1;
           for (let i = 0; i <= end; i++) {
             const t = i / N;
-            if (isCameraTrack) track.sampleEye(_sp, seg, t);
-            else               track.samplePos(_sp, seg, t);
+            track[pathSampler](_sp, seg, t);
             if (!first) p.line(_prev[0], _prev[1], _prev[2], _sp[0], _sp[1], _sp[2]);
             _prev[0] = _sp[0]; _prev[1] = _sp[1]; _prev[2] = _sp[2];
             first = false;
@@ -428,48 +460,19 @@ export function installGizmos(p5, fn) {
       }
     }
 
-    // ── CENTER: secondary sampled polyline (CameraTrack only) ────────────
-    if (hasCenter) {
-      if (n === 1) {
-        const pt = kfs[0].center;
-        p.point(pt[0], pt[1], pt[2]);
-      } else {
-        let first = true;
-        for (let seg = 0; seg < n - 1; seg++) {
-          const end = (seg === n - 2) ? N : N - 1;
-          for (let i = 0; i <= end; i++) {
-            const t = i / N;
-            track.sampleCenter(_sp2, seg, t);
-            if (!first) p.line(_prev[0], _prev[1], _prev[2], _sp2[0], _sp2[1], _sp2[2]);
-            _prev[0] = _sp2[0]; _prev[1] = _sp2[1]; _prev[2] = _sp2[2];
-            first = false;
-          }
-        }
-      }
-    }
-
-    // ── CONTROLS: straight control polygon between adjacent keyframes ────
+    // ── CONTROLS: straight control polygon along the target path ─────────
     if (hasControls && n >= 2) {
-      const field = isCameraTrack ? 'eye' : 'pos';
       for (let i = 0; i < n - 1; i++) {
-        const a = kfs[i][field], b = kfs[i + 1][field];
+        const a = kfs[i][pathField], b = kfs[i + 1][pathField];
         p.line(a[0], a[1], a[2], b[0], b[1], b[2]);
-      }
-      if (isCameraTrack && hasCenter) {
-        for (let i = 0; i < n - 1; i++) {
-          const a = kfs[i].center, b = kfs[i + 1].center;
-          p.line(a[0], a[1], a[2], b[0], b[1], b[2]);
-        }
       }
     }
 
     // ── TANGENTS_IN / TANGENTS_OUT: arrows at each keyframe ──────────────
     if (hasTangentsIn || hasTangentsOut) {
-      const tangentsFn = isCameraTrack ? 'eyeTangents' : 'tangents';
-      const field = isCameraTrack ? 'eye' : 'pos';
       for (let i = 0; i < n; i++) {
         track[tangentsFn](_tIn, _tOut, i);
-        const kp = kfs[i][field];
+        const kp = kfs[i][pathField];
         if (hasTangentsIn) {
           p.line(kp[0] - _tIn[0], kp[1] - _tIn[1], kp[2] - _tIn[2],
                  kp[0], kp[1], kp[2]);
@@ -479,20 +482,15 @@ export function installGizmos(p5, fn) {
                  kp[0] + _tOut[0], kp[1] + _tOut[1], kp[2] + _tOut[2]);
         }
       }
+    }
 
-      if (isCameraTrack && hasCenter) {
-        for (let i = 0; i < n; i++) {
-          track.centerTangents(_tIn, _tOut, i);
-          const kp = kfs[i].center;
-          if (hasTangentsIn) {
-            p.line(kp[0] - _tIn[0], kp[1] - _tIn[1], kp[2] - _tIn[2],
-                   kp[0], kp[1], kp[2]);
-          }
-          if (hasTangentsOut) {
-            p.line(kp[0], kp[1], kp[2],
-                   kp[0] + _tOut[0], kp[1] + _tOut[1], kp[2] + _tOut[2]);
-          }
-        }
+    // ── CENTER: gaze line eye→center + endpoint dot (CameraTrack only) ───
+    // Target-independent: always expresses the eye→center relationship.
+    if (hasCenter) {
+      for (let i = 0; i < n; i++) {
+        const e = kfs[i].eye, c = kfs[i].center;
+        p.line(e[0], e[1], e[2], c[0], c[1], c[2]);
+        p.point(c[0], c[1], c[2]);
       }
     }
 
@@ -521,26 +519,47 @@ function _defaultPoseMarker(renderer, p5) {
   };
 }
 
-function _defaultCameraMarker(renderer, p5) {
-  return (kf, i, track, ctx) => {
-    track.mat4Eye(_kfEye, i, 0);
-    // Build the keyframe's projection from its raw scalars.
-    let prj = null;
-    if (kf.fov != null) {
-      const hh = ctx.near * Math.tan(kf.fov * 0.5);
-      const hw = hh * ctx.aspect;
-      prj = mat4Persp(_kfPrj, -hw, hw, -hh, hh, ctx.near, ctx.far, ctx.ndcZMin);
-    } else if (kf.halfHeight != null) {
-      const hh = kf.halfHeight;
-      const hw = hh * ctx.aspect;
-      prj = mat4Ortho(_kfPrj, -hw, hw, -hh, hh, ctx.near, ctx.far, ctx.ndcZMin);
-    }
-    if (!prj) return;
-    renderer.viewFrustum({
-      mat4Eye:  _kfEye,
-      mat4Proj: _kfPrj,
-      bits:     p5.Tree.NEAR | p5.Tree.FAR,
-      viewer:   () => {},
-    });
+function _defaultCameraMarker(renderer, p5, track, useCenter) {
+  const p = renderer._pInst;
+
+  // target=center: center is a lookat point — no orientation to convey.
+  if (useCenter) {
+    return (kf) => {
+      p.point(kf.center[0], kf.center[1], kf.center[2]);
+    };
+  }
+
+  // target=eye (default): pose triad at each keyframe, oriented by the
+  // lookat basis. Size is track-intrinsic — scales with the track, not
+  // with the main camera's projection, so markers stay sane at any scene
+  // scale (including p5 v2's large default near/far).
+  const size = _intrinsicMarkerSize(track, 'eye');
+  const bits = p5.Tree.X | p5.Tree._X | p5.Tree.Y | p5.Tree._Y | p5.Tree.Z | p5.Tree._Z;
+  return (kf, i, trk, _ctx) => {
+    trk.mat4Eye(_kfEye, i, 0);
+    p.push();
+    p.applyMatrix(
+      _kfEye[0],  _kfEye[1],  _kfEye[2],  _kfEye[3],
+      _kfEye[4],  _kfEye[5],  _kfEye[6],  _kfEye[7],
+      _kfEye[8],  _kfEye[9],  _kfEye[10], _kfEye[11],
+      _kfEye[12], _kfEye[13], _kfEye[14], _kfEye[15]
+    );
+    renderer.axes({ size, bits });
+    p.pop();
   };
+}
+
+// Mean inter-keyframe distance × 0.2, floored at 5. Falls back to 30 on
+// single-keyframe tracks so the marker is visible at default scene scales.
+function _intrinsicMarkerSize(track, field) {
+  const kfs = track.keyframes;
+  const n   = kfs.length;
+  if (n < 2) return 30;
+  let sum = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const a = kfs[i][field], b = kfs[i + 1][field];
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+    sum += Math.sqrt(dx*dx + dy*dy + dz*dz);
+  }
+  return Math.max((sum / (n - 1)) * 0.2, 5);
 }
