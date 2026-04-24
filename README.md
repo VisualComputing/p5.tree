@@ -237,14 +237,15 @@ cam.capturePose([out])  // → { eye, center, up, fov, halfHeight, near, far }
 cam.applyPose(pose)     // write pose back to camera
 cam.mat4View(out)       // camera's view matrix (world→eye)
 cam.mat4Eye(out)        // camera's eye matrix (eye→world)
-cam.mat4Proj(out)       // camera's projection matrix
+cam.mat4Proj(out)       // camera's projection matrix (eye→clip)
 ```
 
 These camera-level matrix readers are distinct from the renderer-level
-queries in the Matrix operations section below. Renderer-level `mat4Proj(out)`
-reads the *current* projection installed on the renderer; `cam.mat4Proj(out)`
-reads the projection of a *specific* camera regardless of whether it's
-currently active.
+queries in the Matrix operations section below. Renderer-level
+`mat4Proj(out)` reads the *current* projection installed on the renderer;
+`cam.mat4Proj(out)` reads the projection of a *specific* camera regardless
+of whether it's currently active. Same distinction applies to
+`mat4View` / `mat4Eye`.
 
 ---
 
@@ -738,11 +739,31 @@ Corners are passed in CCW order. `texture` accepts `p5.Image`,
 (`myFbo.color`). When `texture` is omitted the quad is drawn with the
 ambient `fill()` / `stroke()` state.
 
-The default `uvs` cover the full texture (`[0,0]` → first corner,
-`[1,1]` → diagonal corner). `pane` calls `textureMode(NORMAL)`
-internally, so these UVs and any custom UVs you pass are interpreted as
-normalized 0..1 coordinates regardless of the ambient `textureMode`.
-The original ambient mode is restored after the call.
+### UVs and orientation
+
+When `uvs` is omitted, the default sampling depends on the texture type:
+
+| Texture type         | Default UV layout | Rationale |
+|---------------------|-------------------|-----------|
+| `p5.Image` / `p5.Graphics` / `p5.Texture` | `(0,0)→(1,1)` top-to-bottom | Matches `image()` orientation. |
+| `p5.FramebufferTexture` (`fbo.color`)     | V-flipped `(0,1)→(1,0)` | FBO contents are stored bottom-up (WebGL convention); flipping V makes the pane display right-side-up, matching `image(fbo)` and the geometry drawn into the FBO. |
+
+Pass explicit `uvs` to override this selection. `pane` calls
+`textureMode(NORMAL)` internally, so these UVs and any custom UVs you
+pass are interpreted as normalized 0..1 coordinates regardless of the
+ambient `textureMode`. The original ambient mode is restored after
+the call.
+
+### Alpha
+
+Use p5's `tint(255, α)` before `pane(...)` to modulate the texture's
+alpha — standard p5 state, scoped by `pane`'s push/pop:
+
+```js
+tint(255, 180)                                // 70% opaque near plane
+pane(p0, p1, p2, p3, { texture: fbo.color })
+noTint()                                      // (or rely on caller's state)
+```
 
 ## viewFrustum
 
@@ -786,6 +807,18 @@ etc.) or `() => {}` to suppress it.
 `nearTexture` and `farTexture` map a texture onto the corresponding
 plane via the `pane()` helper. Accepts `p5.Image`, `p5.Graphics`,
 `p5.Texture`, or a `p5.Framebuffer`'s color attachment (`myFbo.color`).
+FBO textures are V-flipped automatically to display right-side-up
+(see the `pane` section for details).
+
+Modulate alpha with p5's `tint()` — translucent near planes are useful
+for "ghosted window" effects where the scene behind the frustum reads
+through the texture:
+
+```js
+tint(255, 180)                                                  // 70% opaque
+viewFrustum({ camera, nearTexture: fbo.color, bits: NEAR | BODY })
+noTint()
+```
 
 Typical use: the scene as rendered from the secondary camera, mapped
 onto its own near plane — so the viewFrustum is literally a window

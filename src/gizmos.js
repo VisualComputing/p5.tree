@@ -56,6 +56,18 @@ const _DEFAULT_UVS = Object.freeze([
   Object.freeze([0, 1]),
 ]);
 
+// V-flipped UVs for framebuffer color attachments — their rendered contents
+// are stored bottom-up in texture space (WebGL convention), so sampling with
+// the default top-down UVs produces an inverted image relative to image() and
+// to geometry in the main view. Per p5's own framebuffer docs: "By default,
+// a framebuffer's y-coordinates are flipped compared to images and videos."
+const _FBO_UVS = Object.freeze([
+  Object.freeze([0, 1]),
+  Object.freeze([1, 1]),
+  Object.freeze([1, 0]),
+  Object.freeze([0, 0]),
+]);
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Local p5 state accessors
 // ═══════════════════════════════════════════════════════════════════════════
@@ -271,10 +283,17 @@ export function installGizmos(p5, fn) {
   p5.Renderer3D.prototype.pane = function (p0, p1, p2, p3, { texture = null, uvs = null } = {}) {
     const p = this._pInst;
     if (!p) return;
-    const u = uvs || _DEFAULT_UVS;
+    // Default UV selection:
+    //   - Explicit `uvs` — always wins (user knows what they want).
+    //   - p5.FramebufferTexture (fbo.color) — V-flipped to match image() /
+    //     geometry orientation. p5 stores FBO color textures bottom-up;
+    //     sampling with top-down UVs produces an inverted image.
+    //   - Everything else — top-down UVs.
+    const u = uvs
+      || (texture instanceof p5.FramebufferTexture ? _FBO_UVS : _DEFAULT_UVS);
     // Scope everything — textureMode AND texture state leak otherwise.
-    // NORMAL mode is what our UVs (and _DEFAULT_UVS) assume: 0..1 across
-    // the texture. p5's default is IMAGE (0..width / 0..height), which
+    // NORMAL mode is what our UVs (and _DEFAULT_UVS / _FBO_UVS) assume:
+    // 0..1 across the texture. p5's default is IMAGE (0..w, 0..h), which
     // would sample a single pixel in the top-left with these UVs.
     p.push();
     if (texture) {

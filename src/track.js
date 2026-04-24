@@ -342,13 +342,17 @@ export function installTrack(p5, fn) {
    * Reads cam.upX/Y/Z directly — always the real hint, correct for both
    * upright cameras (up=[0,1,0]) and pole-flipped cameras (up=[0,-1,0]).
    *
-   * Also captures the current projection from the live projection matrix:
+   * Also captures the camera's projection (read from `this.projMatrix` —
+   * the camera's own projection matrix, populated by `cam.perspective()`,
+   * `cam.ortho()`, or `cam.frustum()`. Does NOT depend on the camera
+   * being active on the renderer, so `otherCam.capturePose()` returns
+   * otherCam's actual projection regardless of what's live):
    *   fov        — vertical fov (radians) for perspective cameras; null for ortho.
    *   halfHeight — world-unit half-height of ortho frustum; null for perspective.
    *   near, far  — clip plane distances (positive). Always real — extracted
    *                from the projection matrix regardless of projection type.
    *                Falls back to (0.1, 1000) when no projection matrix is
-   *                available (e.g. pre-setup()).
+   *                populated (e.g. pre-setup()).
    *
    * Pass a pre-allocated out to avoid allocation per frame:
    * ```js
@@ -377,7 +381,10 @@ export function installTrack(p5, fn) {
     out.up[0]     = this.upX !== undefined ? this.upX : 0;
     out.up[1]     = this.upY !== undefined ? this.upY : 1;
     out.up[2]     = this.upZ !== undefined ? this.upZ : 0;
-    const pMat = this._renderer?.states?.uPMatrix?.mat4;
+    // Read the camera's own projection — not the renderer's live state.
+    // this.projMatrix is populated by cam.perspective / ortho / frustum,
+    // and by the default camera setup during createCamera().
+    const pMat = this.projMatrix?.mat4;
     if (pMat) {
       const ndcZ = getNdcZ();
       if (projIsOrtho(pMat)) {
