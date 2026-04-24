@@ -116,7 +116,7 @@ rot: { mat4Eye: mat4 }                   // rotation block of an eye matrix
 
 ### CameraTrack — lookat keyframe animation
 
-A renderer-agnostic state machine for `{ eye, center, up, fov?, halfHeight? }` lookat keyframes. Each field is independently interpolated — eye and center along their own paths, up nlerped on the unit sphere.
+A renderer-agnostic state machine for `{ eye, center, up, fov?, halfHeight?, near, far }` lookat keyframes. Each field is independently interpolated — eye and center along their own paths, up nlerped on the unit sphere, `near` / `far` lerped linearly.
 
 ```js
 import { CameraTrack } from '@nakednous/tree'
@@ -127,7 +127,8 @@ track.add({ eye:[300,-150,0], center:[0,0,0] })
 track.play({ loop: true, duration: 90 })
 
 // per-frame — zero allocation
-const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
+const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0],
+              fov:null, halfHeight:null, near:0.1, far:1000 }
 track.tick()
 track.eval(out)
 // apply: cam.camera(out.eye[0],out.eye[1],out.eye[2],
@@ -150,11 +151,12 @@ track.centerInterp = 'step'
 `add()` accepts explicit lookat specs or a bulk array:
 
 ```js
-track.add({ eye, center?, up?, fov?, halfHeight?,
+track.add({ eye, center?, up?, fov?, halfHeight?, near?, far?,
             eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? })
                                    // fov — vertical fov (radians) for perspective
                                    // halfHeight — world-unit half-height for ortho
-                                   // both nullable; omit to leave projection unchanged
+                                   // fov / halfHeight are nullable — omit to leave projection unchanged
+                                   // near / far — clip distances; default 0.1 / 1000
                                    // eyeTanIn/Out — Hermite tangents for eye path
                                    // centerTanIn/Out — Hermite tangents for center path
 track.add([ spec, spec, ... ])     // bulk
@@ -162,7 +164,9 @@ track.add([ spec, spec, ... ])     // bulk
 
 For matrix-based capture use `track.add({ mat4Model: mat4Eye })` for full-fidelity TRS including roll, or `cam.capturePose()` (p5.tree bridge) for lookat-style capture.
 
-`fov` and `halfHeight` are lerped between keyframes only when both adjacent keyframes carry a non-null value for that field. Mixed or null entries pass `null` through — the bridge leaves the projection unchanged.
+`fov` and `halfHeight` are lerped between keyframes only when both adjacent keyframes carry a non-null value for that field. Mixed or null entries pass `null` through — the bridge leaves the projection unchanged. They are nullable because exactly one is meaningful per keyframe (perspective xor orthographic).
+
+`near` and `far` carry real defaults on every keyframe (`0.1` / `1000`, matching the three.js / Bevy conventions) and are therefore lerped linearly between every adjacent pair — no null-passthrough. `cam.capturePose()` extracts them from the live projection matrix, so a round-trip through `add(cam.capturePose())` is exact regardless of the camera's current clip distances.
 
 ---
 

@@ -113,6 +113,22 @@ export function installMatrix(p5, fn) {
   fn.mat4Proj = function (out) { return this._renderer.mat4Proj(out); };
 
   /**
+   * Projection matrix (eye → clip) of a specific p5.Camera.
+   *
+   * Reads from the camera's own `projMatrix` field, populated when
+   * `cam.perspective()`, `cam.ortho()`, or `cam.frustum()` is called.
+   * Symmetric with `cam.mat4View` / `cam.mat4Eye` which read from
+   * `cam.cameraMatrix`.
+   *
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   */
+  p5.Camera.prototype.mat4Proj = function (out) {
+    const buf = _rawMat4(out), s = this.projMatrix.mat4;
+    for (let i = 0; i < 16; i++) buf[i] = s[i];
+    return out;
+  };
+
+  /**
    * Perspective projection matrix (standalone constructor, general frustum).
    * mat4Persp(out, left, right, bottom, top, near, far[, ndcZMin[, ndcYSign]])
    * Symmetric: left=-right, bottom=-top — derive from fov+aspect in user space.

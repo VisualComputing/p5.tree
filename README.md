@@ -31,6 +31,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [Visibility testing](#visibility-testing)
 -   [Gizmos](#gizmos)
     -   [axes](#axes)
+    -   [pane](#pane)
     -   [viewFrustum](#viewfrustum)
     -   [hermite](#hermite)
     -   [trackPath](#trackpath)
@@ -148,9 +149,10 @@ function draw() {
 `add()` accepts explicit lookat specs or a bulk array:
 
 ```js
-track.add({ eye, center?, up?, fov?, halfHeight?,
+track.add({ eye, center?, up?, fov?, halfHeight?, near?, far?,
             eyeTanIn?, eyeTanOut?, centerTanIn?, centerTanOut? })
                                // explicit lookat; center defaults to [0,0,0], up to [0,1,0]
+                               // near / far default to 0.1 / 1000 when omitted
                                // eyeTanIn/Out — Hermite tangents for eye path
                                // centerTanIn/Out — Hermite tangents for center path
 track.add(cam.capturePose())   // capture live camera state (zero-alloc with pre-allocated out)
@@ -163,7 +165,10 @@ For matrix-based capture use `track.add({ mat4Model: mat4Eye })` on a `PoseTrack
 `fov` (radians) animates perspective field of view.
 `halfHeight` (world units) animates the vertical extent of an ortho frustum —
 width is derived from aspect ratio at apply time, preserving image proportions.
-Both fields are captured automatically by `track.add()` and `cam.capturePose()`.
+`near` / `far` (world units, default `0.1` / `1000`) animate the clip distances
+and always carry real values — unlike `fov` / `halfHeight`, they are not
+mutually exclusive and do not pass through `null`. All four are captured
+automatically by `track.add()` and `cam.capturePose()`.
 
 Interpolation modes:
 
@@ -228,9 +233,18 @@ reset() → onStop → _onDeactivate
 
 ```js
 getCamera()             // current p5.Camera (curCamera)
-cam.capturePose([out])  // → { eye, center, up, fov, halfHeight }
+cam.capturePose([out])  // → { eye, center, up, fov, halfHeight, near, far }
 cam.applyPose(pose)     // write pose back to camera
+cam.mat4View(out)       // camera's view matrix (world→eye)
+cam.mat4Eye(out)        // camera's eye matrix (eye→world)
+cam.mat4Proj(out)       // camera's projection matrix
 ```
+
+These camera-level matrix readers are distinct from the renderer-level
+queries in the Matrix operations section below. Renderer-level `mat4Proj(out)`
+reads the *current* projection installed on the renderer; `cam.mat4Proj(out)`
+reads the projection of a *specific* camera regardless of whether it's
+currently active.
 
 ---
 
@@ -684,7 +698,8 @@ axes([{ size, bits, semantic }])
 grid([{ size, subdivisions }])
 cross([{ size }])
 bullsEye([{ size, shape }])
-viewFrustum({ pg, mat4Eye, mat4Proj, mat4View, bits, viewer })
+pane(p0, p1, p2, p3, [{ texture, uvs }])
+viewFrustum({ camera, mat4Eye, mat4Proj, mat4View, bits, viewer, nearTexture, farTexture })
 hermite(p0, m0, p1, m1, [{ samples }])
 trackPath(track, [{ bits, samples, target, marker }])
 ```
@@ -703,9 +718,124 @@ stroke('cyan');  axes({ bits: p5.Tree.Z, semantic: false })
 
 Bits: `p5.Tree.X`, `p5.Tree._X`, `p5.Tree.Y`, `p5.Tree._Y`, `p5.Tree.Z`, `p5.Tree._Z`, `p5.Tree.LABELS`.
 
+## pane
+
+An atomic textured quad primitive — four 3D corner points in CCW order,
+optional texture, optional UVs. `pane` (as in window pane) is
+deliberately distinct from p5's native `plane(w, h)` to avoid shadowing a
+core primitive. It's the low-level building block `viewFrustum` uses for
+its `NEAR` / `FAR` / `BODY` quads, and that the default `CameraTrack`
+marker uses for the per-keyframe near plane.
+
+```js
+pane(topLeft, topRight, bottomRight, bottomLeft)
+pane(p0, p1, p2, p3, { texture: myFbo.color })
+pane(p0, p1, p2, p3, { texture: myImg, uvs: [[0,0],[1,0],[1,1],[0,1]] })
+```
+
+Corners are passed in CCW order. `texture` accepts `p5.Image`,
+`p5.Graphics`, `p5.Texture`, or a `p5.Framebuffer`'s color attachment
+(`myFbo.color`). When `texture` is omitted the quad is drawn with the
+ambient `fill()` / `stroke()` state.
+
+The default `uvs` cover the full texture (`[0,0]` → first corner,
+`[1,1]` → diagonal corner). `pane` calls `textureMode(NORMAL)`
+internally, so these UVs and any custom UVs you pass are interpreted as
+normalized 0..1 coordinates regardless of the ambient `textureMode`.
+The original ambient mode is restored after the call.
+
 ## viewFrustum
 
-Draws the view frustum of a secondary renderer / camera into the current renderer. Bits: `p5.Tree.NEAR`, `p5.Tree.FAR`, `p5.Tree.BODY`, `p5.Tree.APEX`.
+Draws the view frustum of a secondary camera into the current renderer.
+The frustum is defined by `camera` (a `p5.Camera` — eye and projection
+read directly from it) or by explicit `mat4Eye` + `mat4Proj`.
+
+```js
+viewFrustum({ camera: sceneCam })                          // minimal
+viewFrustum({ camera: sceneCam, bits: NEAR | FAR })        // default bits
+viewFrustum({ camera: sceneCam, bits: NEAR | FAR | BODY | APEX })
+viewFrustum({ camera: sceneCam, nearTexture: fbo.color, farTexture: img })
+viewFrustum({ mat4Eye, mat4Proj })                         // explicit matrices
+```
+
+The `camera` shortcut uses `camera.mat4Eye(_)` and `camera.mat4Proj(_)`
+to fill internal buffers — zero allocation per frame. Pass matrices
+explicitly if you have them already or want to override.
+
+Bits:
+
+| Bit               | Effect                                                                 |
+|-------------------|------------------------------------------------------------------------|
+| `p5.Tree.NEAR`    | Near plane (filled quad if `nearTexture` is set, outlined otherwise).  |
+| `p5.Tree.FAR`     | Far plane (filled quad if `farTexture` is set, outlined otherwise).   |
+| `p5.Tree.BODY`    | The four side walls joining near to far (or apex → far in APEX mode). |
+| `p5.Tree.APEX`    | Perspective only — collapse the near-plane body start to the eye point. |
+
+Default bits: `NEAR | FAR`.
+
+### viewer
+
+`opts.viewer` is a callback drawn at the frustum's eye (in the secondary
+camera's own space). It defaults to a forward-looking triad —
+`X | Y | _Z`, size 50 — matching the convention that the camera looks
+down `−Z`. Pass a custom callback for a richer marker (apex gizmo, logo,
+etc.) or `() => {}` to suppress it.
+
+### nearTexture / farTexture
+
+`nearTexture` and `farTexture` map a texture onto the corresponding
+plane via the `pane()` helper. Accepts `p5.Image`, `p5.Graphics`,
+`p5.Texture`, or a `p5.Framebuffer`'s color attachment (`myFbo.color`).
+
+Typical use: the scene as rendered from the secondary camera, mapped
+onto its own near plane — so the viewFrustum is literally a window
+showing what that camera sees:
+
+```js
+// setup — a secondary camera + framebuffer
+let sceneCam, sceneFbo
+
+function setup() {
+  createCanvas(600, 400, WEBGL)
+  sceneCam = createCamera()
+  sceneCam.camera(200, -100, 300, 0, 0, 0, 0, 1, 0)
+  sceneCam.perspective(PI / 3.5, width / height, 50, 500)
+  sceneFbo = createFramebuffer({ width: 320, height: 200 })
+}
+
+function draw() {
+  // render "what the secondary camera sees" into sceneFbo — both
+  // setCamera and resetMatrix are required for the view to update
+  sceneFbo.begin()
+  setCamera(sceneCam)
+  resetMatrix()
+  background(0)
+  box(80)
+  sceneFbo.end()
+
+  // draw the main view
+  background(20); orbitControl(); axes(); box(80)
+
+  // and the frustum — near plane textured with the FBO's color attachment
+  viewFrustum({
+    camera:      sceneCam,
+    nearTexture: sceneFbo.color,
+    bits:        p5.Tree.NEAR | p5.Tree.FAR | p5.Tree.BODY
+  })
+}
+```
+
+Textured planes draw last (far before near) so alpha compositing stays
+correct when both are enabled.
+
+**p5 v2 plumbing notes.**
+
+* `p5.Framebuffer` exposes its color attachment via `fbo.color` — that's
+  what textures sample from. Pass `fbo.color` (not the fbo itself) to
+  `nearTexture` / `farTexture`.
+* Inside `fbo.begin()`, both `setCamera(cam)` and `resetMatrix()` are
+  required for the view to update correctly — `setCamera` alone only
+  updates projection.
 
 ## hermite
 
@@ -767,10 +897,10 @@ The gizmo does **not** pre-translate or rotate before calling `marker` — marke
 Defaults (when `marker` is not supplied):
 
 * `PoseTrack` — six axes (length 30) oriented by each keyframe's pose.
-* `CameraTrack`, `target: 'eye'` (default) — pose triad at each keyframe's eye, oriented by the lookat basis via `track.mat4Eye(_, i, 0)`. Size auto-scales with the mean inter-keyframe eye distance, so markers stay proportional to the track at any scene scale — independent of the main camera's projection.
+* `CameraTrack`, `target: 'eye'` (default) — a "mini camera" at each keyframe: a forward-looking triad (`X | Y | _Z`, size = `kf.near`) oriented by the lookat basis, apex lines from the eye to the four near-plane corners, and the near plane itself (extents from `kf.fov` or `kf.halfHeight` at the ambient aspect). Everything is drawn at the keyframe's real dimensions — no scaling heuristics. The marker is scoped to camera-local geometry; the eye→center gaze line is drawn by the `CENTER` bit rather than by the marker itself, so it remains a separate toggle in a distinct `stroke()`.
 * `CameraTrack`, `target: 'center'` — a `point()` at each keyframe's center.
 
-Pass `marker: null` to suppress per-keyframe markers (useful when layering strokes across multiple `trackPath` calls). Frustum-style markers are no longer a default — they coupled to the main camera's projection and scaled poorly at typical p5 v2 `near` / `far` values. Pass a custom `marker` to build a frustum per keyframe:
+Pass `marker: null` to suppress per-keyframe markers (useful when layering strokes across multiple `trackPath` calls). The default marker is deliberately minimal — callers who want a full viewFrustum per keyframe supply a custom `marker`:
 
 ```js
 // PoseTrack — draw a small box oriented by each keyframe's pose

@@ -15,8 +15,8 @@
  *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
  *  fn.rotateQuat / fn.applyPose   forwarders to the renderer
  *
- *  p5.Camera.capturePose  read live camera → { eye, center, up, fov, halfHeight }
- *  p5.Camera.applyPose    write { eye, center, up, fov, halfHeight } → cam.camera() + projection
+ *  p5.Camera.capturePose  read live camera → { eye, center, up, fov, halfHeight, near, far }
+ *  p5.Camera.applyPose    write { eye, center, up, fov, halfHeight, near, far } → cam.camera() + projection
  *
  * ── { camera } spec support ───────────────────────────────────────────────────
  *  CameraTrack.add() returned by createCameraTrack() accepts a { camera } spec:
@@ -28,8 +28,11 @@
 
 'use strict';
 
-import { PoseTrack, CameraTrack, qToMat4,
-         projFov, projTop, projIsOrtho } from '@nakednous/tree';
+import {
+  PoseTrack, CameraTrack, qToMat4,
+  projFov, projTop, projIsOrtho,
+  projNear, projFar,
+} from '@nakednous/tree';
 import { getNdcZ } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -145,7 +148,7 @@ function _patchCameraTrackAdd(track) {
       for (const s of spec) track.add(s, opts);
       return;
     }
-    // { camera } — prefer capturePose() so fov/halfHeight are included;
+    // { camera } — prefer capturePose() so fov/halfHeight/near/far are included;
     // fall back to _cameraToSpec for non-p5 duck-typed cameras.
     if (spec.camera != null) {
       const converted = typeof spec.camera.capturePose === 'function'
@@ -258,7 +261,11 @@ export function installTrack(p5, fn) {
     const pInst = this;
     cam = cam ?? this.getCamera() ?? null;
     const track  = new CameraTrack();
-    const out    = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+    const out    = {
+      eye:[0,0,0], center:[0,0,0], up:[0,1,0],
+      fov:null, halfHeight:null,
+      near:0.1, far:1000,
+    };
 
     track.camera = cam;
     _patchCameraTrackAdd(track);
@@ -325,7 +332,8 @@ export function installTrack(p5, fn) {
   // ── p5.Camera — capturePose / applyPose ────────────────────────────────────
 
   /**
-   * Read the live camera state into a { eye, center, up, fov, halfHeight } object.
+   * Read the live camera state into a { eye, center, up, fov, halfHeight,
+   * near, far } object.
    *
    * - `eye`    ← [eyeX, eyeY, eyeZ]
    * - `center` ← [centerX, centerY, centerZ]
@@ -334,23 +342,36 @@ export function installTrack(p5, fn) {
    * Reads cam.upX/Y/Z directly — always the real hint, correct for both
    * upright cameras (up=[0,1,0]) and pole-flipped cameras (up=[0,-1,0]).
    *
-   * Also captures the current projection:
+   * Also captures the current projection from the live projection matrix:
    *   fov        — vertical fov (radians) for perspective cameras; null for ortho.
    *   halfHeight — world-unit half-height of ortho frustum; null for perspective.
+   *   near, far  — clip plane distances (positive). Always real — extracted
+   *                from the projection matrix regardless of projection type.
+   *                Falls back to (0.1, 1000) when no projection matrix is
+   *                available (e.g. pre-setup()).
    *
    * Pass a pre-allocated out to avoid allocation per frame:
    * ```js
-   * const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
+   * const out = { eye:[0,0,0], center:[0,0,0], up:[0,1,0],
+   *               fov:null, halfHeight:null, near:0.1, far:1000 }
    * track.add(cam.capturePose(out))
    * ```
    *
    * @method capturePose
    * @memberof p5.Camera
-   * @param {{ eye:number[], center:number[], up:number[], fov:number|null, halfHeight:number|null }} [out]
-   * @returns {{ eye:number[], center:number[], up:number[], fov:number|null, halfHeight:number|null }}
+   * @param {{ eye:number[], center:number[], up:number[],
+   *           fov:number|null, halfHeight:number|null,
+   *           near:number, far:number }} [out]
+   * @returns {{ eye:number[], center:number[], up:number[],
+   *             fov:number|null, halfHeight:number|null,
+   *             near:number, far:number }}
    */
   p5.Camera.prototype.capturePose = function (out) {
-    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+    out = out || {
+      eye:[0,0,0], center:[0,0,0], up:[0,1,0],
+      fov:null, halfHeight:null,
+      near:0.1, far:1000,
+    };
     out.eye[0]    = this.eyeX;    out.eye[1]    = this.eyeY;    out.eye[2]    = this.eyeZ;
     out.center[0] = this.centerX; out.center[1] = this.centerY; out.center[2] = this.centerZ;
     out.up[0]     = this.upX !== undefined ? this.upX : 0;
@@ -358,30 +379,44 @@ export function installTrack(p5, fn) {
     out.up[2]     = this.upZ !== undefined ? this.upZ : 0;
     const pMat = this._renderer?.states?.uPMatrix?.mat4;
     if (pMat) {
+      const ndcZ = getNdcZ();
       if (projIsOrtho(pMat)) {
         out.fov        = null;
-        out.halfHeight = projTop(pMat, getNdcZ());
+        out.halfHeight = projTop(pMat, ndcZ);
       } else {
         out.fov        = projFov(pMat);
         out.halfHeight = null;
       }
+      out.near = projNear(pMat, ndcZ);
+      out.far  = projFar(pMat);
     } else {
       out.fov = null; out.halfHeight = null;
+      out.near = 0.1; out.far = 1000;
     }
     return out;
   };
 
   /**
-   * Apply a { eye, center, up } pose to this camera.
-   * Calls cam.camera(eye, center, up) directly — no matrix reconstruction,
-   * no up_ortho drift, exact roundtrip from capturePose().
+   * Apply a { eye, center, up, fov?, halfHeight?, near?, far? } pose to this
+   * camera. Calls cam.camera(eye, center, up) directly — no matrix
+   * reconstruction, no up_ortho drift, exact roundtrip from capturePose().
+   *
+   * The projection is applied when fov or halfHeight is non-null:
+   *   fov set        — perspective(fov, aspect, near, far)
+   *   halfHeight set — ortho(-hw*aspect, hw*aspect, -hw, hw, near, far)
+   *
+   * `near` / `far` on the pose are used when present, falling back to
+   * (0.1, 1000) for back-compat with hand-built poses that predate those
+   * fields.
    *
    * Also handles legacy { pos, rot, scl } TRS poses from PoseTrack for
-   * object-on-camera effects (translate/rotate only, scl is ignored).
+   * object-on-camera effects (translate/rotate only; scl is ignored).
    *
    * @method applyPose
    * @memberof p5.Camera
-   * @param {{ eye:number[], center:number[], up:number[] } |
+   * @param {{ eye:number[], center:number[], up:number[],
+   *           fov?:number|null, halfHeight?:number|null,
+   *           near?:number, far?:number } |
    *          { pos:number[], rot:number[], scl?:number[] }} pose
    * @returns {p5.Camera} this
    */
@@ -396,12 +431,15 @@ export function installTrack(p5, fn) {
         pose.center[0], pose.center[1], pose.center[2],
         up[0],          up[1],          up[2]
       );
+      const near = pose.near ?? 0.1;
+      const far  = pose.far  ?? 1000;
       if (pose.fov != null) {
-        this.perspective(pose.fov);
+        const aspect = (this._renderer.width / this._renderer.height) || 1;
+        this.perspective(pose.fov, aspect, near, far);
       } else if (pose.halfHeight != null) {
         const aspect = (this._renderer.width / this._renderer.height) || 1;
         const hw = pose.halfHeight;
-        this.ortho(-hw * aspect, hw * aspect, -hw, hw);
+        this.ortho(-hw * aspect, hw * aspect, -hw, hw, near, far);
       }
       return this;
     }

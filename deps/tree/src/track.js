@@ -21,7 +21,8 @@
  *    transformToMat4  mat4ToTransform
  *  Tracks
  *    PoseTrack    — { pos, rot, scl } TRS keyframes
- *    CameraTrack  — { eye, center, up, fov?, halfHeight? } lookat keyframes
+ *    CameraTrack  — { eye, center, up, fov?, halfHeight?, near, far }
+ *                   lookat keyframes
  *
  * ── Public path access (all zero-alloc, no cursor side effects) ──────────
  *  PoseTrack
@@ -37,7 +38,8 @@
  *    eyeTangents      (outIn, outOut, index)               vec3 × 2 at keyframe
  *    centerTangents   (outIn, outOut, index)               vec3 × 2 at keyframe
  *    eval             (out?)                               { eye, center, up,
- *                                                            fov, halfHeight }
+ *                                                            fov, halfHeight,
+ *                                                            near, far }
  *
  *  Two arities for the continuous family:
  *    (out)          cursor form — reads track.seg / track.f. Useful when the
@@ -457,6 +459,11 @@ function _sameTransform(a, b) {
 // S4b  Spec parser — CameraTrack
 // =========================================================================
 
+// Lens defaults used when a spec omits near/far. Match the three.js /
+// Bevy conventions and are safe for typical p5 v2 scene scales.
+const _DEFAULT_NEAR = 0.1;
+const _DEFAULT_FAR  = 1000;
+
 /**
  * Parse a CameraTrack keyframe spec into internal form.
  *
@@ -465,8 +472,17 @@ function _sameTransform(a, b) {
  *   up           defaults to [0, 1, 0] and is normalised
  *   fov          vertical fov (radians), perspective only — null if absent
  *   halfHeight   world-unit half-height of ortho frustum — null if absent
+ *   near         near clip distance (positive) — defaults to 0.1
+ *   far          far  clip distance (positive) — defaults to 1000
  *   eyeTanIn/Out       optional Hermite tangents for the eye path
  *   centerTanIn/Out    optional Hermite tangents for the center path
+ *
+ * fov and halfHeight are mutually exclusive (perspective xor ortho) and
+ * therefore left nullable; eval() lerps each only when both adjacent
+ * keyframes carry a non-null value, passing null through otherwise.
+ *
+ * near and far are always meaningful regardless of projection type, so
+ * they receive real defaults and are linearly interpolated unconditionally.
  *
  * @param {Object} spec
  * @returns {Object|null}  Parsed keyframe or null if eye is missing/malformed.
@@ -484,6 +500,8 @@ function _parseCameraSpec(spec) {
     up: [up[0]/ul, up[1]/ul, up[2]/ul],
     fov:          typeof spec.fov        === 'number' ? spec.fov        : null,
     halfHeight:   typeof spec.halfHeight === 'number' ? spec.halfHeight : null,
+    near:         typeof spec.near       === 'number' ? spec.near       : _DEFAULT_NEAR,
+    far:          typeof spec.far        === 'number' ? spec.far        : _DEFAULT_FAR,
     eyeTanIn:     _parseVec3(spec.eyeTanIn)    || null,
     eyeTanOut:    _parseVec3(spec.eyeTanOut)   || null,
     centerTanIn:  _parseVec3(spec.centerTanIn) || null,
@@ -499,6 +517,8 @@ function _sameCameraKeyframe(a, b) {
   }
   if (a.fov !== b.fov) return false;
   if (a.halfHeight !== b.halfHeight) return false;
+  if (a.near !== b.near) return false;
+  if (a.far  !== b.far)  return false;
   return true;
 }
 
@@ -994,20 +1014,27 @@ export class PoseTrack extends Track {
  *
  * Keyframe shape: { eye:[x,y,z], center:[x,y,z], up:[x,y,z],
  *                   fov?:number, halfHeight?:number,
+ *                   near:number, far:number,
  *                   eyeTanIn?:[x,y,z], eyeTanOut?:[x,y,z],
  *                   centerTanIn?:[x,y,z], centerTanOut?:[x,y,z] }
  *
  * fov        — vertical fov (radians) for perspective cameras; null for ortho.
  * halfHeight — world-unit half-height of ortho frustum; null for perspective.
- * Both are optional and nullable. eval() lerps each only when both adjacent
- * keyframes carry a non-null value for that field; mixed or missing entries
- * pass `null` through.
+ * Both are optional and nullable because exactly one is meaningful per
+ * keyframe (perspective xor ortho). eval() lerps each only when both
+ * adjacent keyframes carry a non-null value for that field; mixed or
+ * missing entries pass `null` through.
+ *
+ * near, far — clip plane distances (positive, world units). Always real
+ * numbers. Defaults: near = 0.1, far = 1000 (three.js / Bevy convention).
+ * Linearly interpolated between keyframes without null-passthrough.
  *
  * eyeTanIn/Out and centerTanIn/Out are optional vec3 tangents for Hermite
  * interpolation of the eye and center paths respectively. When absent,
  * centripetal Catmull-Rom tangents are auto-computed at sample time.
  *
- * Missing fields default to: center → [0,0,0], up → [0,1,0].
+ * Missing fields default to: center → [0,0,0], up → [0,1,0],
+ * near → 0.1, far → 1000.
  *
  * For matrix-based capture of a camera-like pose use
  * PoseTrack.add({ mat4Model: mat4Eye }) for full TRS fidelity including roll,
@@ -1164,19 +1191,32 @@ export class CameraTrack extends Track {
 
   /**
    * Evaluate interpolated camera pose at current cursor.
+   *
+   * `fov` / `halfHeight` are lerped only when both adjacent keyframes carry
+   * a non-null value; mixed entries pass `null` through so the bridge can
+   * leave the projection unchanged.
+   *
+   * `near` / `far` are always real numbers and are linearly interpolated
+   * unconditionally.
+   *
    * @param {{ eye:number[], center:number[], up:number[],
-   *           fov:number|null, halfHeight:number|null }} [out]
+   *           fov:number|null, halfHeight:number|null,
+   *           near:number, far:number }} [out]
    * @returns {{ eye:number[], center:number[], up:number[],
-   *             fov:number|null, halfHeight:number|null }} out
+   *             fov:number|null, halfHeight:number|null,
+   *             near:number, far:number }} out
    */
   eval(out) {
-    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+    out = out || { eye:[0,0,0], center:[0,0,0], up:[0,1,0],
+                   fov:null, halfHeight:null,
+                   near:_DEFAULT_NEAR, far:_DEFAULT_FAR };
     const n = this.keyframes.length;
     if (n === 0) return out;
     if (n === 1) {
       const k = this.keyframes[0];
       this._sampleEyePose(out, 0, 0);
       out.fov = k.fov; out.halfHeight = k.halfHeight;
+      out.near = k.near; out.far = k.far;
       return out;
     }
     const [seg, t] = this._cursorSegT();
@@ -1190,6 +1230,10 @@ export class CameraTrack extends Track {
     out.halfHeight = (k0.halfHeight != null && k1.halfHeight != null)
       ? k0.halfHeight + t * (k1.halfHeight - k0.halfHeight)
       : (k0.halfHeight ?? k1.halfHeight ?? null);
+
+    // near / far carry real defaults on every keyframe — always lerp.
+    out.near = k0.near + t * (k1.near - k0.near);
+    out.far  = k0.far  + t * (k1.far  - k0.far);
 
     return out;
   }

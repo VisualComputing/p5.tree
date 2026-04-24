@@ -3,14 +3,19 @@
  * @module p5.tree/gizmos
  * @license AGPL-3.0-only
  *
- * axes      — coordinate frame (X/Y/Z, optional labels), semantic colouring
- * grid      — ground plane
- * cross     — screen-space crosshair centred on current model origin
- * bullsEye  — screen-space bulls-eye centred on current model origin
- * viewFrustum — another renderer's view frustum drawn in this renderer
- * hermite   — a single Hermite segment given endpoints and tangents
- * trackPath — PoseTrack / CameraTrack path + control polygon + tangents +
- *             per-keyframe marker (pluggable via opts.marker)
+ * axes        — coordinate frame (X/Y/Z, optional labels), semantic colouring
+ * grid        — ground plane
+ * cross       — screen-space crosshair centred on current model origin
+ * bullsEye    — screen-space bulls-eye centred on current model origin
+ * plane       — (native p5) axis-aligned plane at model origin
+ * pane        — textured/untextured quad primitive (4 corners, optional UVs)
+ * viewFrustum — another renderer's view frustum drawn in this renderer; NEAR
+ *               and FAR planes optionally textured (e.g. the scene rendered
+ *               from that camera) to visualise projection as a projection
+ *               ONTO the frustum plane
+ * hermite     — a single Hermite segment given endpoints and tangents
+ * trackPath   — PoseTrack / CameraTrack path + control polygon + tangents +
+ *               per-keyframe marker (pluggable via opts.marker)
  *
  * Depends on p5.tree/hud (beginHUD / endHUD), p5.tree/matrix (mapLocation,
  * pixelRatio, p5.Tree constants), and p5.tree/visibility (computePlanes).
@@ -33,6 +38,7 @@ import { getNdcZ } from './matrix.js';
 const _sl    = new Float32Array(3);
 const _wl    = new Float32Array(3);
 const _eye   = new Float32Array(16);
+const _proj  = new Float32Array(16);
 
 // trackPath sample buffers
 const _sp    = new Float32Array(3);
@@ -40,6 +46,15 @@ const _prev  = new Float32Array(3);
 const _tIn   = new Float32Array(3);
 const _tOut  = new Float32Array(3);
 const _kfEye = new Float32Array(16);
+
+// Default UVs for pane() — frozen so the fallback path allocates nothing.
+// Layout: p0 top-left, p1 top-right, p2 bottom-right, p3 bottom-left.
+const _DEFAULT_UVS = Object.freeze([
+  Object.freeze([0, 0]),
+  Object.freeze([1, 0]),
+  Object.freeze([1, 1]),
+  Object.freeze([0, 1]),
+]);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Local p5 state accessors
@@ -67,7 +82,7 @@ export function installGizmos(p5, fn) {
    *
    * Colouring:
    *   semantic: true  (default) — X red, Y lime, Z blue; labels inherit axis colour.
-   *   semantic: false          — every axis and label uses ambient stroke.
+   *   semantic: false           — every axis and label uses ambient stroke.
    *
    * @param {{ size?: number, semantic?: boolean, bits?: number }} [opts]
    */
@@ -213,30 +228,137 @@ export function installGizmos(p5, fn) {
     this.endHUD();
   };
 
+  // ── pane — atomic textured quad primitive ─────────────────────────────────
+  //
+  // "pane" as in window pane — a bounded flat quad, optionally textured.
+  // Distinct from p5's native `plane(w, h)` (axis-aligned at origin) by
+  // name AND signature: `pane` takes four 3D corner points. Used
+  // internally by `viewFrustum` for NEAR / FAR / BODY quads and by the
+  // default `CameraTrack` marker for the per-keyframe near plane.
+
+  fn.pane = function (p0, p1, p2, p3, opts) {
+    this._renderer.pane(p0, p1, p2, p3, opts);
+    return this;
+  };
+
+  /**
+   * Draw a textured or untextured quad from four 3D corner points.
+   *
+   * Corners are consumed in the order given — counter-clockwise when
+   * viewed from the intended front face yields outward-facing normals.
+   * Default UVs place the texture origin at p0 and (1,1) at p2:
+   *
+   *     p0 ──── p1        uv (0,0) ──── (1,0)
+   *      │       │                │         │
+   *      │       │                │         │
+   *     p3 ──── p2        uv (0,1) ──── (1,1)
+   *
+   * `texture` accepts anything p5's `texture()` accepts — `p5.Framebuffer`,
+   * `p5.Image`, `p5.Graphics`, `p5.Texture`. push/pop isolates the
+   * texture state so it doesn't leak into subsequent draws. `uvs`
+   * overrides the default layout — supply four [u,v] pairs in p0..p3
+   * order.
+   *
+   *     pane([-100,-100,0], [100,-100,0], [100,100,0], [-100,100,0])
+   *     pane(tl, tr, br, bl, { texture: myFbo })
+   *     pane(tl, tr, br, bl, { texture: myImg, uvs: [[0,1],[1,1],[1,0],[0,0]] })
+   *
+   * @method pane
+   * @for p5
+   * @param {number[]} p0,p1,p2,p3  Corner positions (CCW when viewed from front).
+   * @param {{ texture?:*, uvs?:number[][] }} [opts]
+   */
+  p5.Renderer3D.prototype.pane = function (p0, p1, p2, p3, { texture = null, uvs = null } = {}) {
+    const p = this._pInst;
+    if (!p) return;
+    const u = uvs || _DEFAULT_UVS;
+    // Scope everything — textureMode AND texture state leak otherwise.
+    // NORMAL mode is what our UVs (and _DEFAULT_UVS) assume: 0..1 across
+    // the texture. p5's default is IMAGE (0..width / 0..height), which
+    // would sample a single pixel in the top-left with these UVs.
+    p.push();
+    if (texture) {
+      p.textureMode(p.NORMAL);
+      p.texture(texture);
+    }
+    this.beginShape();
+    this.vertex(p0[0], p0[1], p0[2], u[0][0], u[0][1]);
+    this.vertex(p1[0], p1[1], p1[2], u[1][0], u[1][1]);
+    this.vertex(p2[0], p2[1], p2[2], u[2][0], u[2][1]);
+    this.vertex(p3[0], p3[1], p3[2], u[3][0], u[3][1]);
+    this.endShape(p.CLOSE);
+    p.pop();
+  };
+
   // ── View frustum ──────────────────────────────────────────────────────────
 
   fn.viewFrustum = function (opts) { this._renderer.viewFrustum(opts); return this; };
 
   /**
-   * Draw the view frustum of a secondary renderer / camera into this renderer.
+   * Draw the view frustum of a secondary camera into this renderer.
+   *
+   * Matrices come from `camera` (a p5.Camera — eye and projection are
+   * read via `camera.mat4Eye` / `camera.mat4Proj`) or from explicit
+   * `mat4Eye` + `mat4Proj` buffers. `mat4View` defaults to the current
+   * renderer's view — override when drawing from a third viewpoint.
+   *
+   * `bits` selects which parts render:
+   *   NEAR  — near plane (as closed shape; lines only if bit off)
+   *   FAR   — far plane  (as closed shape; lines only if bit off)
+   *   BODY  — four side walls between near and far (closed quads; diagonal
+   *           edge lines only if bit off)
+   *   APEX  — for perspective: replaces the near-corner body start with the
+   *           camera origin (0,0,0) so the body edges converge at the apex.
+   *           Ignored for orthographic projections.
+   *
+   * `viewer` is a callback invoked AFTER the view/eye matrices have been
+   * installed — use it to draw anything that belongs in the secondary
+   * camera's space (triad, HUD, grid, etc). Default: a three-axis triad
+   * `X | Y | _Z` (right, up, forward) at the apex.
+   *
+   * `nearTexture` / `farTexture` map a texture onto the corresponding plane
+   * via the `pane()` helper. Typical use: the scene as rendered from the
+   * secondary camera, mapped onto its own near plane to show "what the
+   * camera sees" as a projection ONTO the projection surface. Supply
+   * `myFbo.color` for a framebuffer's rendered contents.
+   *
+   * Draw order: `viewer` → untextured FAR outline → BODY → untextured NEAR
+   * outline → textured FAR → textured NEAR. Textured planes are drawn last
+   * so alpha can reveal the frustum interior through them; NEAR after FAR
+   * because NEAR sits in front of the external viewer in the typical
+   * "look at the camera from outside" configuration.
+   *
+   * @method viewFrustum
+   * @for p5
+   * @param {{
+   *   camera?:      p5.Camera,
+   *   mat4Eye?:     Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:    Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:    Float32Array | ArrayLike | p5.Matrix,
+   *   bits?:        number,
+   *   viewer?:      Function,
+   *   nearTexture?: p5.Image | p5.Graphics | p5.Texture,
+   *   farTexture?:  p5.Image | p5.Graphics | p5.Texture,
+   * }} [opts]
    */
   p5.Renderer3D.prototype.viewFrustum = function ({
-    pg, mat4Eye, mat4Proj, mat4View,
+    camera, mat4Eye, mat4Proj, mat4View,
     bits   = p5.Tree.NEAR | p5.Tree.FAR,
     viewer = () => this.axes({
       size: 50,
-      bits: p5.Tree.X | p5.Tree._X | p5.Tree.Y | p5.Tree._Y | p5.Tree.Z | p5.Tree._Z
-    })
+      bits: p5.Tree.X | p5.Tree.Y | p5.Tree._Z
+    }),
+    nearTexture = null,
+    farTexture  = null,
   } = {}) {
     const p = this._pInst;
     if (!p) return;
-    if (this === pg) { console.error('displaying viewFrustum requires a pg different than this'); return; }
 
-    const eRaw = _rawMat4(mat4Eye)  ?? (pg ? (pg._renderer.mat4Eye(_eye), _eye) : null);
-    const pRaw = _rawMat4(mat4Proj) ?? (pg ? _projMat4(pg._renderer) : null);
+    const eRaw = _rawMat4(mat4Eye)  ?? (camera ? (camera.mat4Eye(_eye),   _eye)  : null);
+    const pRaw = _rawMat4(mat4Proj) ?? (camera ? (camera.mat4Proj(_proj), _proj) : null);
 
     if (!pRaw || !eRaw) {
-      console.error('displaying viewFrustum requires either a pg or both mat4Eye and mat4Proj'); return;
+      console.error('viewFrustum requires either a camera or both mat4Eye and mat4Proj'); return;
     }
 
     const states = this.states, uView = states?.uViewMatrix;
@@ -248,45 +370,82 @@ export function installGizmos(p5, fn) {
     const apex    = !isOrtho && ((bits & p5.Tree.APEX) !== 0);
     const n = -projNear(pRaw, ndcZ), f = -projFar(pRaw);
     const l =  projLeft(pRaw, ndcZ),  r = projRight(pRaw, ndcZ);
-    const t = projTop(pRaw, ndcZ);
-    const b = projBottom(pRaw, ndcZ);
+    const t =  projTop(pRaw, ndcZ),   b = projBottom(pRaw, ndcZ);
     const ratio = isOrtho ? 1 : f/n;
     const _l=ratio*l, _r=ratio*r, _b=ratio*b, _t=ratio*t;
+
+    // Far-plane corners (at z = f, negative)
+    const fTL = [_l, _t, f], fTR = [_r, _t, f], fBR = [_r, _b, f], fBL = [_l, _b, f];
+    // Near-plane corners (at z = n, negative)
+    const nTL = [ l,  t, n], nTR = [ r,  t, n], nBR = [ r,  b, n], nBL = [ l,  b, n];
+    // Body start corners — either near corners or apex origin
+    const bTL = apex ? [0,0,0] : nTL;
+    const bTR = apex ? [0,0,0] : nTR;
+    const bBR = apex ? [0,0,0] : nBR;
+    const bBL = apex ? [0,0,0] : nBL;
 
     p.push(); p.resetMatrix();
     const prevView = uView.copy();
     uView.set(vRaw);
-    this.applyMatrix(...eRaw);
+    this.applyMatrix(
+      eRaw[0],  eRaw[1],  eRaw[2],  eRaw[3],
+      eRaw[4],  eRaw[5],  eRaw[6],  eRaw[7],
+      eRaw[8],  eRaw[9],  eRaw[10], eRaw[11],
+      eRaw[12], eRaw[13], eRaw[14], eRaw[15]
+    );
+
+    // ── Viewer — opaque scene-in-eye-space callback ──────────────────────
     typeof viewer === 'function' && viewer();
 
-    if ((bits & p5.Tree.FAR) !== 0) {
-      this.beginShape(); this.vertex(_l,_t,f); this.vertex(_r,_t,f);
-      this.vertex(_r,_b,f); this.vertex(_l,_b,f); this.endShape(p.CLOSE);
-    } else {
-      this.line(_l,_t,f,_r,_t,f); this.line(_r,_t,f,_r,_b,f);
-      this.line(_r,_b,f,_l,_b,f); this.line(_l,_b,f,_l,_t,f);
+    // ── FAR — outlined here if untextured; textured pass at the end ──────
+    if ((bits & p5.Tree.FAR) !== 0 && !farTexture) {
+      this.pane(fTL, fTR, fBR, fBL);
+    } else if ((bits & p5.Tree.FAR) === 0) {
+      // FAR bit off — still draw far edges so the body outline closes
+      p.line(fTL[0],fTL[1],fTL[2], fTR[0],fTR[1],fTR[2]);
+      p.line(fTR[0],fTR[1],fTR[2], fBR[0],fBR[1],fBR[2]);
+      p.line(fBR[0],fBR[1],fBR[2], fBL[0],fBL[1],fBL[2]);
+      p.line(fBL[0],fBL[1],fBL[2], fTL[0],fTL[1],fTL[2]);
     }
+
+    // ── BODY — four side walls (closed quads) or four diagonal edge lines ─
     if ((bits & p5.Tree.BODY) !== 0) {
-      this.beginShape(); this.vertex(_l,_t,f); this.vertex(l,t,n); this.vertex(r,t,n); this.vertex(_r,_t,f); this.endShape();
-      this.beginShape(); this.vertex(_r,_t,f); this.vertex(r,t,n); this.vertex(r,b,n); this.vertex(_r,_b,f); this.endShape();
-      this.beginShape(); this.vertex(_r,_b,f); this.vertex(r,b,n); this.vertex(l,b,n); this.vertex(_l,_b,f); this.endShape();
-      this.beginShape(); this.vertex(l,t,n); this.vertex(_l,_t,f); this.vertex(_l,_b,f); this.vertex(l,b,n); this.endShape();
+      this.pane(fTL, bTL, bTR, fTR);  // top
+      this.pane(fTR, bTR, bBR, fBR);  // right
+      this.pane(fBR, bBR, bBL, fBL);  // bottom
+      this.pane(bTL, fTL, fBL, bBL);  // left
       if (apex) {
-        this.line(0,0,0,r,t,n); this.line(0,0,0,l,t,n);
-        this.line(0,0,0,l,b,n); this.line(0,0,0,r,b,n);
+        // Apex lines converging at origin — accent when BODY is drawn
+        p.line(0,0,0, nTR[0], nTR[1], nTR[2]);
+        p.line(0,0,0, nTL[0], nTL[1], nTL[2]);
+        p.line(0,0,0, nBL[0], nBL[1], nBL[2]);
+        p.line(0,0,0, nBR[0], nBR[1], nBR[2]);
       }
     } else {
-      this.line(apex?0:r, apex?0:t, apex?0:n, _r,_t,f);
-      this.line(apex?0:l, apex?0:t, apex?0:n, _l,_t,f);
-      this.line(apex?0:l, apex?0:b, apex?0:n, _l,_b,f);
-      this.line(apex?0:r, apex?0:b, apex?0:n, _r,_b,f);
+      p.line(bTR[0], bTR[1], bTR[2], fTR[0], fTR[1], fTR[2]);
+      p.line(bTL[0], bTL[1], bTL[2], fTL[0], fTL[1], fTL[2]);
+      p.line(bBL[0], bBL[1], bBL[2], fBL[0], fBL[1], fBL[2]);
+      p.line(bBR[0], bBR[1], bBR[2], fBR[0], fBR[1], fBR[2]);
     }
-    if ((bits & p5.Tree.NEAR) !== 0) {
-      this.beginShape(); this.vertex(l,t,n); this.vertex(r,t,n);
-      this.vertex(r,b,n); this.vertex(l,b,n); this.endShape(p.CLOSE);
-    } else {
-      this.line(l,t,n,r,t,n); this.line(r,t,n,r,b,n);
-      this.line(r,b,n,l,b,n); this.line(l,b,n,l,t,n);
+
+    // ── NEAR — outlined here if untextured; textured pass at the end ─────
+    if ((bits & p5.Tree.NEAR) !== 0 && !nearTexture) {
+      this.pane(nTL, nTR, nBR, nBL);
+    } else if ((bits & p5.Tree.NEAR) === 0) {
+      p.line(nTL[0],nTL[1],nTL[2], nTR[0],nTR[1],nTR[2]);
+      p.line(nTR[0],nTR[1],nTR[2], nBR[0],nBR[1],nBR[2]);
+      p.line(nBR[0],nBR[1],nBR[2], nBL[0],nBL[1],nBL[2]);
+      p.line(nBL[0],nBL[1],nBL[2], nTL[0],nTL[1],nTL[2]);
+    }
+
+    // ── Textured planes — drawn LAST for correct alpha compositing ───────
+    // Far before near: in the typical "external viewer in front of camera"
+    // configuration, far sits behind near.
+    if ((bits & p5.Tree.FAR) !== 0 && farTexture) {
+      this.pane(fTL, fTR, fBR, fBL, { texture: farTexture });
+    }
+    if ((bits & p5.Tree.NEAR) !== 0 && nearTexture) {
+      this.pane(nTL, nTR, nBR, nBL, { texture: nearTexture });
     }
 
     uView.set(prevView);
@@ -345,7 +504,12 @@ export function installGizmos(p5, fn) {
    *   CENTER        — CameraTrack only. Gaze line from each kf.eye to
    *                   kf.center, with a point() at kf.center. Target-
    *                   independent — always expresses the eye→center
-   *                   relationship regardless of opts.target.
+   *                   relationship regardless of opts.target. The default
+   *                   CameraTrack marker already draws the same eye→center
+   *                   line as part of the "mini camera" it renders, so
+   *                   CENTER is most useful when a CUSTOM marker is
+   *                   supplied and gaze rays are wanted in a separate
+   *                   ambient stroke() colour.
    *
    * opts.target — 'eye' (default) or 'center'. CameraTrack only: redirects
    * PATH / CONTROLS / TANGENTS_IN / TANGENTS_OUT to the center path instead
@@ -360,24 +524,28 @@ export function installGizmos(p5, fn) {
    * before calling marker — markers position themselves using kf.pos/kf.rot
    * (PoseTrack) or kf.eye/kf.center/kf.up (CameraTrack) — or reach into
    * track.mat4Model / track.mat4Eye if they need matrices at arbitrary
-   * path coordinates. Projection matrices (e.g. for a frustum marker) are
-   * built from the keyframe's raw scalars (kf.fov or kf.halfHeight) via
-   * the free mat4Persp / mat4Ortho constructors.
+   * path coordinates. Projection matrices (e.g. for a custom frustum
+   * marker) are built from the keyframe's raw scalars (kf.fov /
+   * kf.halfHeight / kf.near / kf.far) via the free mat4Persp / mat4Ortho
+   * constructors.
    *
    * Defaults (when `marker` is not supplied):
    *   PoseTrack                    — six axes (length 30) at the keyframe's pose.
-   *   CameraTrack, target='eye'    — pose triad at each keyframe's eye,
-   *                                  oriented by the lookat basis via
-   *                                  track.mat4Eye(_, i, 0). Size auto-
-   *                                  scales with the mean inter-keyframe
-   *                                  eye distance — independent of the
-   *                                  main camera's projection.
+   *   CameraTrack, target='eye'    — "mini camera" at each keyframe: triad
+   *                                  (X | Y | _Z, size = kf.near), apex
+   *                                  lines (perspective only, from origin
+   *                                  to near corners), near plane outline
+   *                                  at the keyframe's real extents (from
+   *                                  kf.fov or kf.halfHeight at the ambient
+   *                                  aspect), and a center line from
+   *                                  kf.eye to kf.center. All drawn at the
+   *                                  keyframe's real dimensions — shares
+   *                                  its geometry with viewFrustum. Supply
+   *                                  a custom marker if you want markers
+   *                                  that stay sane at any scene scale.
    *   CameraTrack, target='center' — point() at each keyframe's center.
    *
-   * Pass `marker: null` to suppress per-keyframe markers entirely. Frustum-
-   * style markers are not a default (they coupled to the main camera's
-   * projection and scaled poorly); pass a custom marker that calls
-   * viewFrustum({...}) when frustum visualisation is wanted.
+   * Pass `marker: null` to suppress per-keyframe markers entirely.
    *
    * @param {PoseTrack|CameraTrack} track
    * @param {{
@@ -418,7 +586,7 @@ export function installGizmos(p5, fn) {
       marker = opts.marker;
     } else {
       marker = isCameraTrack
-        ? _defaultCameraMarker(this, p5, track, useCenter)
+        ? _defaultCameraMarker(this, p5, useCenter)
         : _defaultPoseMarker(this, p5);
     }
 
@@ -519,23 +687,58 @@ function _defaultPoseMarker(renderer, p5) {
   };
 }
 
-function _defaultCameraMarker(renderer, p5, track, useCenter) {
+// Default CameraTrack marker — "mini camera" at each keyframe.
+//
+// Shares structure with viewFrustum: triad + apex lines + near plane drawn
+// in eye-local space at the keyframe's real dimensions. The marker is
+// scoped to camera-local geometry — the eye→center gaze line is NOT part
+// of it. Enable the CENTER bit in trackPath to draw per-keyframe gaze
+// lines alongside.
+//
+// Real dims throughout:
+//   triad size      = kf.near        (the _Z axis tip lands at the near plane centre)
+//   near plane z    = -kf.near
+//   near extents    = kf.fov or kf.halfHeight + ambient aspect
+//
+// For tracks with typical small near values (e.g. 0.1) this produces
+// visually tiny markers. Supply a custom marker to scale for legibility
+// at distance.
+function _defaultCameraMarker(renderer, p5, useCenter) {
   const p = renderer._pInst;
 
-  // target=center: center is a lookat point — no orientation to convey.
+  // target=center: no orientation to convey — just a dot at center.
   if (useCenter) {
     return (kf) => {
       p.point(kf.center[0], kf.center[1], kf.center[2]);
     };
   }
 
-  // target=eye (default): pose triad at each keyframe, oriented by the
-  // lookat basis. Size is track-intrinsic — scales with the track, not
-  // with the main camera's projection, so markers stay sane at any scene
-  // scale (including p5 v2's large default near/far).
-  const size = _intrinsicMarkerSize(track, 'eye');
-  const bits = p5.Tree.X | p5.Tree._X | p5.Tree.Y | p5.Tree._Y | p5.Tree.Z | p5.Tree._Z;
-  return (kf, i, trk, _ctx) => {
+  const axesBits = p5.Tree.X | p5.Tree.Y | p5.Tree._Z;
+
+  return (kf, i, trk, ctx) => {
+    const near   = (typeof kf.near === 'number') ? kf.near : 0.1;
+    const aspect = ctx.aspect;
+
+    // Plane extents at z = -near. Fallback fov only if keyframe carries
+    // neither fov nor halfHeight — rare, since capturePose populates one
+    // of them for any real camera and _parseCameraSpec does not zero them.
+    let hh, hw, isOrtho = false;
+    if (typeof kf.halfHeight === 'number') {
+      isOrtho = true;
+      hh = kf.halfHeight;
+      hw = hh * aspect;
+    } else {
+      const fov = (typeof kf.fov === 'number') ? kf.fov : Math.PI / 3;
+      hh = near * Math.tan(fov * 0.5);
+      hw = hh * aspect;
+    }
+
+    // Eye-local near-plane corners (z = -near, forward direction).
+    const nTL = [-hw,  hh, -near];
+    const nTR = [ hw,  hh, -near];
+    const nBR = [ hw, -hh, -near];
+    const nBL = [-hw, -hh, -near];
+
     trk.mat4Eye(_kfEye, i, 0);
     p.push();
     p.applyMatrix(
@@ -544,22 +747,30 @@ function _defaultCameraMarker(renderer, p5, track, useCenter) {
       _kfEye[8],  _kfEye[9],  _kfEye[10], _kfEye[11],
       _kfEye[12], _kfEye[13], _kfEye[14], _kfEye[15]
     );
-    renderer.axes({ size, bits });
-    p.pop();
-  };
-}
 
-// Mean inter-keyframe distance × 0.2, floored at 5. Falls back to 30 on
-// single-keyframe tracks so the marker is visible at default scene scales.
-function _intrinsicMarkerSize(track, field) {
-  const kfs = track.keyframes;
-  const n   = kfs.length;
-  if (n < 2) return 30;
-  let sum = 0;
-  for (let i = 0; i < n - 1; i++) {
-    const a = kfs[i][field], b = kfs[i + 1][field];
-    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
-    sum += Math.sqrt(dx*dx + dy*dy + dz*dz);
-  }
-  return Math.max((sum / (n - 1)) * 0.2, 5);
+    // Triad at the camera origin, oriented by lookat. Size = near so the
+    // _Z tip coincides with the near plane centre. Nested push/pop so the
+    // semantic axis colours don't leak into the apex / plane draws.
+    p.push();
+    renderer.axes({ size: near, bits: axesBits });
+    p.pop();
+
+    // Apex lines — perspective only (ortho has no apex).
+    if (!isOrtho) {
+      p.line(0, 0, 0, nTL[0], nTL[1], nTL[2]);
+      p.line(0, 0, 0, nTR[0], nTR[1], nTR[2]);
+      p.line(0, 0, 0, nBR[0], nBR[1], nBR[2]);
+      p.line(0, 0, 0, nBL[0], nBL[1], nBL[2]);
+    }
+
+    // Near plane (outline, or filled if user has fill() enabled).
+    renderer.pane(nTL, nTR, nBR, nBL);
+
+    p.pop();
+
+    // Note — the marker deliberately does NOT draw an eye→center gaze
+    // line. That's the CENTER bit's job (see trackPath). Keeping the
+    // responsibilities separate means CENTER is a meaningful toggle,
+    // and the marker stays scoped to camera-local geometry.
+  };
 }
