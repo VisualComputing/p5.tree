@@ -52,6 +52,8 @@ const track = createCameraTrack()     // CameraTrack — binds to the current ca
 const track = createCameraTrack(cam)  // CameraTrack — binds to a specific camera
 ```
 
+> **Naming convention.** The codebase follows a single rule for when to split APIs by track type and when to unify them: **construction follows the type, consumption follows the intent.** Building a track requires type-specific inputs (a camera arg vs. none), so `createPoseTrack` and `createCameraTrack` stay separate to keep the call site self-documenting. Consuming a track for a goal that's the same regardless of subtype — driving a transport panel, drawing a path overlay — uses one unified function (`createPanel(track, …)`, `trackPath(track, …)`) that branches internally on the actual type. Options that apply to only one of the two are documented as such.
+
 ## PoseTrack — object animation
 
 Stores `{ pos, rot, scl }` keyframes. Interpolates position with cubic Hermite (auto-computed centripetal Catmull-Rom tangents by default), rotation with slerp or nlerp, scale with linear.
@@ -628,7 +630,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.40'
+p5.Tree.VERSION   // '0.0.41'
 ```
 
 ## Shader helpers
@@ -768,20 +770,34 @@ noTint()                                      // (or rely on caller's state)
 ## viewFrustum
 
 Draws the view frustum of a secondary camera into the current renderer.
-The frustum is defined by `camera` (a `p5.Camera` — eye and projection
-read directly from it) or by explicit `mat4Eye` + `mat4Proj`.
+`camera` accepts three forms:
+
+| Input          | Source of pose + projection                                                  |
+|----------------|------------------------------------------------------------------------------|
+| `p5.Camera`    | `cam.mat4Eye()` + `cam.mat4Proj()` — direct reads from the camera itself.    |
+| `CameraTrack`  | `track.eval()` + `track.mat4Eye()` — sampled at the cursor; animates with playback. |
+| pose spec      | `{ eye, center?, up?, fov?, halfHeight?, near?, far? }` — same shape `capturePose()` returns and `CameraTrack.add()` accepts. |
 
 ```js
-viewFrustum({ camera: sceneCam })                          // minimal
-viewFrustum({ camera: sceneCam, bits: NEAR | FAR })        // default bits
-viewFrustum({ camera: sceneCam, bits: NEAR | FAR | BODY | APEX })
-viewFrustum({ camera: sceneCam, nearTexture: fbo.color, farTexture: img })
-viewFrustum({ mat4Eye, mat4Proj })                         // explicit matrices
+viewFrustum({ camera: sceneCam })                            // p5.Camera — static frustum
+viewFrustum({ camera: cameraTrack })                         // CameraTrack — animated, follows the cursor
+viewFrustum({ camera: { eye:[100,0,0], fov: PI/3 } })        // pose spec — one-off frustum
+viewFrustum({ camera, bits: NEAR | FAR | BODY | APEX })      // bits selection
+viewFrustum({ camera, nearTexture: fbo.color, farTexture: img })  // textured planes
+viewFrustum({ mat4Eye, mat4Proj })                           // explicit matrices
 ```
 
-The `camera` shortcut uses `camera.mat4Eye(_)` and `camera.mat4Proj(_)`
-to fill internal buffers — zero allocation per frame. Pass matrices
-explicitly if you have them already or want to override.
+Pose-spec defaults: `center=[0,0,0]`, `up=[0,1,0]`, `near=0.1`, `far=1000`,
+`fov=PI/3` if neither `fov` nor `halfHeight` is supplied. Aspect for the
+projection comes from the renderer's current `width / height`.
+
+Detection is duck-typed: a CameraTrack is anything with `.eval(out)`,
+`.mat4Eye(out)`, and a `keyframes` array. Third-party objects implementing
+that contract animate correctly without further changes.
+
+All forms internally fill the same scratch buffers — zero allocation per
+frame. Pass `mat4Eye` / `mat4Proj` explicitly if you've already built the
+matrices or want to override.
 
 Bits:
 
@@ -991,9 +1007,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.40/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.esm.js)
 
 ---
 

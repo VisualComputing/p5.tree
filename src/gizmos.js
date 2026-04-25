@@ -27,6 +27,9 @@ import {
   projIsOrtho, projNear, projFar,
   projLeft, projRight, projTop, projBottom,
   hermiteVec3,
+  mat4Eye  as _mat4Eye,
+  mat4Persp as _mat4Persp,
+  mat4Ortho as _mat4Ortho,
 } from '@nakednous/tree';
 
 import { getNdcZ } from './matrix.js';
@@ -39,6 +42,15 @@ const _sl    = new Float32Array(3);
 const _wl    = new Float32Array(3);
 const _eye   = new Float32Array(16);
 const _proj  = new Float32Array(16);
+
+// Scratch pose for viewFrustum's polymorphic camera dispatch — populated
+// from a CameraTrack via track.eval(out), or normalised from a user-supplied
+// pose spec, then consumed by _buildEyeFromPose / _buildProjFromPose.
+const _vfPose = {
+  eye:   [0,0,0], center: [0,0,0], up: [0,1,0],
+  fov:   null,    halfHeight: null,
+  near:  0.1,     far: 1000,
+};
 
 // trackPath sample buffers
 const _sp    = new Float32Array(3);
@@ -78,6 +90,91 @@ const _viewMat4  = (r) => r.states.curCamera.cameraMatrix.mat4;
 const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
 
 const _AXIS_COLORS = ['Red', 'Lime', 'DodgerBlue'];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Polymorphic camera resolution for viewFrustum
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// `viewFrustum({ camera })` accepts three input shapes:
+//
+//   p5.Camera         — read pose + projection from the camera directly
+//   CameraTrack       — sample track at the cursor (track.eval + track.mat4Eye)
+//   pose spec object  — { eye, center?, up?, fov?, halfHeight?, near?, far? },
+//                       same shape capturePose() and CameraTrack.add() use
+//
+// Detection is duck-typed on the public surface of each input — we test for
+// the methods we'd actually call rather than instanceof, so the contract is
+// "looks like X" rather than "is exactly X". Two consequences:
+//
+//   * a third-party object that implements .eval(poseOut) + .mat4Eye(out) +
+//     keyframes[] will be detected as a CameraTrack and animate correctly
+//   * a plain object literal with .eye is treated as a pose spec
+//
+// Order matters: track detection runs first because a track has an .eye
+// keyframe in keyframes[0] which would otherwise satisfy the spec heuristic.
+
+/**
+ * @returns {boolean} true if `c` looks like a CameraTrack (cursor + lookat samplers).
+ */
+function _isCameraTrack(c) {
+  return !!c
+      && typeof c.eval === 'function'
+      && typeof c.mat4Eye === 'function'
+      && Array.isArray(c.keyframes);
+}
+
+/**
+ * @returns {boolean} true if `c` looks like a p5.Camera (renderer-bound matrix readers).
+ */
+function _isP5Camera(c) {
+  return !!c
+      && typeof c.mat4Eye === 'function'
+      && typeof c.mat4Proj === 'function'
+      && !Array.isArray(c.keyframes);   // disambiguate from CameraTrack
+}
+
+/**
+ * @returns {boolean} true if `c` is a plain pose spec (has .eye but no methods).
+ */
+function _isPoseSpec(c) {
+  return !!c && Array.isArray(c.eye);
+}
+
+/**
+ * Build the eye→world matrix from a pose spec via the lookAt constructor.
+ * Defaults applied: center=[0,0,0], up=[0,1,0].
+ * @param {Object} pose  { eye, center?, up? }
+ * @param {Float32Array} out  16-element destination.
+ */
+function _buildEyeFromPose(pose, out) {
+  const e = pose.eye;
+  const c = pose.center || [0, 0, 0];
+  const u = pose.up     || [0, 1, 0];
+  return _mat4Eye(out, e[0], e[1], e[2], c[0], c[1], c[2], u[0], u[1], u[2]);
+}
+
+/**
+ * Build the projection matrix from a pose spec's lens fields.
+ * Aspect comes from the renderer (ambient state, parallel to textureMode).
+ * Defaults applied: fov = π/3 if neither fov nor halfHeight, near = 0.1, far = 1000.
+ * @param {Object} pose  { fov?, halfHeight?, near?, far? }
+ * @param {number} aspect  width / height of the rendering surface.
+ * @param {number} ndcZMin
+ * @param {Float32Array} out  16-element destination.
+ */
+function _buildProjFromPose(pose, aspect, ndcZMin, out) {
+  const near = pose.near ?? 0.1;
+  const far  = pose.far  ?? 1000;
+  if (typeof pose.halfHeight === 'number') {
+    const top    = pose.halfHeight;
+    const right  = top * aspect;
+    return _mat4Ortho(out, -right, right, -top, top, near, far, ndcZMin);
+  }
+  const fov   = (typeof pose.fov === 'number') ? pose.fov : Math.PI / 3;
+  const top   = near * Math.tan(fov * 0.5);
+  const right = top * aspect;
+  return _mat4Persp(out, -right, right, -top, top, near, far, ndcZMin);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Install
@@ -291,10 +388,15 @@ export function installGizmos(p5, fn) {
     //   - Everything else — top-down UVs.
     const u = uvs
       || (texture instanceof p5.FramebufferTexture ? _FBO_UVS : _DEFAULT_UVS);
-    // Scope everything — textureMode AND texture state leak otherwise.
-    // NORMAL mode is what our UVs (and _DEFAULT_UVS / _FBO_UVS) assume:
-    // 0..1 across the texture. p5's default is IMAGE (0..w, 0..h), which
-    // would sample a single pixel in the top-left with these UVs.
+    // p5's default textureMode is IMAGE (UVs in pixel space). Our default
+    // and FBO UVs are normalized 0..1, so we switch to NORMAL while drawing.
+    // Save/restore explicitly: per p5 v2's push() docs, textureMode is NOT
+    // in the list of state that push/pop saves (rectMode and ellipseMode
+    // are, but textureMode is not). Without this dance the NORMAL mode
+    // leaks to subsequent draws — a following image() call interprets its
+    // IMAGE-mode UVs against the lingering NORMAL setting and crashes
+    // inside _setFillUniforms.
+    const prevMode = this.states.textureMode;
     p.push();
     if (texture) {
       p.textureMode(p.NORMAL);
@@ -307,6 +409,7 @@ export function installGizmos(p5, fn) {
     this.vertex(p3[0], p3[1], p3[2], u[3][0], u[3][1]);
     this.endShape(p.CLOSE);
     p.pop();
+    this.states.textureMode = prevMode;
   };
 
   // ── View frustum ──────────────────────────────────────────────────────────
@@ -316,10 +419,18 @@ export function installGizmos(p5, fn) {
   /**
    * Draw the view frustum of a secondary camera into this renderer.
    *
-   * Matrices come from `camera` (a p5.Camera — eye and projection are
-   * read via `camera.mat4Eye` / `camera.mat4Proj`) or from explicit
-   * `mat4Eye` + `mat4Proj` buffers. `mat4View` defaults to the current
-   * renderer's view — override when drawing from a third viewpoint.
+   * `camera` accepts three forms:
+   *   p5.Camera         — eye and projection read via cam.mat4Eye / cam.mat4Proj.
+   *   CameraTrack       — sampled at the cursor via track.eval + track.mat4Eye.
+   *                       The frustum animates with the track's playback.
+   *   pose spec object  — { eye, center?, up?, fov?, halfHeight?, near?, far? },
+   *                       same shape capturePose() and CameraTrack.add() use.
+   *                       Defaults: center=[0,0,0], up=[0,1,0], near=0.1, far=1000,
+   *                       fov=π/3 if neither fov nor halfHeight is set.
+   *
+   * Alternatively pass explicit `mat4Eye` + `mat4Proj` buffers. `mat4View`
+   * defaults to the current renderer's view — override when drawing from a
+   * third viewpoint.
    *
    * `bits` selects which parts render:
    *   NEAR  — near plane (as closed shape; lines only if bit off)
@@ -350,7 +461,7 @@ export function installGizmos(p5, fn) {
    * @method viewFrustum
    * @for p5
    * @param {{
-   *   camera?:      p5.Camera,
+   *   camera?:      p5.Camera | CameraTrack | { eye:number[], center?:number[], up?:number[], fov?:number, halfHeight?:number, near?:number, far?:number },
    *   mat4Eye?:     Float32Array | ArrayLike | p5.Matrix,
    *   mat4Proj?:    Float32Array | ArrayLike | p5.Matrix,
    *   mat4View?:    Float32Array | ArrayLike | p5.Matrix,
@@ -373,11 +484,37 @@ export function installGizmos(p5, fn) {
     const p = this._pInst;
     if (!p) return;
 
-    const eRaw = _rawMat4(mat4Eye)  ?? (camera ? (camera.mat4Eye(_eye),   _eye)  : null);
-    const pRaw = _rawMat4(mat4Proj) ?? (camera ? (camera.mat4Proj(_proj), _proj) : null);
+    // ── Camera dispatch ───────────────────────────────────────────────
+    // Three forms: p5.Camera, CameraTrack, or plain pose spec.
+    // For tracks and pose specs we need to BUILD eye + proj matrices
+    // because the renderer-bound camera methods aren't available.
+    let eRaw = _rawMat4(mat4Eye);
+    let pRaw = _rawMat4(mat4Proj);
+    if (camera) {
+      if (_isCameraTrack(camera)) {
+        camera.eval(_vfPose);                 // fill _vfPose at cursor
+        camera.mat4Eye(_eye);                 // cursor-form eye matrix
+        eRaw = eRaw ?? _eye;
+        if (!pRaw) {
+          const aspect = (this.width && this.height) ? (this.width / this.height) : 1;
+          _buildProjFromPose(_vfPose, aspect, getNdcZ(), _proj);
+          pRaw = _proj;
+        }
+      } else if (_isP5Camera(camera)) {
+        if (!eRaw) { camera.mat4Eye(_eye);   eRaw = _eye; }
+        if (!pRaw) { camera.mat4Proj(_proj); pRaw = _proj; }
+      } else if (_isPoseSpec(camera)) {
+        if (!eRaw) { _buildEyeFromPose(camera, _eye); eRaw = _eye; }
+        if (!pRaw) {
+          const aspect = (this.width && this.height) ? (this.width / this.height) : 1;
+          _buildProjFromPose(camera, aspect, getNdcZ(), _proj);
+          pRaw = _proj;
+        }
+      }
+    }
 
     if (!pRaw || !eRaw) {
-      console.error('viewFrustum requires either a camera or both mat4Eye and mat4Proj'); return;
+      console.error('viewFrustum requires either a camera (p5.Camera, CameraTrack, or pose spec) or both mat4Eye and mat4Proj'); return;
     }
 
     const states = this.states, uView = states?.uViewMatrix;
@@ -397,11 +534,6 @@ export function installGizmos(p5, fn) {
     const fTL = [_l, _t, f], fTR = [_r, _t, f], fBR = [_r, _b, f], fBL = [_l, _b, f];
     // Near-plane corners (at z = n, negative)
     const nTL = [ l,  t, n], nTR = [ r,  t, n], nBR = [ r,  b, n], nBL = [ l,  b, n];
-    // Body start corners — either near corners or apex origin
-    const bTL = apex ? [0,0,0] : nTL;
-    const bTR = apex ? [0,0,0] : nTR;
-    const bBR = apex ? [0,0,0] : nBR;
-    const bBL = apex ? [0,0,0] : nBL;
 
     p.push(); p.resetMatrix();
     const prevView = uView.copy();
@@ -416,45 +548,43 @@ export function installGizmos(p5, fn) {
     // ── Viewer — opaque scene-in-eye-space callback ──────────────────────
     typeof viewer === 'function' && viewer();
 
+    // Bit handling is orthogonal: each bit owns exactly its own edges.
+    // The 12 edges of a frustum partition cleanly across the bits:
+    //   NEAR  — 4 edges of the near rectangle (or filled/textured face)
+    //   FAR   — 4 edges of the far rectangle  (or filled/textured face)
+    //   BODY  — 4 connecting edges (near corner → far corner)
+    //   APEX  — 4 lines (origin → near corner) — perspective only
+    // Disabled bits draw nothing. Closure is the user's responsibility:
+    // `bits: NEAR | FAR | BODY` produces a full closed wireframe.
+
     // ── FAR — outlined here if untextured; textured pass at the end ──────
     if ((bits & p5.Tree.FAR) !== 0 && !farTexture) {
       this.pane(fTL, fTR, fBR, fBL);
-    } else if ((bits & p5.Tree.FAR) === 0) {
-      // FAR bit off — still draw far edges so the body outline closes
-      p.line(fTL[0],fTL[1],fTL[2], fTR[0],fTR[1],fTR[2]);
-      p.line(fTR[0],fTR[1],fTR[2], fBR[0],fBR[1],fBR[2]);
-      p.line(fBR[0],fBR[1],fBR[2], fBL[0],fBL[1],fBL[2]);
-      p.line(fBL[0],fBL[1],fBL[2], fTL[0],fTL[1],fTL[2]);
     }
 
-    // ── BODY — four side walls (closed quads) or four diagonal edge lines ─
+    // ── BODY — four connecting edges (near corners → far corners) ────────
+    // Outline only; never fills the side walls. Users wanting filled walls
+    // (e.g. for a translucent slab effect) can call pane() in user space.
     if ((bits & p5.Tree.BODY) !== 0) {
-      this.pane(fTL, bTL, bTR, fTR);  // top
-      this.pane(fTR, bTR, bBR, fBR);  // right
-      this.pane(fBR, bBR, bBL, fBL);  // bottom
-      this.pane(bTL, fTL, fBL, bBL);  // left
-      if (apex) {
-        // Apex lines converging at origin — accent when BODY is drawn
-        p.line(0,0,0, nTR[0], nTR[1], nTR[2]);
-        p.line(0,0,0, nTL[0], nTL[1], nTL[2]);
-        p.line(0,0,0, nBL[0], nBL[1], nBL[2]);
-        p.line(0,0,0, nBR[0], nBR[1], nBR[2]);
-      }
-    } else {
-      p.line(bTR[0], bTR[1], bTR[2], fTR[0], fTR[1], fTR[2]);
-      p.line(bTL[0], bTL[1], bTL[2], fTL[0], fTL[1], fTL[2]);
-      p.line(bBL[0], bBL[1], bBL[2], fBL[0], fBL[1], fBL[2]);
-      p.line(bBR[0], bBR[1], bBR[2], fBR[0], fBR[1], fBR[2]);
+      p.line(nTL[0],nTL[1],nTL[2], fTL[0],fTL[1],fTL[2]);
+      p.line(nTR[0],nTR[1],nTR[2], fTR[0],fTR[1],fTR[2]);
+      p.line(nBR[0],nBR[1],nBR[2], fBR[0],fBR[1],fBR[2]);
+      p.line(nBL[0],nBL[1],nBL[2], fBL[0],fBL[1],fBL[2]);
+    }
+
+    // ── APEX — converging lines from origin to near corners ──────────────
+    // Drawn regardless of BODY: APEX is a stand-alone visual cue for the
+    // "perspective cone" interpretation of the frustum.
+    if (apex) {
+      p.line(0,0,0, nTR[0], nTR[1], nTR[2]);
+      p.line(0,0,0, nTL[0], nTL[1], nTL[2]);
+      p.line(0,0,0, nBL[0], nBL[1], nBL[2]);
+      p.line(0,0,0, nBR[0], nBR[1], nBR[2]);
     }
 
     // ── NEAR — outlined here if untextured; textured pass at the end ─────
     if ((bits & p5.Tree.NEAR) !== 0 && !nearTexture) {
       this.pane(nTL, nTR, nBR, nBL);
-    } else if ((bits & p5.Tree.NEAR) === 0) {
-      p.line(nTL[0],nTL[1],nTL[2], nTR[0],nTR[1],nTR[2]);
-      p.line(nTR[0],nTR[1],nTR[2], nBR[0],nBR[1],nBR[2]);
-      p.line(nBR[0],nBR[1],nBR[2], nBL[0],nBL[1],nBL[2]);
-      p.line(nBL[0],nBL[1],nBL[2], nTL[0],nTL[1],nTL[2]);
     }
 
     // ── Textured planes — drawn LAST for correct alpha compositing ───────
