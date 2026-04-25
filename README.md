@@ -630,7 +630,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.41'
+p5.Tree.VERSION   // '0.0.42'
 ```
 
 ## Shader helpers
@@ -808,7 +808,7 @@ Bits:
 | `p5.Tree.BODY`    | The four side walls joining near to far (or apex → far in APEX mode). |
 | `p5.Tree.APEX`    | Perspective only — collapse the near-plane body start to the eye point. |
 
-Default bits: `NEAR | FAR`.
+Default bits: `NEAR | FAR | BODY`.
 
 ### viewer
 
@@ -1007,9 +1007,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.41/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.42/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.42/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.42/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.42/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.42/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.42/dist/p5.tree.esm.js)
 
 ---
 

@@ -473,7 +473,7 @@ export function installGizmos(p5, fn) {
    */
   p5.Renderer3D.prototype.viewFrustum = function ({
     camera, mat4Eye, mat4Proj, mat4View,
-    bits   = p5.Tree.NEAR | p5.Tree.FAR,
+    bits   = p5.Tree.NEAR | p5.Tree.FAR | p5.Tree.BODY,
     viewer = () => this.axes({
       size: 50,
       bits: p5.Tree.X | p5.Tree.Y | p5.Tree._Z
