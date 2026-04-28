@@ -157,6 +157,8 @@ function _buildEyeFromPose(pose, out) {
  * Build the projection matrix from a pose spec's lens fields.
  * Aspect comes from the renderer (ambient state, parallel to textureMode).
  * Defaults applied: fov = π/3 if neither fov nor halfHeight, near = 0.1, far = 1000.
+ * ndcYSign is hardcoded to -1 to match p5 v2's WEBGL Camera.perspective/ortho
+ * convention (p[5] < 0). WEBGPU testing pending.
  * @param {Object} pose  { fov?, halfHeight?, near?, far? }
  * @param {number} aspect  width / height of the rendering surface.
  * @param {number} ndcZMin
@@ -168,12 +170,12 @@ function _buildProjFromPose(pose, aspect, ndcZMin, out) {
   if (typeof pose.halfHeight === 'number') {
     const top    = pose.halfHeight;
     const right  = top * aspect;
-    return _mat4Ortho(out, -right, right, -top, top, near, far, ndcZMin);
+    return _mat4Ortho(out, -right, right, -top, top, near, far, ndcZMin, -1);
   }
   const fov   = (typeof pose.fov === 'number') ? pose.fov : Math.PI / 3;
   const top   = near * Math.tan(fov * 0.5);
   const right = top * aspect;
-  return _mat4Persp(out, -right, right, -top, top, near, far, ndcZMin);
+  return _mat4Persp(out, -right, right, -top, top, near, far, ndcZMin, -1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
