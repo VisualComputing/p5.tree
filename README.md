@@ -52,8 +52,6 @@ const track = createCameraTrack()     // CameraTrack — binds to the current ca
 const track = createCameraTrack(cam)  // CameraTrack — binds to a specific camera
 ```
 
-> **Naming convention.** The codebase follows a single rule for when to split APIs by track type and when to unify them: **construction follows the type, consumption follows the intent.** Building a track requires type-specific inputs (a camera arg vs. none), so `createPoseTrack` and `createCameraTrack` stay separate to keep the call site self-documenting. Consuming a track for a goal that's the same regardless of subtype — driving a transport panel, drawing a path overlay — uses one unified function (`createPanel(track, …)`, `trackPath(track, …)`) that branches internally on the actual type. Options that apply to only one of the two are documented as such.
-
 ## PoseTrack — object animation
 
 Stores `{ pos, rot, scl }` keyframes. Interpolates position with cubic Hermite (auto-computed centripetal Catmull-Rom tangents by default), rotation with slerp or nlerp, scale with linear.
