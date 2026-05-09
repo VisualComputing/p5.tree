@@ -7,7 +7,6 @@
  * grid        — ground plane
  * cross       — screen-space crosshair centred on current model origin
  * bullsEye    — screen-space bulls-eye centred on current model origin
- * plane       — (native p5) axis-aligned plane at model origin
  * pane        — textured/untextured quad primitive (4 corners, optional UVs)
  * viewFrustum — another renderer's view frustum drawn in this renderer; NEAR
  *               and FAR planes optionally textured (e.g. the scene rendered

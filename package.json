@@ -1,6 +1,6 @@
 {
   "name": "p5.tree",
-  "version": "0.0.43",
+  "version": "0.0.44",
   "description": "Render pipeline for p5.js v2 — pose and camera interpolation, space transforms, frustum visibility, HUD, post-processing pipe, picking, and declarative control panels.",
   "type": "module",
   "main": "dist/p5.tree.esm.js",
@@ -13,22 +13,15 @@
   "files": [
     "dist/"
   ],
-  "workspaces": [
-    "deps/tree",
-    "deps/ui"
-  ],
   "scripts": {
-    "build": "npm run build:tree && npm run build:ui && rollup -c",
-    "build:tree": "npm run build -w @nakednous/tree",
-    "build:ui": "npm run build -w @nakednous/ui",
-
-    "clean": "rm -rf dist deps/*/dist",
+    "build": "rollup -c",
+    "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build",
-    "reset": "rm -rf node_modules dist deps/*/dist package-lock.json && npm install",
-
-    "publish:tree": "npm run build:tree && npm publish -w @nakednous/tree --access public",
-    "publish:ui": "npm run build:ui && npm publish -w @nakednous/ui --access public",
-    "publish:p5.tree": "npm run build && npm publish"
+    "reset": "rm -rf node_modules dist package-lock.json && npm install",
+    "link:core": "npm link @nakednous/tree @nakednous/ui",
+    "unlink:core": "npm unlink --no-save @nakednous/tree @nakednous/ui && npm install @nakednous/tree @nakednous/ui",
+    "prepublishOnly": "npm run build",
+    "postpublish": "npm run link:core"
   },
   "keywords": [
     "p5",
@@ -49,11 +42,11 @@
     "p5": "^2.2.3"
   },
   "dependencies": {
-    "@nakednous/tree": "^0.0.22",
-    "@nakednous/ui": "^0.0.9"
+    "@nakednous/tree": "^0.0.23",
+    "@nakednous/ui": "^0.0.10"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "rollup": "^4.60.2"
+    "rollup": "^4.60.3"
   }
 }

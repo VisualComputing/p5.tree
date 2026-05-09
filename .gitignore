@@ -2,10 +2,11 @@
 node_modules/
 package-lock.json
 
-# Build output
+# Build output (already covered by dist/ but explicit)
 dist/
-p5.platonic.js
-p5.platonic.js.map
+# IIFE bundle copied to root for CDN (if you still do that)
+p5.tree.js
+p5.tree.js.map
 
 # Local testing
 testing/

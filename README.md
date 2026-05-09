@@ -628,7 +628,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.43'
+p5.Tree.VERSION   // '0.0.44'
 ```
 
 ## Shader helpers
@@ -990,7 +990,7 @@ trackPath(camTrack, {
 
 ### samplers
 
-`trackPath` reads the track's path through the zero-alloc samplers exposed by `@nakednous/tree`. The continuous family (`samplePos`, `sampleEye`, `sampleCenter`, `mat4Model`, `mat4Eye`) accepts both cursor and explicit `(seg, t)` forms; tangent samplers (`tangents`, `eyeTangents`, `centerTangents`) are keyframe-indexed. Projection matrices are not a track method — each `CameraTrack` keyframe stores `fov` or `halfHeight` directly on `track.keyframes[i]`, and callers build projections from those scalars with `mat4Persp` / `mat4Ortho`. See the [core README](deps/tree/README.md#path-sampling).
+`trackPath` reads the track's path through the zero-alloc samplers exposed by `@nakednous/tree`. The continuous family (`samplePos`, `sampleEye`, `sampleCenter`, `mat4Model`, `mat4Eye`) accepts both cursor and explicit `(seg, t)` forms; tangent samplers (`tangents`, `eyeTangents`, `centerTangents`) are keyframe-indexed. Projection matrices are not a track method — each `CameraTrack` keyframe stores `fov` or `halfHeight` directly on `track.keyframes[i]`, and callers build projections from those scalars with `mat4Persp` / `mat4Ortho`. See the [core README](https://github.com/nakednous/tree#path-sampling).
 
 ---
 
@@ -1005,9 +1005,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.43/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.43/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.43/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.43/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.43/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.43/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.44/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.44/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.44/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.44/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.44/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.44/dist/p5.tree.esm.js)
 
 ---
 
