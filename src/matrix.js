@@ -95,7 +95,7 @@ export function installMatrix(p5, fn) {
 
   // Resolve opts.out for mapLocation / mapDirection.
   // Returns opts.out if provided, otherwise allocates a fresh p5.Vector.
-  const _resolveOut = (opts) => opts?.out ?? new p5.Vector();
+  const _resolveOut = (opts) => opts?.out ?? new p5.Vector(0, 0, 0);
 
   // ── p5.Matrix utility ─────────────────────────────────────────────────────
 
