@@ -42,17 +42,20 @@
  * eye-space for an EYE SPHERE. `report` overrides POINT/DIRECTION per call.
  *
  * ── What's wired, and what's next ─────────────────────────────────────────────
- * Grab is now real — a press color-ID picks a tagged proxy at the handle's
- * screen position via `mousePick`/`tag`; only a hit grabs, so a press that
- * misses falls through to `orbitControl()`. `onGrab` and `onRelease` fire
- * around the grab (user hook first, then the lib-space `_on*` seam, mirroring
- * Track).
+ * Grab is real — a press color-ID picks a tagged proxy at the handle's screen
+ * position via `mousePick`/`tag`; only a hit grabs, so a press that misses
+ * falls through to `orbitControl()`. `onGrab` / `onRelease` fire around the
+ * grab. Binding is wired too: `bind()` is polymorphic (a p5.Vector, a p5.Camera
+ * lookat field, or an `{ get, set }` accessor floor) — `get()` seeds the
+ * constraint so the handle starts at the target, each solve while held calls
+ * `set(value)` and fires `onChange`, and `sync()` re-seeds after an external
+ * change. Hooks fire user-first, then the lib-space `_on*` seam (mirroring
+ * Track). Values cross in the handle's own frame (the `value()` default), and
+ * unbound handles stay pull-only via `value()`.
  *
- * Still ahead: polymorphic `bind()` + `sync()` and the `onChange` hook (fired
- * per solve while held), `draw()` and its bit-flags, the HUD display surface,
- * and the VIEW constraint. The controller seams those need — the grab flag, the
- * working-frame solve, the pull value — are already in place, so they slot in
- * without reshaping this file. See handle-design.md §8.
+ * Still ahead: `draw()` and its bit-flags, the `SCENE` / `HUD` display surface,
+ * and the VIEW constraint. The controller seams those need are already in
+ * place, so they slot in without reshaping this file. See handle-design.md §8.
  */
 
 'use strict';
@@ -133,6 +136,23 @@ export function installHandle(p5, fn) {
     return c ?? v[i] ?? d;
   };
 
+  // Camera-field bind helpers — read / write a p5.Camera's eye | center | up via
+  // its lookat scalars, re-applying the lookat on write (a bare eyeX write does
+  // not rebuild the view matrix). up falls back to +Y, matching capturePose.
+  const _camFieldGet = (cam, field) => {
+    if (field === 'center') return [cam.centerX, cam.centerY, cam.centerZ];
+    if (field === 'up')     return [cam.upX ?? 0, cam.upY ?? 1, cam.upZ ?? 0];
+    return [cam.eyeX, cam.eyeY, cam.eyeZ];
+  };
+  const _camFieldSet = (cam, field, x, y, z) => {
+    const ex = cam.eyeX,    ey = cam.eyeY,    ez = cam.eyeZ;
+    const cx = cam.centerX, cy = cam.centerY, cz = cam.centerZ;
+    const ux = cam.upX ?? 0, uy = cam.upY ?? 1, uz = cam.upZ ?? 0;
+    if (field === 'center')  cam.camera(ex, ey, ez, x,  y,  z,  ux, uy, uz);
+    else if (field === 'up') cam.camera(ex, ey, ez, cx, cy, cz, x,  y,  z );
+    else                     cam.camera(x,  y,  z,  cx, cy, cz, ux, uy, uz);
+  };
+
   /**
    * Interactive manipulator handle controller.
    *
@@ -187,13 +207,24 @@ export function installHandle(p5, fn) {
 
       // Interaction hooks (user-facing) + lib-space seams (_on*, for the
       // bridge / UI). Fired user-first, mirroring Track's onPlay/onEnd/onStop.
-      // onChange lands with bind() in a later pass.
       this.onGrab     = typeof opts.onGrab    === 'function' ? opts.onGrab    : null;
       this.onRelease  = typeof opts.onRelease === 'function' ? opts.onRelease : null;
+      this.onChange   = typeof opts.onChange  === 'function' ? opts.onChange  : null;
       this._onGrab    = null;
       this._onRelease = null;
+      this._onChange  = null;
+
+      // Binding — a normalised { get, set } accessor (null when pull-only).
+      // _bindVal is the reused value vector handed to set() / onChange, lazily
+      // allocated on first solve so pull-only handles allocate nothing.
+      this._binder  = null;
+      this._bindVal = null;
 
       this._attachPointer();
+
+      // Opt-in bind (single-arg shapes only; camera binding needs the field,
+      // so use the chained h.bind(cam, 'eye') form).
+      if (opts.bind != null) this.bind(opts.bind);
     }
 
     // ── Pointer wiring ──────────────────────────────────────────────────────
@@ -253,10 +284,11 @@ export function installHandle(p5, fn) {
         }
       }
 
-      // Drag → re-solve from the latest pointer position.
+      // Drag → re-solve, then push to the binding and fire onChange.
       if (this._grabbed && this._movedPending) {
         this._movedPending = false;
         this._solveFromPointer(p.mouseX, p.mouseY);
+        this._afterSolve();
       }
 
       // Release — fire onRelease only if a grab was actually in progress.
@@ -378,6 +410,92 @@ export function installHandle(p5, fn) {
       return out;
     }
 
+    // ── Binding (push value to a target; pull stays available via value) ─────
+
+    /**
+     * Bind the handle to a target it drives while dragging. Polymorphic, with
+     * an accessor floor; dispatch is by shape, with no positional ambiguity:
+     *
+     *   bind(vec)                       p5.Vector — mutated in place (zero-alloc)
+     *   bind(cam, 'eye'|'center'|'up')  p5.Camera lookat field — re-applies the camera
+     *   bind({ get, set })              accessor floor — get() → value, set(value) writes
+     *
+     * `get()` seeds the constraint immediately, so the handle starts at the
+     * target's current value. While grabbed, each solve calls `set(value)` and
+     * fires `onChange`. Values cross in the handle's own frame (the `value()`
+     * default) — WORLD for a PLANE / AXIS / WORLD-SPHERE handle. An unrecognised
+     * target logs and leaves the handle pull-only (§5). Chainable.
+     *
+     * @param {p5.Vector | p5.Camera | { get: Function, set: Function }} target
+     * @param {string} [field]  Camera lookat field: 'eye' | 'center' | 'up'.
+     * @returns {Handle} this
+     */
+    bind(target, field) {
+      let binder = null;
+      if (target instanceof p5.Vector) {
+        binder = {
+          get: () => target,
+          set: (v) => target.set(v.x, v.y, v.z),
+        };
+      } else if (target instanceof p5.Camera) {
+        if (field !== 'eye' && field !== 'center' && field !== 'up') {
+          console.error("[p5.tree] handle.bind: a p5.Camera needs a field — 'eye', 'center', or 'up'. Leaving unbound.");
+          return this;
+        }
+        binder = {
+          get: () => _camFieldGet(target, field),
+          set: (v) => _camFieldSet(target, field, v.x, v.y, v.z),
+        };
+      } else if (target && typeof target.get === 'function' && typeof target.set === 'function') {
+        binder = target;   // keep the object so get()/set() retain their `this`
+      } else {
+        console.error('[p5.tree] handle.bind: unrecognised target — pass a p5.Vector, a p5.Camera + field, or an { get, set } accessor. Leaving unbound.');
+        return this;
+      }
+      this._binder = binder;
+      this._seedFromBinding();
+      return this;
+    }
+
+    /**
+     * Re-seed the constraint from the bound target after it changed externally
+     * (the camera moved, a keyframe was edited, …). No-op when unbound.
+     * Chainable.
+     * @returns {Handle} this
+     */
+    sync() {
+      if (this._binder) this._seedFromBinding();
+      return this;
+    }
+
+    // Seed the constraint from the bound target's current value. Read in the
+    // handle's frame (see bind), which equals the working frame for WORLD
+    // handles, so it feeds seed() directly. Accepts p5.Vector / array / {x,y,z}.
+    _seedFromBinding() {
+      const g = this._binder.get();
+      if (g == null) return;
+      const x = g.x ?? g[0] ?? 0;
+      const y = g.y ?? g[1] ?? 0;
+      const z = g.z ?? g[2] ?? 0;
+      this._constraint.seed(x, y, z);
+    }
+
+    // Push the freshly solved value to the binding and fire onChange — once per
+    // solve while grabbed. Reuses _bindVal (lazily allocated) so a bound or
+    // observed drag allocates nothing per frame. set() before onChange, per §4.4.
+    _afterSolve() {
+      const bound  = this._binder !== null;
+      const notify = !!(this.onChange || this._onChange);
+      if (!bound && !notify) return;
+      this._bindVal ||= new p5.Vector(0, 0, 0);
+      const v = this.value({ out: this._bindVal });
+      if (bound) this._binder.set(v);
+      if (notify) {
+        this.onChange  && this.onChange(v, this);
+        this._onChange && this._onChange(v, this);
+      }
+    }
+
     /**
      * Current scalar parameter (AXIS only; NaN otherwise).
      * @returns {number}
@@ -479,7 +597,12 @@ export function installHandle(p5, fn) {
    *   axis?:      p5.Vector | number[],
    *   normal?:    p5.Vector | number[],
    *   extent?:    number[],
+   *   grabPx?:    number,
    *   enabled?:   boolean,
+   *   bind?:      p5.Vector | { get: Function, set: Function },
+   *   onGrab?:    Function,
+   *   onChange?:  Function,
+   *   onRelease?: Function,
    * }} opts
    * @returns {Handle|null} The controller, or null on an invalid constraint.
    */
