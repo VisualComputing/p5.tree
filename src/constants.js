@@ -77,11 +77,12 @@ export function installConstants(p5) {
     TANGENTS_OUT: CONST(1 << 4),   // outgoing tangent arrows at keyframes of the target path
     TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
 
-    // handle — constraint kinds (core) + report modes. VIEW (bridge-only)
-    // lands with its pass.
+    // handle — constraint kinds (core SPHERE/PLANE/AXIS + bridge VIEW) and
+    // report modes. VIEW is a camera-facing PLANE, reported as a world position.
     SPHERE:    CONST(C.SPHERE),
     PLANE:     CONST(C.PLANE),
     AXIS:      CONST(C.AXIS),
+    VIEW:      CONST(3),
     POINT:     CONST(C.POINT),
     DIRECTION: CONST(C.DIRECTION),
 

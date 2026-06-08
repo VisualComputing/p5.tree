@@ -66,8 +66,14 @@
  * surfaces write the same state, so `value()` / `bind()` / hooks are identical;
  * `hud: { at, size }` places the dial in px.
  *
- * Still ahead: the VIEW constraint (a bridge PLANE with a camera-facing plane).
- * See handle-design.md §8.
+ * VIEW is a bridge constraint: a core PLANE whose normal is re-aimed at the
+ * camera each solve (a screen-parallel drag plane through the current point),
+ * reported as a world position. The core never learns about the camera; the
+ * `_view` flag carries the bridge behaviour (plane re-aim, direct-set seed,
+ * screen-aligned square locus).
+ *
+ * Remaining (handle-design.md §8): snap, hover, multi-target, rotation, plus
+ * example sketches + the README registry entry.
  */
 
 'use strict';
@@ -211,10 +217,16 @@ export function installHandle(p5, fn) {
 
       const kind = opts.constraint;
 
+      // VIEW is a bridge constraint: a core PLANE whose normal is re-aimed at
+      // the camera each solve (a screen-parallel drag plane). The core stays
+      // camera-oblivious; _view marks the bridge behaviour.
+      this._view = (kind === p5.Tree.VIEW);
+      const coreKind = this._view ? PLANE : kind;
+
       // Core constraint owns the canonical state + value mapping. Vector opts
       // (anchor / normal / axis) pass straight through — the core duck-types
       // p5.Vector / array / typed array.
-      this._constraint = createConstraint(kind, {
+      this._constraint = createConstraint(coreKind, {
         radius: opts.radius,
         report: opts.report,
         anchor: opts.anchor,
@@ -419,6 +431,10 @@ export function installHandle(p5, fn) {
       let ox = _near[0], oy = _near[1], oz = _near[2];
       let dx = _far[0] - ox, dy = _far[1] - oy, dz = _far[2] - oz;
 
+      // VIEW: re-aim the PLANE at the camera (through the current point) so the
+      // drag tracks a screen-parallel plane at the point's depth.
+      if (this._view) this._viewUpdatePlane();
+
       // Convert the world ray into the constraint's working frame. EYE is the
       // headlight: the core sees only eye-space numbers and stays oblivious to
       // the camera. (Origin is a point, direction is a direction.)
@@ -433,6 +449,21 @@ export function installHandle(p5, fn) {
       // solve() assumes a unit direction.
       const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
       this._constraint.solve(ox, oy, oz, dx / len, dy / len, dz / len);
+    }
+
+    // VIEW: re-aim the core PLANE at the camera through the current point. The
+    // plane normal becomes the look direction (screen-parallel), and its anchor
+    // rides the point so the drag stays at the point's view-depth. The core
+    // PLANE solves it; only the bridge knows a camera was ever involved.
+    _viewUpdatePlane() {
+      const cam = this._p.getCamera();
+      if (!cam) return;
+      const c = this._constraint;
+      c.n[0] = cam.centerX - cam.eyeX;
+      c.n[1] = cam.centerY - cam.eyeY;
+      c.n[2] = cam.centerZ - cam.eyeZ;
+      _norm3(c.n);
+      c.anchor[0] = c.pt[0]; c.anchor[1] = c.pt[1]; c.anchor[2] = c.pt[2];
     }
 
     // ── HUD dial input (polar → heading) ──────────────────────────────────
@@ -572,7 +603,14 @@ export function installHandle(p5, fn) {
       const x = g.x ?? g[0] ?? 0;
       const y = g.y ?? g[1] ?? 0;
       const z = g.z ?? g[2] ?? 0;
-      this._constraint.seed(x, y, z);
+      if (this._view) {
+        // VIEW: the point IS the value — set it directly. The plane is
+        // ephemeral (re-derived each solve), so there's nothing to project onto.
+        const pt = this._constraint.pt;
+        pt[0] = x; pt[1] = y; pt[2] = z;
+      } else {
+        this._constraint.seed(x, y, z);
+      }
     }
 
     // Push the freshly solved value to the binding and fire onChange — once per
@@ -646,7 +684,9 @@ export function installHandle(p5, fn) {
       if ((bits & p5.Tree.LOCUS) !== 0) {
         p.push();
         p.noFill();
-        if (c.kind === SPHERE) {
+        if (this._view) {
+          this._viewSquare(_pW);
+        } else if (c.kind === SPHERE) {
           p.push();
           p.translate(_aW[0], _aW[1], _aW[2]);
           p.sphere(c.radius);
@@ -662,6 +702,7 @@ export function installHandle(p5, fn) {
       }
 
       // RING — SPHERE limb (circle ⊥ the view direction) | PLANE border.
+      // (VIEW's screen-aligned square is the LOCUS; it has no separate ring.)
       if ((bits & p5.Tree.RING) !== 0) {
         p.push();
         p.noFill();
@@ -675,7 +716,7 @@ export function installHandle(p5, fn) {
             _basisFromNormal(_b2, _b0, _b1);
             this._ring(_aW[0], _aW[1], _aW[2], c.radius, _b0, _b1);
           }
-        } else if (c.kind === PLANE) {
+        } else if (c.kind === PLANE && !this._view) {
           this._planeQuad(_aW, c.n, _PLANE_HALF);
         }
         p.pop();
@@ -699,20 +740,39 @@ export function installHandle(p5, fn) {
       p.pop();
     }
 
-    // A flat quad on the plane (cen, unit normal n), half-extent `half`, via the
-    // pane() primitive. Outline when fill is disabled (LOCUS / RING), filled if
-    // the caller has fill() on.
-    _planeQuad(cen, n, half) {
+    // A flat square at `cen` spanned by orthonormal in-plane vectors u, v,
+    // half-extent `half`, via the pane() primitive. Outline when fill is off
+    // (LOCUS / RING), filled if the caller has fill() on.
+    _squareAt(cen, u, v, half) {
       const p = this._p;
-      _basisFromNormal(n, _b0, _b1);
-      const ux = _b0[0]*half, uy = _b0[1]*half, uz = _b0[2]*half;
-      const vx = _b1[0]*half, vy = _b1[1]*half, vz = _b1[2]*half;
+      const ux = u[0]*half, uy = u[1]*half, uz = u[2]*half;
+      const vx = v[0]*half, vy = v[1]*half, vz = v[2]*half;
       p.pane(
         [cen[0]-ux-vx, cen[1]-uy-vy, cen[2]-uz-vz],
         [cen[0]+ux-vx, cen[1]+uy-vy, cen[2]+uz-vz],
         [cen[0]+ux+vx, cen[1]+uy+vy, cen[2]+uz+vz],
         [cen[0]-ux+vx, cen[1]-uy+vy, cen[2]-uz+vz],
       );
+    }
+
+    // PLANE locus: derive an in-plane basis from the normal, then a square.
+    _planeQuad(cen, n, half) {
+      _basisFromNormal(n, _b0, _b1);
+      this._squareAt(cen, _b0, _b1, half);
+    }
+
+    // VIEW locus: a screen-aligned square at the point, in the camera-facing
+    // plane (right / up taken from the camera; normal = look direction).
+    _viewSquare(center) {
+      const cam = this._p.getCamera();
+      if (!cam) return;
+      _b2[0] = cam.centerX - cam.eyeX; _b2[1] = cam.centerY - cam.eyeY; _b2[2] = cam.centerZ - cam.eyeZ;
+      _norm3(_b2);                                            // forward (look)
+      const ux = cam.upX ?? 0, uy = cam.upY ?? 1, uz = cam.upZ ?? 0;
+      _b0[0] = _b2[1]*uz - _b2[2]*uy; _b0[1] = _b2[2]*ux - _b2[0]*uz; _b0[2] = _b2[0]*uy - _b2[1]*ux;
+      _norm3(_b0);                                            // right = forward × up
+      _b1[0] = _b0[1]*_b2[2] - _b0[2]*_b2[1]; _b1[1] = _b0[2]*_b2[0] - _b0[0]*_b2[2]; _b1[2] = _b0[0]*_b2[1] - _b0[1]*_b2[0];
+      this._squareAt(center, _b0, _b1, _PLANE_HALF);          // up = right × forward
     }
 
     // A sampled circle of radius r at (cx,cy,cz) spanned by orthonormal u, v.
@@ -790,16 +850,16 @@ export function installHandle(p5, fn) {
     grabbed() { return this._grabbed; }
 
     /**
-     * Move the constraint origin (sphere centre / plane point / axis anchor).
-     * Mutates in place; chainable.
+     * Move the constraint's reference point — sphere centre / plane point /
+     * axis anchor, or the dragged point for a VIEW handle. In place; chainable.
      * @param {p5.Vector|number[]} v
      * @returns {Handle} this
      */
     anchor(v) {
-      const a = this._constraint.anchor;
-      a[0] = _vx(v, 0, a[0]);
-      a[1] = _vx(v, 1, a[1]);
-      a[2] = _vx(v, 2, a[2]);
+      const t = this._view ? this._constraint.pt : this._constraint.anchor;
+      t[0] = _vx(v, 0, t[0]);
+      t[1] = _vx(v, 1, t[1]);
+      t[2] = _vx(v, 2, t[2]);
       return this;
     }
 
@@ -893,8 +953,8 @@ export function installHandle(p5, fn) {
    */
   fn.createHandle = function (opts = {}) {
     const kind = opts.constraint;
-    if (kind !== SPHERE && kind !== PLANE && kind !== AXIS) {
-      console.error('[p5.tree] createHandle: `constraint` must be SPHERE, PLANE, or AXIS; got ' + String(kind) + '. (VIEW and others land in a later pass.)');
+    if (kind !== SPHERE && kind !== PLANE && kind !== AXIS && kind !== p5.Tree.VIEW) {
+      console.error('[p5.tree] createHandle: `constraint` must be SPHERE, PLANE, AXIS, or VIEW; got ' + String(kind) + '.');
       return null;
     }
     const h = new Handle(this, opts);
