@@ -19,7 +19,6 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
 -   [Panels](#panels)
     -   [Parameter panel](#parameter-panel)
     -   [Track transport panel](#track-transport-panel)
-    -   [Tabbed panels](#tabbed-panels)
     -   [Collapsible panels](#collapsible-panels)
 -   [Post-processing](#post-processing)
     -   [pipe](#pipe)
@@ -436,7 +435,6 @@ panel.tick()
 | `title`    | —               | Optional title row.                                     |
 | `collapsible` | `false`      | Title row becomes a collapse toggle.                    |
 | `collapsed`   | `false`      | Start collapsed (implies collapsible).                  |
-| `tab`         | first declared  | Initial active tab (when bindings declare `tab`).    |
 | `color`    | —               | Container text color.                                   |
 | `hidden`   | `false`         | Start hidden.                                           |
 | `parent`   | `document.body` | Mount target (`HTMLElement`).                           |
@@ -496,38 +494,10 @@ createPanel(track, {
 panel.el          // HTMLElement container
 panel.visible     // get/set boolean
 panel.collapsed   // get/set boolean (requires collapsible + title)
-panel.tab         // get/set string — active tab name (when bindings declare `tab`)
-panel.tabs        // string[] — tab names, first-appearance order (copy)
 panel.parent(el)  // re-mount into a different HTMLElement
 panel.tick()      // called automatically — no need to call manually
 panel.dispose()   // remove from DOM
 ```
-
-## Tabbed panels
-
-Parameter panels group bindings into tabs. Any binding may carry an optional `tab: 'name'`; bindings sharing a tab name are grouped under it, and bindings without a `tab` are tab-independent and always visible. When **no** binding declares a tab, nothing changes — no strip is rendered and behaviour is identical to an untabbed panel.
-
-```js
-const panel = createPanel({
-  geometry:  { type: 'select', options: ['sphere', 'teapot'], value: 'sphere' }, // no tab → always shown
-  ambientK:  { min: 0, max: 1,   value: 0.2, tab: 'ambient' },
-  diffuseK:  { min: 0, max: 2,   value: 1.0, tab: 'diffuse' },
-  specPower: { min: 2, max: 128, value: 28,  tab: 'specular' }
-}, { title: 'lighting', labels: true, tab: 'diffuse', color: 'white',
-     target: (name, value) => shader.setUniform(name, value) })   // opt.tab = initial active tab
-```
-
-A themed strip is inserted at the top of the body. Only the active tab's bindings show — ANDed with each binding's own `.visible` and the panel's visibility. Bindings in inactive tabs keep holding and reporting their values, so `value()` / `set()` / `tick()` are unaffected by which tab is active; the host `draw()` never changes. The strip inherits `currentColor`, and the active tab is marked with bold weight + a `currentColor` underline, so theme re-coloring carries automatically.
-
-```js
-panel.tab            // get/set active tab name
-panel.tabs           // ['ambient', 'diffuse', 'specular']  (copy, first-appearance order)
-panel.tab = 'specular'
-```
-
-Runtime show/hide of individual tabs — e.g. hiding a tab while its term is switched off — is **not** a library concern: it couples a tab to other controls' values, which is application logic. Drive it from the host using `panel.tab` / `panel.tabs` plus the `.p5t-tab` button class.
-
-Tabs apply to parameter panels only — track transport panels have no schema bindings to group. See the [`@nakednous/ui` README](https://github.com/nakednous/ui#tabbed-grouping) for the full treatment.
 
 ## Collapsible panels
 
