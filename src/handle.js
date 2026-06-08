@@ -59,15 +59,21 @@
  * `marker: null` to suppress, composing gizmo primitives at the ambient (or
  * `opts.color`) stroke.
  *
- * Still ahead: the HUD display surface (a 2D dial) and the VIEW constraint. The
- * controller seams those need are already in place, so they slot in without
- * reshaping this file. See handle-design.md §8.
+ * `display` chooses the surface and the input path (the SPHERE-only HUD falls
+ * back to SCENE elsewhere): SCENE is the 3D pixel→ray path above; HUD is a 2D
+ * dial (`beginHUD`/`endHUD`) whose polar position maps to a heading — pointer
+ * → (az, el) → `dirFromAzEl` → `seed` — with no ray, camera, or GPU pick. Both
+ * surfaces write the same state, so `value()` / `bind()` / hooks are identical;
+ * `hud: { at, size }` places the dial in px.
+ *
+ * Still ahead: the VIEW constraint (a bridge PLANE with a camera-facing plane).
+ * See handle-design.md §8.
  */
 
 'use strict';
 
 import {
-  createConstraint,
+  createConstraint, dirFromAzEl,
   SPHERE, PLANE, AXIS,
   POINT, DIRECTION,
   WORLD, EYE, SCREEN,
@@ -98,6 +104,8 @@ const _aW = new Float32Array(3);   // anchor, WORLD
 const _b0 = new Float32Array(3);   // basis u (ring / plane quad)
 const _b1 = new Float32Array(3);   // basis v
 const _b2 = new Float32Array(3);   // basis w (view normal, sphere limb)
+const _azel = new Float32Array(2); // [az, el] readout (HUD draw)
+const _hDir = new Float32Array(3); // heading direction from the dial (HUD input)
 
 // PLANE has no intrinsic size, so its locus quad uses a fixed world half-extent.
 const _PLANE_HALF = 100;
@@ -224,6 +232,24 @@ export function installHandle(p5, fn) {
       }
       this._frame = (frame === EYE) ? EYE : WORLD;
 
+      // Display surface — SCENE (3D) or HUD (a 2D dial). HUD maps a pointer to
+      // a heading, so it's SPHERE-only; requested elsewhere it falls back to
+      // SCENE (§5).
+      let display = opts.display ?? p5.Tree.SCENE;
+      if (display === p5.Tree.HUD && kind !== SPHERE) {
+        console.error('[p5.tree] handle: HUD display is SPHERE-only; falling back to SCENE.');
+        display = p5.Tree.SCENE;
+      }
+      this._display = (display === p5.Tree.HUD) ? p5.Tree.HUD : p5.Tree.SCENE;
+
+      // HUD dial placement in px — centre `at` + radius `size`. Defaults to a
+      // small dial near the top-left; override via opts.hud.
+      const hud = opts.hud || {};
+      this._hud = {
+        at:   Array.isArray(hud.at) ? [hud.at[0], hud.at[1]] : [80, 80],
+        size: Number.isFinite(hud.size) ? hud.size : 64,
+      };
+
       // Runtime gate — false suspends grab/solve without disposing listeners.
       this._enabled = opts.enabled !== false;
 
@@ -306,21 +332,26 @@ export function installHandle(p5, fn) {
         return false;
       }
       const p = this._p;
+      const hud = this._display === p5.Tree.HUD;
 
-      // Fresh press → pick the proxy; grab only on a hit.
+      // Fresh press → hit-test (GPU proxy in SCENE, dial bounds in HUD); grab
+      // only on a hit. A HUD grab jumps to the press so a click sets the heading.
       if (this._downPending) {
         this._downPending = false;
-        if (this._pick()) {
+        if (hud ? this._pickHud() : this._pick()) {
           this._grabbed = true;
           this.onGrab  && this.onGrab(this);
           this._onGrab && this._onGrab(this);
+          if (hud) { this._solveFromDial(p.mouseX, p.mouseY); this._afterSolve(); }
         }
       }
 
-      // Drag → re-solve, then push to the binding and fire onChange.
+      // Drag → re-solve (ray in SCENE, dial polar in HUD), then push to the
+      // binding and fire onChange.
       if (this._grabbed && this._movedPending) {
         this._movedPending = false;
-        this._solveFromPointer(p.mouseX, p.mouseY);
+        if (hud) this._solveFromDial(p.mouseX, p.mouseY);
+        else     this._solveFromPointer(p.mouseX, p.mouseY);
         this._afterSolve();
       }
 
@@ -402,6 +433,37 @@ export function installHandle(p5, fn) {
       // solve() assumes a unit direction.
       const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
       this._constraint.solve(ox, oy, oz, dx / len, dy / len, dz / len);
+    }
+
+    // ── HUD dial input (polar → heading) ──────────────────────────────────
+
+    /** Pointer-in-dial test for the HUD grab. @returns {boolean} */
+    _pickHud() {
+      const p = this._p;
+      const dx = p.mouseX - this._hud.at[0];
+      const dy = p.mouseY - this._hud.at[1];
+      const R  = this._hud.size;
+      return (dx*dx + dy*dy) <= R*R;
+    }
+
+    /**
+     * Map a dial pointer position to a heading and seed the SPHERE. Azimuthal
+     * (polar) projection: angle → azimuth, radius → colatitude, so the dial
+     * centre is +Y and the rim is −Y (the whole sphere is reachable).
+     * dirFromAzEl + seed reuse the commit-1 core; the heading lives in the
+     * handle's frame (eye-relative for an EYE SPHERE — the compass).
+     */
+    _solveFromDial(mx, my) {
+      const c = this._constraint;
+      let nx = (mx - this._hud.at[0]) / this._hud.size;
+      let ny = (my - this._hud.at[1]) / this._hud.size;
+      let rho = Math.hypot(nx, ny);
+      if (rho > 1) { nx /= rho; ny /= rho; rho = 1; }   // clamp inside the dial
+      const az = Math.atan2(ny, nx);
+      const el = Math.PI / 2 - rho * Math.PI;           // colatitude → elevation
+      dirFromAzEl(_hDir, az, el);
+      const a = c.anchor;
+      c.seed(a[0] + _hDir[0], a[1] + _hDir[1], a[2] + _hDir[2]);
     }
 
     // ── Value (pull-only) ───────────────────────────────────────────────────
@@ -553,7 +615,8 @@ export function installHandle(p5, fn) {
      */
     draw(opts = {}) {
       if ('marker' in opts && opts.marker === null) return this;
-      this._drawScene(opts);
+      if (this._display === p5.Tree.HUD) this._drawHud(opts);
+      else this._drawScene(opts);
       return this;
     }
 
@@ -668,6 +731,44 @@ export function installHandle(p5, fn) {
       }
     }
 
+    // ── Draw (HUD) ───────────────────────────────────────────────
+
+    /**
+     * Render the 2D dial in screen space (beginHUD/endHUD). The current heading
+     * is placed by the inverse of the input projection (colatitude → radius,
+     * azimuth → angle); a line + dot mark it inside the dial boundary. Ambient
+     * (or opts.color) stroke / fill. SPHERE-only, so non-SPHERE handles never
+     * reach here (display is forced to SCENE).
+     */
+    _drawHud(opts) {
+      const p = this._p;
+      const r = p._renderer;
+      const c = this._constraint;
+      const color = opts.color;
+      const cx = this._hud.at[0], cy = this._hud.at[1], R = this._hud.size;
+
+      // Current heading → dial position (inverse of _solveFromDial's mapping).
+      c.azEl(_azel);
+      const rho = (Math.PI / 2 - _azel[1]) / Math.PI;
+      const hx = cx + rho * R * Math.cos(_azel[0]);
+      const hy = cy + rho * R * Math.sin(_azel[0]);
+
+      p.beginHUD();
+      if (color != null) { p.stroke(color); p.fill(color); }
+      // Dial boundary + centre cross.
+      p.noFill();
+      r._circle({ x: cx, y: cy, radius: R });
+      const ch = R * 0.12;
+      p.line(cx - ch, cy, cx + ch, cy);
+      p.line(cx, cy - ch, cx, cy + ch);
+      // Heading: a line from the centre + a filled dot.
+      p.line(cx, cy, hx, hy);
+      p.noStroke();
+      if (color != null) p.fill(color); else p.fill(255);
+      r._circle({ filled: true, x: hx, y: hy, radius: Math.max(3, R * 0.1) });
+      p.endHUD();
+    }
+
     /**
      * Current scalar parameter (AXIS only; NaN otherwise).
      * @returns {number}
@@ -721,6 +822,16 @@ export function installHandle(p5, fn) {
       this._frame = (f === EYE) ? EYE : WORLD;
     }
 
+    /** Display surface — SCENE (3D in-scene) or HUD (a 2D dial; SPHERE-only). */
+    get display() { return this._display; }
+    set display(d) {
+      if (d === p5.Tree.HUD && this._constraint.kind !== SPHERE) {
+        console.error('[p5.tree] handle: HUD display is SPHERE-only; keeping SCENE.');
+        return;
+      }
+      this._display = (d === p5.Tree.HUD) ? p5.Tree.HUD : p5.Tree.SCENE;
+    }
+
     // ── Teardown ────────────────────────────────────────────────────────────
 
     /** Remove pointer listeners and unregister. */
@@ -771,6 +882,8 @@ export function installHandle(p5, fn) {
    *   extent?:    number[],
    *   grabPx?:    number,
    *   enabled?:   boolean,
+   *   display?:   number,
+   *   hud?:       { at?: number[], size?: number },
    *   bind?:      p5.Vector | { get: Function, set: Function },
    *   onGrab?:    Function,
    *   onChange?:  Function,

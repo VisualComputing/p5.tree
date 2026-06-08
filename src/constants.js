@@ -77,8 +77,8 @@ export function installConstants(p5) {
     TANGENTS_OUT: CONST(1 << 4),   // outgoing tangent arrows at keyframes of the target path
     TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
 
-    // handle — constraint kinds (core) + report modes. VIEW (bridge-only) and
-    // the display constants (SCENE / HUD) land with their respective passes.
+    // handle — constraint kinds (core) + report modes. VIEW (bridge-only)
+    // lands with its pass.
     SPHERE:    CONST(C.SPHERE),
     PLANE:     CONST(C.PLANE),
     AXIS:      CONST(C.AXIS),
@@ -90,5 +90,9 @@ export function installConstants(p5) {
     AIM:    CONST(1 << 1),   // anchor→handle line / gaze
     LOCUS:  CONST(1 << 2),   // constraint surface: sphere wire | plane quad | axis
     RING:   CONST(1 << 3),   // sphere limb / plane border highlight
+
+    // handle display surfaces (3D in-scene | 2D screen dial; default SCENE)
+    SCENE: CONST(0),
+    HUD:   CONST(1),
   });
 }
