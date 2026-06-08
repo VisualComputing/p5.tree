@@ -41,14 +41,18 @@
  * own frame, so `h.value()` reads clean — WORLD for a PLANE/AXIS handle,
  * eye-space for an EYE SPHERE. `report` overrides POINT/DIRECTION per call.
  *
- * ── Not yet wired (later passes) ─────────────────────────────────────────────
- * The grab here is provisional: ANY press on the canvas grabs. The
- * `mousePick`/`tag` proxy test that restricts the grab to the handle itself
- * lands next, together with the `onGrab`/`onChange`/`onRelease` hooks, the
- * polymorphic `bind()` + `sync()`, `draw()` and its bit-flags, the HUD display
- * surface, and the VIEW constraint. The controller seams those need — the grab
- * flag, the working-frame solve, the pull value — are already in place, so they
- * slot in without reshaping this file. See handle-design.md §8.
+ * ── What's wired, and what's next ─────────────────────────────────────────────
+ * Grab is now real — a press color-ID picks a tagged proxy at the handle's
+ * screen position via `mousePick`/`tag`; only a hit grabs, so a press that
+ * misses falls through to `orbitControl()`. `onGrab` and `onRelease` fire
+ * around the grab (user hook first, then the lib-space `_on*` seam, mirroring
+ * Track).
+ *
+ * Still ahead: polymorphic `bind()` + `sync()` and the `onChange` hook (fired
+ * per solve while held), `draw()` and its bit-flags, the HUD display surface,
+ * and the VIEW constraint. The controller seams those need — the grab flag, the
+ * working-frame solve, the pull value — are already in place, so they slot in
+ * without reshaping this file. See handle-design.md §8.
  */
 
 'use strict';
@@ -73,6 +77,11 @@ const _near = new Float32Array(3);   // unprojected near point (ray origin)
 const _far  = new Float32Array(3);   // unprojected far point
 const _dir  = new Float32Array(3);   // ray-direction scratch (frame conversion)
 const _v3   = new Float32Array(3);   // value() extraction scratch
+const _proxy = new Float32Array(3);  // pick-proxy world position (grab test)
+
+// Single pick id for the one sub-handle in this pass. Future multi-proxy kinds
+// (3 axis caps + 3 plane caps) assign one id each; the returned id selects which.
+const PROXY_ID = 1;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Handle registry — per p5 instance, disposed on the remove lifecycle
@@ -165,12 +174,24 @@ export function installHandle(p5, fn) {
       // Runtime gate — false suspends grab/solve without disposing listeners.
       this._enabled = opts.enabled !== false;
 
+      // Pick-proxy radius in screen pixels — the grab hit-test size, drawn at
+      // constant screen size regardless of depth (see _pick).
+      this._grabPx = Number.isFinite(opts.grabPx) ? opts.grabPx : 12;
+
       // Transport state. The pointer listeners only set the *_pending flags;
       // update() consumes them so all grab/solve happens inside draw().
       this._grabbed      = false;
       this._downPending  = false;
       this._movedPending = false;
       this._upPending    = false;
+
+      // Interaction hooks (user-facing) + lib-space seams (_on*, for the
+      // bridge / UI). Fired user-first, mirroring Track's onPlay/onEnd/onStop.
+      // onChange lands with bind() in a later pass.
+      this.onGrab     = typeof opts.onGrab    === 'function' ? opts.onGrab    : null;
+      this.onRelease  = typeof opts.onRelease === 'function' ? opts.onRelease : null;
+      this._onGrab    = null;
+      this._onRelease = null;
 
       this._attachPointer();
     }
@@ -208,8 +229,10 @@ export function installHandle(p5, fn) {
      * (`if (!h.update()) orbitControl()`). A disabled handle is an immediate
      * no-op returning `false`.
      *
-     * NOTE: until the pick lands, ANY press grabs (see header). The
-     * `mousePick`/`tag` proxy test slots into the `_downPending` branch.
+     * A fresh press color-ID picks the tagged proxy (`_pick`); only a hit
+     * grabs, so a miss leaves `grabbed` false and the press falls through to
+     * `orbitControl()`. `onGrab` fires on a successful grab, `onRelease` on the
+     * matching release.
      *
      * @returns {boolean} grabbed
      */
@@ -220,10 +243,14 @@ export function installHandle(p5, fn) {
       }
       const p = this._p;
 
-      // Fresh press → grab. (Provisional: commit-3 mousePick gates this.)
+      // Fresh press → pick the proxy; grab only on a hit.
       if (this._downPending) {
         this._downPending = false;
-        this._grabbed = true;
+        if (this._pick()) {
+          this._grabbed = true;
+          this.onGrab  && this.onGrab(this);
+          this._onGrab && this._onGrab(this);
+        }
       }
 
       // Drag → re-solve from the latest pointer position.
@@ -232,13 +259,52 @@ export function installHandle(p5, fn) {
         this._solveFromPointer(p.mouseX, p.mouseY);
       }
 
-      // Release.
+      // Release — fire onRelease only if a grab was actually in progress.
       if (this._upPending) {
         this._upPending = false;
-        this._grabbed = false;
+        if (this._grabbed) {
+          this._grabbed = false;
+          this.onRelease  && this.onRelease(this);
+          this._onRelease && this._onRelease(this);
+        }
       }
 
       return this._grabbed;
+    }
+
+    // ── Grab (color-ID pick) ────────────────────────────────────────────────
+
+    /**
+     * Color-ID hit-test the handle under the pointer. Renders one tagged proxy
+     * sphere at the handle's current world position — sized to a constant
+     * `grabPx` screen radius — into mousePick's 1×1 pick buffer, and returns
+     * whether the decoded id is this handle's proxy.
+     *
+     * The proxy point is `value({ to: WORLD, report: POINT })`: the core folds
+     * the anchor in (SPHERE → anchor + dir·radius, PLANE/AXIS → the constrained
+     * point) and an EYE-frame handle maps back to WORLD, so this is exactly
+     * where the dot will draw, in both frames.
+     *
+     * pixelRatio is read BEFORE mousePick: the pick pass installs a narrowed
+     * 1×1 projection, so world-units-per-pixel must be sampled against the live
+     * (main) projection first.
+     *
+     * @returns {boolean} true if the proxy was hit.
+     */
+    _pick() {
+      const p = this._p;
+      // Handle position in WORLD (see doc) — valid for WORLD and EYE frames.
+      this.value({ to: WORLD, report: POINT, out: _proxy });
+      // Constant screen size: worldRadius = grabPx · (world-units per pixel).
+      const rad = this._grabPx * p.pixelRatio(_proxy);
+      const id = p.mousePick(() => {
+        p.push();
+        p.translate(_proxy[0], _proxy[1], _proxy[2]);
+        p.fill(p.tag(PROXY_ID));
+        p.sphere(rad);
+        p.pop();
+      });
+      return id === PROXY_ID;
     }
 
     // ── Pixel → ray → working frame → solve ─────────────────────────────────
