@@ -53,9 +53,15 @@
  * Track). Values cross in the handle's own frame (the `value()` default), and
  * unbound handles stay pull-only via `value()`.
  *
- * Still ahead: `draw()` and its bit-flags, the `SCENE` / `HUD` display surface,
- * and the VIEW constraint. The controller seams those need are already in
- * place, so they slot in without reshaping this file. See handle-design.md §8.
+ * `draw()` renders in SCENE — HANDLE (the dot, constant screen size), AIM
+ * (anchor→point line), LOCUS (SPHERE wire / PLANE quad / AXIS segment), RING
+ * (SPHERE limb / PLANE border) — bit-selected, default HANDLE | AIM | LOCUS,
+ * `marker: null` to suppress, composing gizmo primitives at the ambient (or
+ * `opts.color`) stroke.
+ *
+ * Still ahead: the HUD display surface (a 2D dial) and the VIEW constraint. The
+ * controller seams those need are already in place, so they slot in without
+ * reshaping this file. See handle-design.md §8.
  */
 
 'use strict';
@@ -85,6 +91,33 @@ const _proxy = new Float32Array(3);  // pick-proxy world position (grab test)
 // Single pick id for the one sub-handle in this pass. Future multi-proxy kinds
 // (3 axis caps + 3 plane caps) assign one id each; the returned id selects which.
 const PROXY_ID = 1;
+
+// ── Draw scratch + small vec3 helpers (bridge draw only) ────────────────────
+const _pW = new Float32Array(3);   // handle point, WORLD
+const _aW = new Float32Array(3);   // anchor, WORLD
+const _b0 = new Float32Array(3);   // basis u (ring / plane quad)
+const _b1 = new Float32Array(3);   // basis v
+const _b2 = new Float32Array(3);   // basis w (view normal, sphere limb)
+
+// PLANE has no intrinsic size, so its locus quad uses a fixed world half-extent.
+const _PLANE_HALF = 100;
+
+const _norm3 = (o) => {
+  const l = Math.hypot(o[0], o[1], o[2]) || 1;
+  o[0] /= l; o[1] /= l; o[2] /= l;
+  return o;
+};
+
+// Orthonormal in-plane basis (u → ub, v → vb) for a unit normal n. Seeds from
+// the world axis least aligned with n so the first cross can't degenerate.
+const _basisFromNormal = (n, ub, vb) => {
+  const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+  let rx = 0, ry = 0, rz = 0;
+  if (ax <= ay && ax <= az) rx = 1; else if (ay <= az) ry = 1; else rz = 1;
+  ub[0] = ry*n[2] - rz*n[1]; ub[1] = rz*n[0] - rx*n[2]; ub[2] = rx*n[1] - ry*n[0];
+  _norm3(ub);
+  vb[0] = n[1]*ub[2] - n[2]*ub[1]; vb[1] = n[2]*ub[0] - n[0]*ub[2]; vb[2] = n[0]*ub[1] - n[1]*ub[0];
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Handle registry — per p5 instance, disposed on the remove lifecycle
@@ -493,6 +526,145 @@ export function installHandle(p5, fn) {
       if (notify) {
         this.onChange  && this.onChange(v, this);
         this._onChange && this._onChange(v, this);
+      }
+    }
+
+    // ── Draw (SCENE) ──────────────────────────────────────────────────
+
+    /**
+     * Render the handle's visuals in the scene. Composes existing gizmo
+     * primitives (lines, a pane quad, sampled rings, the dot) at the
+     * dark-bg / bright-stroke aesthetic — nothing here re-implements geometry.
+     * The dot draws at a constant screen size via pixelRatio. Options last;
+     * bit-flags select parts (parity with trackPath).
+     *
+     * Bits (default HANDLE | AIM | LOCUS):
+     *   HANDLE — the draggable dot at the handle's point.
+     *   AIM    — a line from the anchor to the handle's point.
+     *   LOCUS  — the constraint surface: SPHERE wire | PLANE quad | AXIS segment.
+     *   RING   — SPHERE view-facing limb | PLANE border.
+     *
+     * `color` overrides the ambient stroke / fill; `size` is the dot radius
+     * in pixels (defaults to grabPx, so the dot fills the hit area). `marker:
+     * null` suppresses the whole draw (parity with trackPath). Chainable.
+     *
+     * @param {{ bits?: number, color?: *, size?: number, marker?: null }} [opts]
+     * @returns {Handle} this
+     */
+    draw(opts = {}) {
+      if ('marker' in opts && opts.marker === null) return this;
+      this._drawScene(opts);
+      return this;
+    }
+
+    // Scene draw — the visual counterpart of the pixel→ray input path. Reads the
+    // handle point + anchor in WORLD (so EYE-frame handles map back), then emits
+    // the bit-selected parts. EYE-frame handles are best shown via the HUD dial;
+    // in SCENE they render around the camera.
+    _drawScene(opts) {
+      const p = this._p;
+      const c = this._constraint;
+      const bits = Number.isFinite(opts.bits)
+        ? opts.bits
+        : (p5.Tree.HANDLE | p5.Tree.AIM | p5.Tree.LOCUS);
+      const color  = opts.color;
+      const sizePx = Number.isFinite(opts.size) ? opts.size : this._grabPx;
+
+      // Handle point (WORLD) and anchor (WORLD) — both frames handled.
+      this.value({ to: WORLD, report: POINT, out: _pW });
+      const a = c.anchor;
+      if (this._frame === EYE) p.mapLocation(a, { from: EYE, to: WORLD, out: _aW });
+      else { _aW[0] = a[0]; _aW[1] = a[1]; _aW[2] = a[2]; }
+
+      p.push();
+      if (color != null) { p.stroke(color); p.fill(color); }
+
+      // LOCUS — the surface of allowed positions.
+      if ((bits & p5.Tree.LOCUS) !== 0) {
+        p.push();
+        p.noFill();
+        if (c.kind === SPHERE) {
+          p.push();
+          p.translate(_aW[0], _aW[1], _aW[2]);
+          p.sphere(c.radius);
+          p.pop();
+        } else if (c.kind === PLANE) {
+          this._planeQuad(_aW, c.n, _PLANE_HALF);
+        } else if (c.kind === AXIS) {
+          const u = c.u;
+          p.line(_aW[0] + c.min*u[0], _aW[1] + c.min*u[1], _aW[2] + c.min*u[2],
+                 _aW[0] + c.max*u[0], _aW[1] + c.max*u[1], _aW[2] + c.max*u[2]);
+        }
+        p.pop();
+      }
+
+      // RING — SPHERE limb (circle ⊥ the view direction) | PLANE border.
+      if ((bits & p5.Tree.RING) !== 0) {
+        p.push();
+        p.noFill();
+        if (c.kind === SPHERE) {
+          const cam = p.getCamera();
+          if (cam) {
+            _b2[0] = _aW[0] - cam.eyeX;
+            _b2[1] = _aW[1] - cam.eyeY;
+            _b2[2] = _aW[2] - cam.eyeZ;
+            _norm3(_b2);
+            _basisFromNormal(_b2, _b0, _b1);
+            this._ring(_aW[0], _aW[1], _aW[2], c.radius, _b0, _b1);
+          }
+        } else if (c.kind === PLANE) {
+          this._planeQuad(_aW, c.n, _PLANE_HALF);
+        }
+        p.pop();
+      }
+
+      // AIM — anchor → handle point.
+      if ((bits & p5.Tree.AIM) !== 0) {
+        p.line(_aW[0], _aW[1], _aW[2], _pW[0], _pW[1], _pW[2]);
+      }
+
+      // HANDLE — the dot, constant screen size (worldRadius = size · world/px).
+      if ((bits & p5.Tree.HANDLE) !== 0) {
+        const rad = sizePx * p.pixelRatio(_pW);
+        p.push();
+        p.noStroke();
+        p.translate(_pW[0], _pW[1], _pW[2]);
+        p.sphere(rad);
+        p.pop();
+      }
+
+      p.pop();
+    }
+
+    // A flat quad on the plane (cen, unit normal n), half-extent `half`, via the
+    // pane() primitive. Outline when fill is disabled (LOCUS / RING), filled if
+    // the caller has fill() on.
+    _planeQuad(cen, n, half) {
+      const p = this._p;
+      _basisFromNormal(n, _b0, _b1);
+      const ux = _b0[0]*half, uy = _b0[1]*half, uz = _b0[2]*half;
+      const vx = _b1[0]*half, vy = _b1[1]*half, vz = _b1[2]*half;
+      p.pane(
+        [cen[0]-ux-vx, cen[1]-uy-vy, cen[2]-uz-vz],
+        [cen[0]+ux-vx, cen[1]+uy-vy, cen[2]+uz-vz],
+        [cen[0]+ux+vx, cen[1]+uy+vy, cen[2]+uz+vz],
+        [cen[0]-ux+vx, cen[1]-uy+vy, cen[2]-uz+vz],
+      );
+    }
+
+    // A sampled circle of radius r at (cx,cy,cz) spanned by orthonormal u, v.
+    _ring(cx, cy, cz, r, u, v) {
+      const p = this._p;
+      const N = 48;
+      let px, py, pz;
+      for (let i = 0; i <= N; i++) {
+        const t = (i / N) * (Math.PI * 2);
+        const ct = Math.cos(t) * r, st = Math.sin(t) * r;
+        const x = cx + ct*u[0] + st*v[0];
+        const y = cy + ct*u[1] + st*v[1];
+        const z = cz + ct*u[2] + st*v[2];
+        if (i > 0) p.line(px, py, pz, x, y, z);
+        px = x; py = y; pz = z;
       }
     }
 

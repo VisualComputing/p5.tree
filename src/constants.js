@@ -78,11 +78,17 @@ export function installConstants(p5) {
     TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
 
     // handle — constraint kinds (core) + report modes. VIEW (bridge-only) and
-    // the draw/display constants land with their respective passes.
+    // the display constants (SCENE / HUD) land with their respective passes.
     SPHERE:    CONST(C.SPHERE),
     PLANE:     CONST(C.PLANE),
     AXIS:      CONST(C.AXIS),
     POINT:     CONST(C.POINT),
     DIRECTION: CONST(C.DIRECTION),
+
+    // handle draw bits (gizmo-local; orthogonal, mirrors trackPath bits)
+    HANDLE: CONST(1 << 0),   // the draggable dot
+    AIM:    CONST(1 << 1),   // anchor→handle line / gaze
+    LOCUS:  CONST(1 << 2),   // constraint surface: sphere wire | plane quad | axis
+    RING:   CONST(1 << 3),   // sphere limb / plane border highlight
   });
 }
