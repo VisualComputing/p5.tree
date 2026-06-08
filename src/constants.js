@@ -76,5 +76,13 @@ export function installConstants(p5) {
     TANGENTS_IN:  CONST(1 << 3),   // incoming tangent arrows at keyframes of the target path
     TANGENTS_OUT: CONST(1 << 4),   // outgoing tangent arrows at keyframes of the target path
     TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
+
+    // handle — constraint kinds (core) + report modes. VIEW (bridge-only) and
+    // the draw/display constants land with their respective passes.
+    SPHERE:    CONST(C.SPHERE),
+    PLANE:     CONST(C.PLANE),
+    AXIS:      CONST(C.AXIS),
+    POINT:     CONST(C.POINT),
+    DIRECTION: CONST(C.DIRECTION),
   });
 }

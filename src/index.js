@@ -17,6 +17,7 @@ import { installPicking, releasePickFbo } from './picking.js';
 import { installTrack, tickPlayers, clearPlayers } from './track.js';
 import { installPipe } from './pipe.js';
 import { installPanel } from './panel.js';
+import { installHandle, disposeHandles } from './handle.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
 
@@ -47,6 +48,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §9 — Panel (parameter panels + track transport controls)
   installPanel(p5, fn);
 
+  // §10 — Handle (interactive manipulators: createHandle)
+  installHandle(p5, fn);
+
   // ── Lifecycle hooks ────────────────────────────────────────────────
 
   lifecycles.postsetup = function () {
@@ -65,5 +69,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     clearPlayers(this);
     this.releasePipe(true);
     releasePickFbo(this);
+    disposeHandles(this);
   };
 });
