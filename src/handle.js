@@ -5,7 +5,7 @@
  *
  * Wraps a renderer-agnostic tree Constraint (`@nakednous/tree/handle`) with the
  * p5-specific transport a draggable 3D control needs: pointer events, a
- * pixel→ray unprojection, WORLD/EYE frame conversion, and a host-driven
+ * pixel→ray unprojection, and a host-driven
  * `update()` lifecycle. Constructed like a track (`createHandle` → stateful
  * controller); consumed like a gizmo.
  *
@@ -27,19 +27,17 @@
  *     const v = h.value()               // pull the current value (fresh p5.Vector)
  *   }
  *
- * ── Frame conversion ─────────────────────────────────────────────────────────
+ * ── Pick ray ─────────────────────────────────────────────────────────────────
  * The pick ray is built in WORLD via two `mapLocation` unprojections at the
  * near (screen depth 0) and far (screen depth 1) planes — the normalized depth
  * carries the NDC-z convention through the core, so nothing is hardcoded.
- * For an EYE-frame handle (the headlight) the ray origin is mapped WORLD→EYE
- * (`mapLocation`) and the ray direction WORLD→EYE (`mapDirection`) before
- * `solve()`; `value()` then maps the result back out to the requested space.
+ * `solve()` runs in WORLD; `value()` converts the result to the requested space.
  *
  * ── Pull-only value() ────────────────────────────────────────────────────────
  * `value()` mirrors `mapLocation`: `opts.out` is opt-in (zero-alloc when
- * supplied, fresh `p5.Vector` when omitted). The default `to` is the handle's
- * own frame, so `h.value()` reads clean — WORLD for a PLANE/AXIS handle,
- * eye-space for an EYE SPHERE. `report` overrides POINT/DIRECTION per call.
+ * supplied, fresh `p5.Vector` when omitted). The default `to` is WORLD, so
+ * `h.value()` reads clean; pass `to: EYE` (etc.) to convert at read time.
+ * `report` overrides POINT/DIRECTION per call.
  *
  * ── What's wired, and what's next ─────────────────────────────────────────────
  * Grab is real — a press color-ID picks a tagged proxy at the handle's screen
@@ -59,30 +57,28 @@
  * `marker: null` to suppress, composing gizmo primitives at the ambient p5
  * stroke (lines) and fill (the dot).
  *
- * `display` chooses the surface and the input path (the SPHERE-only HUD falls
- * back to SCENE elsewhere): SCENE is the 3D pixel→ray path above; HUD is a 2D
- * dial (`beginHUD`/`endHUD`) whose polar position maps to a heading — pointer
- * → (az, el) → `dirFromAzEl` → `seed` — with no ray, camera, or GPU pick. Both
- * surfaces write the same state, so `value()` / `bind()` / hooks are identical;
- * `hud: { at, size }` places the dial in px.
- *
  * VIEW is a bridge constraint: a core PLANE whose normal is re-aimed at the
  * camera each solve (a screen-parallel drag plane through the current point),
  * reported as a world position. The core never learns about the camera; the
  * `_view` flag carries the bridge behaviour (plane re-aim, direct-set seed,
  * screen-aligned square locus).
  *
- * Remaining (handle-design.md §8): snap, hover, multi-target, rotation, plus
- * example sketches + the README registry entry.
+ * Multitouch: the whole gesture keys to one pointerId (see update()), and the
+ * pick + solve read that pointer's own coords — so on a shared surface each
+ * handle tracks its own finger and ignores the rest. Independent, NON-
+ * overlapping handles work today (one finger each). Arbitrating OVERLAPPING
+ * handles (a clustered TRS gizmo) needs a single shared pick across all
+ * proxies; that, plus snap, hover, and rotation, is the deferred work
+ * (handle-design.md §8/§9, commit 7).
  */
 
 'use strict';
 
 import {
-  createConstraint, dirFromAzEl,
+  createConstraint,
   SPHERE, PLANE, AXIS,
   POINT, DIRECTION,
-  WORLD, EYE, SCREEN,
+  WORLD, SCREEN,
 } from '@nakednous/tree';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -96,7 +92,6 @@ import {
 const _sIn  = new Float32Array(3);   // screen-space pick input (mx, my, depth)
 const _near = new Float32Array(3);   // unprojected near point (ray origin)
 const _far  = new Float32Array(3);   // unprojected far point
-const _dir  = new Float32Array(3);   // ray-direction scratch (frame conversion)
 const _v3   = new Float32Array(3);   // value() extraction scratch
 const _proxy = new Float32Array(3);  // pick-proxy world position (grab test)
 
@@ -110,8 +105,6 @@ const _aW = new Float32Array(3);   // anchor, WORLD
 const _b0 = new Float32Array(3);   // basis u (ring / plane quad)
 const _b1 = new Float32Array(3);   // basis v
 const _b2 = new Float32Array(3);   // basis w (view normal, sphere limb)
-const _azel = new Float32Array(2); // [az, el] readout (HUD draw)
-const _hDir = new Float32Array(3); // heading direction from the dial (HUD input)
 
 // PLANE has no intrinsic size, so its locus quad uses a fixed world half-extent.
 const _PLANE_HALF = 100;
@@ -235,33 +228,6 @@ export function installHandle(p5, fn) {
         extent: opts.extent,
       });
 
-      // Frame — EYE is meaningful for SPHERE only (the headlight). Anything
-      // else is silently a WORLD handle (§5 diagnostic).
-      let frame = opts.frame ?? WORLD;
-      if (frame === EYE && kind !== SPHERE) {
-        console.error('[p5.tree] handle: EYE frame is only meaningful for SPHERE; falling back to WORLD.');
-        frame = WORLD;
-      }
-      this._frame = (frame === EYE) ? EYE : WORLD;
-
-      // Display surface — SCENE (3D) or HUD (a 2D dial). HUD maps a pointer to
-      // a heading, so it's SPHERE-only; requested elsewhere it falls back to
-      // SCENE (§5).
-      let display = opts.display ?? p5.Tree.SCENE;
-      if (display === p5.Tree.HUD && kind !== SPHERE) {
-        console.error('[p5.tree] handle: HUD display is SPHERE-only; falling back to SCENE.');
-        display = p5.Tree.SCENE;
-      }
-      this._display = (display === p5.Tree.HUD) ? p5.Tree.HUD : p5.Tree.SCENE;
-
-      // HUD dial placement in px — centre `at` + radius `size`. Defaults to a
-      // small dial near the top-left; override via opts.hud.
-      const hud = opts.hud || {};
-      this._hud = {
-        at:   Array.isArray(hud.at) ? [hud.at[0], hud.at[1]] : [80, 80],
-        size: Number.isFinite(hud.size) ? hud.size : 64,
-      };
-
       // Runtime gate — false suspends grab/solve without disposing listeners.
       this._enabled = opts.enabled !== false;
 
@@ -269,12 +235,23 @@ export function installHandle(p5, fn) {
       // constant screen size regardless of depth (see _pick).
       this._grabPx = Number.isFinite(opts.grabPx) ? opts.grabPx : 12;
 
-      // Transport state. The pointer listeners only set the *_pending flags;
-      // update() consumes them so all grab/solve happens inside draw().
+      // Transport state. The pointer listeners record the active pointer + its
+      // latest coords and set the *_pending flags; update() consumes them, so
+      // all grab/solve happens inside draw().
+      //
+      // _pid keys the gesture to ONE pointer — a candidate while a press is
+      // hit-tested, the captured pointer while grabbed, null when idle. Every
+      // listener filters on it, so on a multitouch surface a handle tracks its
+      // own finger and ignores the others (and the mouse). _ptr is that
+      // pointer's position in logical canvas px, fed to the pick and the solve
+      // in place of the global mouseX/mouseY (one global can't say which finger
+      // moved).
       this._grabbed      = false;
       this._downPending  = false;
       this._movedPending = false;
       this._upPending    = false;
+      this._pid          = null;
+      this._ptr          = new Float32Array(2);
 
       // Interaction hooks (user-facing) + lib-space seams (_on*, for the
       // bridge / UI). Fired user-first, mirroring Track's onPlay/onEnd/onStop.
@@ -307,19 +284,56 @@ export function installHandle(p5, fn) {
         console.error('[p5.tree] handle: no canvas found — pointer input disabled. Create the handle after createCanvas().');
         return;
       }
-      // Listeners set flags only (cheap, ordering-independent). Pointer capture
-      // keeps move/up flowing to the canvas while dragging off-canvas.
+      // Listeners record the pointer + its coords and set flags only (cheap,
+      // ordering-independent); update() does the work. Each filters on _pid so a
+      // handle only ever tracks one finger — the one whose press it adopted —
+      // and ignores every other pointer on the surface.
+      //
+      // A press is a grab candidate only while the handle is idle (_pid null);
+      // once it adopts a pointer it ignores further downs until that pointer
+      // misses (update frees it) or releases. Pointer capture keeps move / up /
+      // cancel flowing to the canvas while the finger drags off the dot or
+      // off-canvas; the capture is on the (shared) canvas, so co-existing
+      // handles each capture their own pointerId without conflict.
       this._onDown = (e) => {
+        if (this._pid !== null) return;          // already tracking a finger
+        this._pid = e.pointerId;
+        this._eventXY(e, this._ptr);
         this._downPending = true;
         if (canvas.setPointerCapture) {
           try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
         }
       };
-      this._onMove = () => { this._movedPending = true; };
-      this._onUp   = () => { this._upPending = true; };
-      canvas.addEventListener('pointerdown', this._onDown);
-      canvas.addEventListener('pointermove', this._onMove);
-      canvas.addEventListener('pointerup',   this._onUp);
+      this._onMove = (e) => {
+        if (e.pointerId !== this._pid) return;   // not our finger
+        this._eventXY(e, this._ptr);
+        this._movedPending = true;
+      };
+      this._onUp = (e) => {                       // also bound to pointercancel
+        if (e.pointerId !== this._pid) return;   // not our finger
+        this._eventXY(e, this._ptr);
+        this._upPending = true;
+      };
+      canvas.addEventListener('pointerdown',   this._onDown);
+      canvas.addEventListener('pointermove',   this._onMove);
+      canvas.addEventListener('pointerup',     this._onUp);
+      canvas.addEventListener('pointercancel', this._onUp);
+    }
+
+    // Pointer event → logical canvas coords (the [0,width]×[0,height] space
+    // colorPick and mapLocation(SCREEN) expect — see picking.js's pick viewport
+    // [0, height, width, −height]). Goes through the element rect so a
+    // CSS-scaled canvas maps correctly, sidestepping the mouseX/mouseY scaling
+    // skew (processing/p5.js#8669). Falls back to mouseX/mouseY without a rect.
+    _eventXY(e, out) {
+      const c = this._canvas;
+      const r = (c && c.getBoundingClientRect) ? c.getBoundingClientRect() : null;
+      if (r && r.width > 0 && r.height > 0) {
+        out[0] = (e.clientX - r.left) * (this._p.width  / r.width);
+        out[1] = (e.clientY - r.top)  * (this._p.height / r.height);
+      } else {
+        out[0] = this._p.mouseX; out[1] = this._p.mouseY;
+      }
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -341,40 +355,41 @@ export function installHandle(p5, fn) {
     update() {
       if (!this._enabled) {
         this._grabbed = this._downPending = this._movedPending = this._upPending = false;
+        this._pid = null;
         return false;
       }
-      const p = this._p;
-      const hud = this._display === p5.Tree.HUD;
-
-      // Fresh press → hit-test (GPU proxy in SCENE, dial bounds in HUD); grab
-      // only on a hit. A HUD grab jumps to the press so a click sets the heading.
+      // Fresh press → color-ID hit-test at OUR pointer's pixel; grab only on a
+      // hit. A miss frees _pid, so the next press — or, on a multitouch surface,
+      // another finger — can be adopted.
       if (this._downPending) {
         this._downPending = false;
-        if (hud ? this._pickHud() : this._pick()) {
+        if (this._pick()) {
           this._grabbed = true;
           this.onGrab  && this.onGrab(this);
           this._onGrab && this._onGrab(this);
-          if (hud) { this._solveFromDial(p.mouseX, p.mouseY); this._afterSolve(); }
+        } else {
+          this._pid = null;
         }
       }
 
-      // Drag → re-solve (ray in SCENE, dial polar in HUD), then push to the
-      // binding and fire onChange.
+      // Drag → re-solve from our pointer's ray, then push to the binding and
+      // fire onChange.
       if (this._grabbed && this._movedPending) {
         this._movedPending = false;
-        if (hud) this._solveFromDial(p.mouseX, p.mouseY);
-        else     this._solveFromPointer(p.mouseX, p.mouseY);
+        this._solveFromPointer(this._ptr[0], this._ptr[1]);
         this._afterSolve();
       }
 
-      // Release — fire onRelease only if a grab was actually in progress.
+      // Release (pointerup / pointercancel) — fire onRelease only if a grab was
+      // in progress, then go idle so the handle is free for the next press.
       if (this._upPending) {
-        this._upPending = false;
+        this._upPending = this._movedPending = false;
         if (this._grabbed) {
           this._grabbed = false;
           this.onRelease  && this.onRelease(this);
           this._onRelease && this._onRelease(this);
         }
+        this._pid = null;
       }
 
       return this._grabbed;
@@ -385,15 +400,14 @@ export function installHandle(p5, fn) {
     /**
      * Color-ID hit-test the handle under the pointer. Renders one tagged proxy
      * sphere at the handle's current world position — sized to a constant
-     * `grabPx` screen radius — into mousePick's 1×1 pick buffer, and returns
-     * whether the decoded id is this handle's proxy.
+     * `grabPx` screen radius — into colorPick's 1×1 pick buffer at the tracked
+     * pointer's pixel, and returns whether the decoded id is this handle's proxy.
      *
      * The proxy point is `value({ to: WORLD, report: POINT })`: the core folds
      * the anchor in (SPHERE → anchor + dir·radius, PLANE/AXIS → the constrained
-     * point) and an EYE-frame handle maps back to WORLD, so this is exactly
-     * where the dot will draw, in both frames.
+     * point), so this is exactly where the dot will draw.
      *
-     * pixelRatio is read BEFORE mousePick: the pick pass installs a narrowed
+     * pixelRatio is read BEFORE colorPick: the pick pass installs a narrowed
      * 1×1 projection, so world-units-per-pixel must be sampled against the live
      * (main) projection first.
      *
@@ -401,11 +415,13 @@ export function installHandle(p5, fn) {
      */
     _pick() {
       const p = this._p;
-      // Handle position in WORLD (see doc) — valid for WORLD and EYE frames.
+      // Handle position in WORLD (see doc).
       this.value({ to: WORLD, report: POINT, out: _proxy });
       // Constant screen size: worldRadius = grabPx · (world-units per pixel).
       const rad = this._grabPx * p.pixelRatio(_proxy);
-      const id = p.mousePick(() => {
+      // Pick at OUR pointer's pixel (not mouseX/mouseY) so the right finger
+      // tests against this handle's proxy on a multitouch surface.
+      const id = p.colorPick(this._ptr[0], this._ptr[1], () => {
         p.push();
         p.translate(_proxy[0], _proxy[1], _proxy[2]);
         p.fill(p.tag(PROXY_ID));
@@ -435,17 +451,6 @@ export function installHandle(p5, fn) {
       // drag tracks a screen-parallel plane at the point's depth.
       if (this._view) this._viewUpdatePlane();
 
-      // Convert the world ray into the constraint's working frame. EYE is the
-      // headlight: the core sees only eye-space numbers and stays oblivious to
-      // the camera. (Origin is a point, direction is a direction.)
-      if (this._frame === EYE) {
-        p.mapLocation(_near, { from: WORLD, to: EYE, out: _near });
-        _dir[0] = dx; _dir[1] = dy; _dir[2] = dz;
-        p.mapDirection(_dir, { from: WORLD, to: EYE, out: _dir });
-        ox = _near[0]; oy = _near[1]; oz = _near[2];
-        dx = _dir[0];  dy = _dir[1];  dz = _dir[2];
-      }
-
       // solve() assumes a unit direction.
       const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
       this._constraint.solve(ox, oy, oz, dx / len, dy / len, dz / len);
@@ -466,37 +471,6 @@ export function installHandle(p5, fn) {
       c.anchor[0] = c.pt[0]; c.anchor[1] = c.pt[1]; c.anchor[2] = c.pt[2];
     }
 
-    // ── HUD dial input (polar → heading) ──────────────────────────────────
-
-    /** Pointer-in-dial test for the HUD grab. @returns {boolean} */
-    _pickHud() {
-      const p = this._p;
-      const dx = p.mouseX - this._hud.at[0];
-      const dy = p.mouseY - this._hud.at[1];
-      const R  = this._hud.size;
-      return (dx*dx + dy*dy) <= R*R;
-    }
-
-    /**
-     * Map a dial pointer position to a heading and seed the SPHERE. Azimuthal
-     * (polar) projection: angle → azimuth, radius → colatitude, so the dial
-     * centre is +Y and the rim is −Y (the whole sphere is reachable).
-     * dirFromAzEl + seed reuse the commit-1 core; the heading lives in the
-     * handle's frame (eye-relative for an EYE SPHERE — the compass).
-     */
-    _solveFromDial(mx, my) {
-      const c = this._constraint;
-      let nx = (mx - this._hud.at[0]) / this._hud.size;
-      let ny = (my - this._hud.at[1]) / this._hud.size;
-      let rho = Math.hypot(nx, ny);
-      if (rho > 1) { nx /= rho; ny /= rho; rho = 1; }   // clamp inside the dial
-      const az = Math.atan2(ny, nx);
-      const el = Math.PI / 2 - rho * Math.PI;           // colatitude → elevation
-      dirFromAzEl(_hDir, az, el);
-      const a = c.anchor;
-      c.seed(a[0] + _hDir[0], a[1] + _hDir[1], a[2] + _hDir[2]);
-    }
-
     // ── Value (pull-only) ───────────────────────────────────────────────────
 
     /**
@@ -512,7 +486,7 @@ export function installHandle(p5, fn) {
      * no separate `mat4Model`). The optional
      * `mat4Eye / mat4Proj / mat4View / mat4PV` resolve the value against a
      * supplied camera instead of live state (parity with mapLocation). The
-     * default `to` is the handle's own frame, so nothing converts unless asked.
+     * default `to` is WORLD, so nothing converts unless asked.
      *
      * @param {{ to?: string | Float32Array | number[] | p5.Matrix,
      *           report?: number,
@@ -523,7 +497,7 @@ export function installHandle(p5, fn) {
     value(opts = {}) {
       const c = this._constraint;
       const report = (opts.report === POINT || opts.report === DIRECTION) ? opts.report : c.report;
-      const from = this._frame;
+      const from = WORLD;
       const to   = opts.to ?? from;
 
       c.value(_v3, report);
@@ -563,9 +537,8 @@ export function installHandle(p5, fn) {
      *
      * `get()` seeds the constraint immediately, so the handle starts at the
      * target's current value. While grabbed, each solve calls `set(value)` and
-     * fires `onChange`. Values cross in the handle's own frame (the `value()`
-     * default) — WORLD for a PLANE / AXIS / WORLD-SPHERE handle. An unrecognised
-     * target logs and leaves the handle pull-only (§5). Chainable.
+     * fires `onChange`. Values cross in WORLD (the `value()` default). An
+     * unrecognised target logs and leaves the handle pull-only (§5). Chainable.
      *
      * @param {p5.Vector | p5.Camera | { get: Function, set: Function }} target
      * @param {string} [field]  Camera lookat field: 'eye' | 'center' | 'up'.
@@ -609,9 +582,9 @@ export function installHandle(p5, fn) {
       return this;
     }
 
-    // Seed the constraint from the bound target's current value. Read in the
-    // handle's frame (see bind), which equals the working frame for WORLD
-    // handles, so it feeds seed() directly. Accepts p5.Vector / array / {x,y,z}.
+    // Seed the constraint from the bound target's current value, read in WORLD
+    // (the working frame), so it feeds seed() directly. Accepts p5.Vector /
+    // array / {x,y,z}.
     _seedFromBinding() {
       const g = this._binder.get();
       if (g == null) return;
@@ -670,15 +643,12 @@ export function installHandle(p5, fn) {
      */
     draw(opts = {}) {
       if ('marker' in opts && opts.marker === null) return this;
-      if (this._display === p5.Tree.HUD) this._drawHud();
-      else this._drawScene(opts);
+      this._drawScene(opts);
       return this;
     }
 
     // Scene draw — the visual counterpart of the pixel→ray input path. Reads the
-    // handle point + anchor in WORLD (so EYE-frame handles map back), then emits
-    // the bit-selected parts. EYE-frame handles are best shown via the HUD dial;
-    // in SCENE they render around the camera.
+    // handle point + anchor in WORLD, then emits the bit-selected parts.
     _drawScene(opts) {
       const p = this._p;
       const c = this._constraint;
@@ -687,11 +657,10 @@ export function installHandle(p5, fn) {
         : (p5.Tree.HANDLE | p5.Tree.AIM | p5.Tree.LOCUS);
       const sizePx = Number.isFinite(opts.size) ? opts.size : this._grabPx;
 
-      // Handle point (WORLD) and anchor (WORLD) — both frames handled.
+      // Handle point (WORLD) and anchor (WORLD).
       this.value({ to: WORLD, report: POINT, out: _pW });
       const a = c.anchor;
-      if (this._frame === EYE) p.mapLocation(a, { from: EYE, to: WORLD, out: _aW });
-      else { _aW[0] = a[0]; _aW[1] = a[1]; _aW[2] = a[2]; }
+      _aW[0] = a[0]; _aW[1] = a[1]; _aW[2] = a[2];
 
       // Ambient p5 state, like every gizmo: the stroked parts (AIM / LOCUS /
       // RING) follow stroke(); the dot (HANDLE) follows fill().
@@ -808,45 +777,6 @@ export function installHandle(p5, fn) {
       }
     }
 
-    // ── Draw (HUD) ───────────────────────────────────────────────
-
-    /**
-     * Render the 2D dial in screen space (beginHUD/endHUD). The current heading
-     * is placed by the inverse of the input projection (colatitude → radius,
-     * azimuth → angle); a line + dot mark it inside the dial boundary, at the
-     * ambient stroke (lines) and fill (dot). SPHERE-only, so non-SPHERE handles
-     * never reach here (display is forced to SCENE).
-     */
-    _drawHud() {
-      const p = this._p;
-      const r = p._renderer;
-      const c = this._constraint;
-      const cx = this._hud.at[0], cy = this._hud.at[1], R = this._hud.size;
-
-      // Current heading → dial position (inverse of _solveFromDial's mapping).
-      c.azEl(_azel);
-      const rho = (Math.PI / 2 - _azel[1]) / Math.PI;
-      const hx = cx + rho * R * Math.cos(_azel[0]);
-      const hy = cy + rho * R * Math.sin(_azel[0]);
-
-      p.beginHUD();
-      // Boundary + centre cross + heading line — stroked (ambient stroke).
-      p.push();
-      p.noFill();
-      r._circle({ x: cx, y: cy, radius: R });
-      const ch = R * 0.12;
-      p.line(cx - ch, cy, cx + ch, cy);
-      p.line(cx, cy - ch, cx, cy + ch);
-      p.line(cx, cy, hx, hy);
-      p.pop();
-      // Heading dot — filled (ambient fill).
-      p.push();
-      p.noStroke();
-      r._circle({ filled: true, x: hx, y: hy, radius: Math.max(3, R * 0.1) });
-      p.pop();
-      p.endHUD();
-    }
-
     /**
      * Current scalar parameter (AXIS only; NaN otherwise).
      * @returns {number}
@@ -887,27 +817,7 @@ export function installHandle(p5, fn) {
     get enabled() { return this._enabled; }
     set enabled(v) {
       this._enabled = !!v;
-      if (!this._enabled) this._grabbed = false;
-    }
-
-    /** Working frame — WORLD, or EYE for a SPHERE handle (the headlight). */
-    get frame() { return this._frame; }
-    set frame(f) {
-      if (f === EYE && this._constraint.kind !== SPHERE) {
-        console.error('[p5.tree] handle: EYE frame is only meaningful for SPHERE; keeping WORLD.');
-        return;
-      }
-      this._frame = (f === EYE) ? EYE : WORLD;
-    }
-
-    /** Display surface — SCENE (3D in-scene) or HUD (a 2D dial; SPHERE-only). */
-    get display() { return this._display; }
-    set display(d) {
-      if (d === p5.Tree.HUD && this._constraint.kind !== SPHERE) {
-        console.error('[p5.tree] handle: HUD display is SPHERE-only; keeping SCENE.');
-        return;
-      }
-      this._display = (d === p5.Tree.HUD) ? p5.Tree.HUD : p5.Tree.SCENE;
+      if (!this._enabled) { this._grabbed = false; this._pid = null; }
     }
 
     // ── Teardown ────────────────────────────────────────────────────────────
@@ -916,9 +826,10 @@ export function installHandle(p5, fn) {
     dispose() {
       const c = this._canvas;
       if (c) {
-        c.removeEventListener('pointerdown', this._onDown);
-        c.removeEventListener('pointermove', this._onMove);
-        c.removeEventListener('pointerup',   this._onUp);
+        c.removeEventListener('pointerdown',   this._onDown);
+        c.removeEventListener('pointermove',   this._onMove);
+        c.removeEventListener('pointerup',     this._onUp);
+        c.removeEventListener('pointercancel', this._onUp);
       }
       this._canvas = null;
       _unregister(this._p, this);
@@ -937,7 +848,7 @@ export function installHandle(p5, fn) {
    * let h
    * function setup() {
    *   createCanvas(720, 480, WEBGL)
-   *   h = createHandle({ constraint: SPHERE, report: DIRECTION, frame: EYE })
+   *   h = createHandle({ constraint: SPHERE, report: DIRECTION })
    * }
    * function draw() {
    *   background(10)
@@ -952,7 +863,6 @@ export function installHandle(p5, fn) {
    * @param {{
    *   constraint: number,
    *   report?:    number,
-   *   frame?:     string,
    *   anchor?:    p5.Vector | number[],
    *   radius?:    number,
    *   axis?:      p5.Vector | number[],
@@ -960,8 +870,6 @@ export function installHandle(p5, fn) {
    *   extent?:    number[],
    *   grabPx?:    number,
    *   enabled?:   boolean,
-   *   display?:   number,
-   *   hud?:       { at?: number[], size?: number },
    *   bind?:      p5.Vector | { get: Function, set: Function },
    *   onGrab?:    Function,
    *   onChange?:  Function,

@@ -35,6 +35,14 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [viewFrustum](#viewfrustum)
     -   [hermite](#hermite)
     -   [trackPath](#trackpath)
+-   [Handles](#handles)
+    -   [Constraints](#constraints)
+    -   [createHandle](#createhandle)
+    -   [Lifecycle](#lifecycle)
+    -   [value](#value)
+    -   [bind](#bind)
+    -   [Draw](#draw)
+    -   [Diagnostics](#diagnostics)
 -   [Releases](#releases)
 -   [Usage](#usage)
     -   [CDN](#cdn)
@@ -991,6 +999,153 @@ trackPath(camTrack, {
 ### samplers
 
 `trackPath` reads the track's path through the zero-alloc samplers exposed by `@nakednous/tree`. The continuous family (`samplePos`, `sampleEye`, `sampleCenter`, `mat4Model`, `mat4Eye`) accepts both cursor and explicit `(seg, t)` forms; tangent samplers (`tangents`, `eyeTangents`, `centerTangents`) are keyframe-indexed. Projection matrices are not a track method — each `CameraTrack` keyframe stores `fov` or `halfHeight` directly on `track.keyframes[i]`, and callers build projections from those scalars with `mat4Persp` / `mat4Ortho`. See the [core README](https://github.com/nakednous/tree#path-sampling).
+
+---
+
+# Handles
+
+A **handle** is a draggable 3D manipulator that reports a value. It is a stateful controller (like a track), created once and driven from `draw()`. Each handle is defined by a **constraint** — how the pointer ray maps to a value — plus an optional **binding** (what the value drives).
+
+```js
+let h
+
+function setup() {
+  createCanvas(720, 480, WEBGL)
+  h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] })
+}
+
+function draw() {
+  background(10)
+  if (!h.update()) orbitControl()   // update() returns grabbed; a grab wins over orbit
+  stroke('cyan')
+  fill('cyan')
+  h.draw()
+  const p = h.value()               // current value — fresh p5.Vector, world space
+}
+```
+
+Runnable examples covering every constraint, world/eye readout via `value({ to })`, the draw bits, and all three `bind` forms live in [`handle-examples/`](handle-examples/).
+
+## Constraints
+
+| `constraint` | DOF | Reports |
+|---|---|---|
+| `p5.Tree.SPHERE` | 2 | `DIRECTION` (unit) or `POINT` (`dir·radius`) |
+| `p5.Tree.PLANE`  | 2 | `POINT` on a fixed plane |
+| `p5.Tree.AXIS`   | 1 | scalar `t` + `POINT` on a line |
+| `p5.Tree.VIEW`   | 2 | `POINT` on a camera-facing plane |
+
+`SPHERE` is a heading on a sphere — a direction, optionally scaled to a point at `radius`. It solves and reports in world; an eye-relative heading (a headlight, fixed as you orbit) is a read-time conversion — `value({ to: EYE })` — not a separate mode (see example 08). `PLANE` and `AXIS` are world translate handles — `AXIS` clamps to `extent` and also reports a signed `scalar()`. `VIEW` is a bridge constraint: a `PLANE` whose normal is re-aimed at the camera each frame, so the point free-translates parallel to the screen at constant depth (three's `DragControls` / a Blender grab); it reports a world position and binds like a `PLANE`.
+
+A fixed `PLANE` is well-conditioned only while it faces the camera — edge-on, a screen pixel maps to a huge step on the plane. `VIEW` sidesteps that by re-aiming every frame.
+
+## createHandle
+
+```js
+const h = createHandle({ constraint: p5.Tree.SPHERE, report: p5.Tree.DIRECTION })
+```
+
+Returns a stateful controller (like `createCameraTrack`), not a draw call. Create it after `createCanvas` — it attaches pointer listeners to the canvas.
+
+| Option | Default | Description |
+|---|---|---|
+| `constraint` | — | `SPHERE` \| `PLANE` \| `AXIS` \| `VIEW` (required). |
+| `report` | per constraint | `POINT` \| `DIRECTION`. |
+| `anchor` | `[0,0,0]` | Constraint origin. `p5.Vector` or `[x,y,z]`. |
+| `radius` | `1` | `SPHERE` radius. |
+| `axis` | `[1,0,0]` | `AXIS` direction. |
+| `normal` | `[0,1,0]` | `PLANE` normal. |
+| `extent` | — | `AXIS` clamp `[min, max]`. |
+| `grabPx` | `12` | Pick-proxy radius in pixels (the grab hit area). |
+| `enabled` | `true` | Gate grab/solve without disposing. |
+| `bind` | — | A `p5.Vector` or `{ get, set }` (a camera needs the chained form — see [bind](#bind)). |
+| `onGrab` / `onChange` / `onRelease` | — | Interaction hooks. |
+
+`enabled` and the hooks are also settable on the controller after construction.
+
+## Lifecycle
+
+Call `update()` **first** in `draw()`. It resolves the grab and re-solves from the pointer, and returns whether the handle is grabbed — so a press that lands on the handle wins, and one that misses falls through to `orbitControl()`:
+
+```js
+function draw() {
+  background(10)
+  if (!h.update()) orbitControl()
+  // ... scene ...
+  h.draw()
+}
+```
+
+A press color-ID picks a proxy at the handle's screen position (via `mousePick`), so only a hit grabs. `onGrab` fires on the grab, `onChange` on each solve while held, `onRelease` on release (firing order mirrors `Track`: your hook, then the lib-space `_on*`). `h.dispose()` removes the listeners; it runs automatically on sketch teardown.
+
+```js
+h.grabbed()          // true between grab and release
+h.enabled = false    // suspend without disposing
+h.anchor([x, y, z])  // move the reference point (chainable)
+```
+
+## value
+
+Pull the current value. Mirrors `mapLocation`: `out` is opt-in (a fresh `p5.Vector` when omitted, zero-alloc when supplied), and the default `to` is `WORLD` — so `h.value()` reads clean; pass `to: EYE` (or any space) to convert at read time.
+
+```js
+h.value()                                   // world (the default)
+h.value({ to: p5.Tree.EYE })                // any space: WORLD, EYE, SCREEN, NDC, MODEL
+h.value({ to: objectMat4 })                 // a model matrix → that object's local coordinates
+h.value({ report: p5.Tree.POINT })          // override POINT / DIRECTION for this read
+h.value({ out: buf })                       // zero-alloc into a Float32Array | p5.Vector
+```
+
+`DIRECTION` routes through `mapDirection`, `POINT` through `mapLocation`, so `to` accepts everything those do — the space constants or a raw mat4 for a custom frame (see [Coordinate space conversions](#coordinate-space-conversions)) — plus the same `mat4Eye` / `mat4Proj` / `mat4View` / `mat4PV` overrides, to resolve against a supplied camera instead of live state.
+
+```js
+h.scalar()       // AXIS — current signed t
+h.azEl(out2?)    // SPHERE — [az, el] for readouts / the dial
+```
+
+## bind
+
+A handle can drive a target while dragging. `bind` is polymorphic, with an accessor floor:
+
+```js
+h.bind(vec)                  // p5.Vector — mutated in place
+h.bind(cam, 'eye')           // p5.Camera lookat field: 'eye' | 'center' | 'up'
+h.bind({ get, set })         // accessor floor — get() → value, set(value) writes
+```
+
+`get()` seeds the constraint on bind (the handle starts at the target), each solve while held calls `set(value)` and fires `onChange`, and `sync()` re-seeds after the target changes externally. Values cross in `WORLD` (the `value()` default). An unrecognised target logs and leaves the handle pull-only.
+
+```js
+h.onChange = (value, h) => { /* reactive readout */ }
+h.sync()                     // re-read the target after an external change
+```
+
+When binding a `p5.Camera` field, drive a camera you are **not** looking through — binding a field of the active camera feeds the view back into the handle that derives from it (true for `eye` and `center` alike). Driving a secondary camera (shown as a `viewFrustum`) is the stable pattern.
+
+## Draw
+
+```js
+h.draw()                                       // default HANDLE | AIM | LOCUS
+h.draw({ bits: p5.Tree.HANDLE })               // dot only
+h.draw({ bits: p5.Tree.HANDLE | p5.Tree.RING, size: 10 })
+h.draw({ marker: null })                       // suppress entirely (parity with trackPath)
+```
+
+| Bit | Effect |
+|---|---|
+| `p5.Tree.HANDLE` | The draggable dot at the handle's point (constant screen size). |
+| `p5.Tree.AIM` | A line from the anchor to the point. |
+| `p5.Tree.LOCUS` | The constraint surface: `SPHERE` wire / `PLANE` quad / `AXIS` segment / `VIEW` square. |
+| `p5.Tree.RING` | `SPHERE` view-facing limb / `PLANE` border. |
+
+Draws at the ambient p5 state, like every gizmo: `stroke()` colours the stroked parts (AIM / LOCUS / RING), `fill()` the dot (HANDLE) — set both for a one-colour handle, or split the call to colour parts independently (the `axes` / `trackPath` idiom). The dot draws at a constant screen size via `pixelRatio`; `size` (dot radius) and `grabPx` are pixels. Default bits: `HANDLE | AIM | LOCUS`.
+
+## Diagnostics
+
+Runtime issues log via `console.error('[p5.tree] …')` and degrade gracefully:
+
+- An invalid `constraint` → `createHandle` returns `null`.
+- An unrecognised `bind` target → left pull-only.
 
 ---
 
