@@ -56,8 +56,8 @@
  * `draw()` renders in SCENE — HANDLE (the dot, constant screen size), AIM
  * (anchor→point line), LOCUS (SPHERE wire / PLANE quad / AXIS segment), RING
  * (SPHERE limb / PLANE border) — bit-selected, default HANDLE | AIM | LOCUS,
- * `marker: null` to suppress, composing gizmo primitives at the ambient (or
- * `opts.color`) stroke.
+ * `marker: null` to suppress, composing gizmo primitives at the ambient p5
+ * stroke (lines) and fill (the dot).
  *
  * `display` chooses the surface and the input path (the SPHERE-only HUD falls
  * back to SCENE elsewhere): SCENE is the 3D pixel→ray path above; HUD is a 2D
@@ -503,12 +503,21 @@ export function installHandle(p5, fn) {
      * Read the current value into a `p5.Vector` (fresh when `out` is omitted,
      * zero-alloc when supplied).
      *
-     * DIRECTION routes through `mapDirection`, POINT through `mapLocation`. The
-     * default `to` is the handle's own frame, so no conversion happens unless a
-     * different space is requested.
+     * DIRECTION routes through `mapDirection`, POINT through `mapLocation`, so
+     * `to` accepts the same spaces those do — `p5.Tree.WORLD` / `EYE` /
+     * `SCREEN` / `NDC` / `MODEL` (string constants), or a raw mat4 frame.
+     * `MODEL` uses the live model matrix; passing a model matrix directly as
+     * `to` reports in that local frame (the idiom cross() / bullsEye() use —
+     * mapLocation takes the model frame as `to`, not as a keyword, so there's
+     * no separate `mat4Model`). The optional
+     * `mat4Eye / mat4Proj / mat4View / mat4PV` resolve the value against a
+     * supplied camera instead of live state (parity with mapLocation). The
+     * default `to` is the handle's own frame, so nothing converts unless asked.
      *
-     * @param {{ to?: string, report?: number,
-     *           out?: Float32Array | number[] | p5.Vector }} [opts]
+     * @param {{ to?: string | Float32Array | number[] | p5.Matrix,
+     *           report?: number,
+     *           out?: Float32Array | number[] | p5.Vector,
+     *           mat4Eye?: *, mat4Proj?: *, mat4View?: *, mat4PV?: * }} [opts]
      * @returns {Float32Array | number[] | p5.Vector}
      */
     value(opts = {}) {
@@ -522,7 +531,13 @@ export function installHandle(p5, fn) {
       if (to === from) {
         return this._emit(opts.out, _v3[0], _v3[1], _v3[2]);
       }
-      const mapOpts = { from, to, out: opts.out };
+      const mapOpts = {
+        from, to, out: opts.out,
+        mat4Eye:  opts.mat4Eye,
+        mat4Proj: opts.mat4Proj,
+        mat4View: opts.mat4View,
+        mat4PV:   opts.mat4PV,
+      };
       return (report === DIRECTION)
         ? this._p.mapDirection(_v3, mapOpts)
         : this._p.mapLocation(_v3, mapOpts);
@@ -644,16 +659,18 @@ export function installHandle(p5, fn) {
      *   LOCUS  — the constraint surface: SPHERE wire | PLANE quad | AXIS segment.
      *   RING   — SPHERE view-facing limb | PLANE border.
      *
-     * `color` overrides the ambient stroke / fill; `size` is the dot radius
-     * in pixels (defaults to grabPx, so the dot fills the hit area). `marker:
-     * null` suppresses the whole draw (parity with trackPath). Chainable.
+     * Draws at the ambient p5 state, like every gizmo: stroke() colours the
+     * stroked parts (AIM / LOCUS / RING), fill() the dot (HANDLE) — set both
+     * for a one-colour handle. `size` is the dot radius in pixels (defaults to
+     * grabPx, so the dot fills the hit area). `marker: null` suppresses the
+     * whole draw (parity with trackPath). Chainable.
      *
-     * @param {{ bits?: number, color?: *, size?: number, marker?: null }} [opts]
+     * @param {{ bits?: number, size?: number, marker?: null }} [opts]
      * @returns {Handle} this
      */
     draw(opts = {}) {
       if ('marker' in opts && opts.marker === null) return this;
-      if (this._display === p5.Tree.HUD) this._drawHud(opts);
+      if (this._display === p5.Tree.HUD) this._drawHud();
       else this._drawScene(opts);
       return this;
     }
@@ -668,7 +685,6 @@ export function installHandle(p5, fn) {
       const bits = Number.isFinite(opts.bits)
         ? opts.bits
         : (p5.Tree.HANDLE | p5.Tree.AIM | p5.Tree.LOCUS);
-      const color  = opts.color;
       const sizePx = Number.isFinite(opts.size) ? opts.size : this._grabPx;
 
       // Handle point (WORLD) and anchor (WORLD) — both frames handled.
@@ -677,8 +693,9 @@ export function installHandle(p5, fn) {
       if (this._frame === EYE) p.mapLocation(a, { from: EYE, to: WORLD, out: _aW });
       else { _aW[0] = a[0]; _aW[1] = a[1]; _aW[2] = a[2]; }
 
+      // Ambient p5 state, like every gizmo: the stroked parts (AIM / LOCUS /
+      // RING) follow stroke(); the dot (HANDLE) follows fill().
       p.push();
-      if (color != null) { p.stroke(color); p.fill(color); }
 
       // LOCUS — the surface of allowed positions.
       if ((bits & p5.Tree.LOCUS) !== 0) {
@@ -796,15 +813,14 @@ export function installHandle(p5, fn) {
     /**
      * Render the 2D dial in screen space (beginHUD/endHUD). The current heading
      * is placed by the inverse of the input projection (colatitude → radius,
-     * azimuth → angle); a line + dot mark it inside the dial boundary. Ambient
-     * (or opts.color) stroke / fill. SPHERE-only, so non-SPHERE handles never
-     * reach here (display is forced to SCENE).
+     * azimuth → angle); a line + dot mark it inside the dial boundary, at the
+     * ambient stroke (lines) and fill (dot). SPHERE-only, so non-SPHERE handles
+     * never reach here (display is forced to SCENE).
      */
-    _drawHud(opts) {
+    _drawHud() {
       const p = this._p;
       const r = p._renderer;
       const c = this._constraint;
-      const color = opts.color;
       const cx = this._hud.at[0], cy = this._hud.at[1], R = this._hud.size;
 
       // Current heading → dial position (inverse of _solveFromDial's mapping).
@@ -814,18 +830,20 @@ export function installHandle(p5, fn) {
       const hy = cy + rho * R * Math.sin(_azel[0]);
 
       p.beginHUD();
-      if (color != null) { p.stroke(color); p.fill(color); }
-      // Dial boundary + centre cross.
+      // Boundary + centre cross + heading line — stroked (ambient stroke).
+      p.push();
       p.noFill();
       r._circle({ x: cx, y: cy, radius: R });
       const ch = R * 0.12;
       p.line(cx - ch, cy, cx + ch, cy);
       p.line(cx, cy - ch, cx, cy + ch);
-      // Heading: a line from the centre + a filled dot.
       p.line(cx, cy, hx, hy);
+      p.pop();
+      // Heading dot — filled (ambient fill).
+      p.push();
       p.noStroke();
-      if (color != null) p.fill(color); else p.fill(255);
       r._circle({ filled: true, x: hx, y: hy, radius: Math.max(3, R * 0.1) });
+      p.pop();
       p.endHUD();
     }
 
