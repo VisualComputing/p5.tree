@@ -1024,7 +1024,7 @@ function draw() {
 }
 ```
 
-Runnable examples covering every constraint, world/eye readout via `value({ to })`, the draw bits, and all three `bind` forms live in [`handle-examples/`](handle-examples/).
+Runnable examples covering every constraint, world/eye readout via `value({ to })`, the draw bits, and all three `bind` forms live in [`handle-examples/`](handle-examples/); the HCI probes that gate the design (dial vs arcball, edge-on, cluster arbitration, multitouch, snap) live in [`handle-experiments/`](handle-experiments/).
 
 ## Constraints
 
@@ -1033,11 +1033,30 @@ Runnable examples covering every constraint, world/eye readout via `value({ to }
 | `p5.Tree.SPHERE` | 2 | `DIRECTION` (unit) or `POINT` (`dir·radius`) |
 | `p5.Tree.PLANE`  | 2 | `POINT` on a fixed plane |
 | `p5.Tree.AXIS`   | 1 | scalar `t` + `POINT` on a line |
+| `p5.Tree.DIAL`   | 1 | accumulated angle `θ` + `POINT` on a circle or `DIRECTION` (radial unit) |
 | `p5.Tree.VIEW`   | 2 | `POINT` on a camera-facing plane |
 
-`SPHERE` is a heading on a sphere — a direction, optionally scaled to a point at `radius`. It solves and reports in world; an eye-relative heading (a headlight, fixed as you orbit) is a read-time conversion — `value({ to: EYE })` — not a separate mode (see example 08). `PLANE` and `AXIS` are world translate handles — `AXIS` clamps to `extent` and also reports a signed `scalar()`. `VIEW` is a bridge constraint: a `PLANE` whose normal is re-aimed at the camera each frame, so the point free-translates parallel to the screen at constant depth (three's `DragControls` / a Blender grab); it reports a world position and binds like a `PLANE`.
+`SPHERE` is a heading on a sphere — a direction, optionally scaled to a point at `radius`. It solves and reports in world; an eye-relative heading (a headlight, fixed as you orbit) is a read-time conversion — `value({ to: EYE })` — not a separate mode (see example 08). `PLANE` and `AXIS` are world translate handles — `AXIS` clamps to `extent` and also reports a signed `scalar()`. `DIAL` is the **rotation handle** — see [Rotation](#rotation--dial). `VIEW` is a bridge constraint: a `PLANE` whose normal is re-aimed at the camera each frame, so the point free-translates parallel to the screen at constant depth (three's `DragControls` / a Blender grab); it reports a world position and binds like a `PLANE`.
 
-A fixed `PLANE` is well-conditioned only while it faces the camera — edge-on, a screen pixel maps to a huge step on the plane. `VIEW` sidesteps that by re-aiming every frame.
+A fixed `PLANE` is well-conditioned only while it faces the camera — edge-on, a screen pixel maps to a huge step on the plane. `VIEW` sidesteps that by re-aiming every frame; `DIAL` solves it with a tangent fallback.
+
+A **custom** constraint — any object with the core contract (`kind`, `solve`, `value`, `seed`, optional `scalar`/`azEl`) — passes straight in as `constraint:`; supply `drawLocus(h, opts)` (and optionally `pickProxy(h, pos, rad)`) so it has a surface and a grab shape. The controller drives everything else — lifecycle, ray, spaces, bind, hooks, pick, router membership. Example [`10-custom-helix`](handle-examples/10-custom-helix.html) is the contract end to end: a screw constraint in ~70 lines plus a 12-line coil.
+
+## Core math on p5.Tree
+
+The bridge surfaces a slice of the core's math directly on the `p5.Tree` namespace — flat, out-first, zero-alloc functions, never wrapper classes. The criterion: a core symbol is surfaced when **p5 has no adequate native equivalent and a sketch-level consumer exists**; where p5 *has* an adequate type, the bridge maps at seams instead (vec3 → `p5.Vector` via `value()`/`mapLocation`; matrices via the matrix seams).
+
+**Quaternions** — flat `[x, y, z, w]` (w-last, glTF layout): `qSet` `qCopy` `qDot` `qNormalize` `qNegate` `qConjugate` `qMul` `qRotateVec3` `qSlerp` `qNlerp` `qFromUnitVectors` `qFromAxisAngle` `qFromLookDir` `qFromRotMat3x3` `qFromMat4` `qToMat4` `qToAxisAngle`. The explicit form is deliberate — `qMul(out, a, b)` reads as the algebra a notebook chapter states above it, and `qToMat4` feeds `applyMatrix(...)` directly. (p5's own `p5.Quat` is `@private` upstream and not a usable surface.)
+
+**Ray primitives + angular utilities** — what a custom constraint's `solve()` is made of: `raySphere` `rayPlane` `rayClosestPointOnAxis` `dirFromAzEl` `azElFromDir`.
+
+```js
+const { qMul, qFromAxisAngle, qToMat4 } = p5.Tree
+const q = [0, 0, 0, 1], dq = [0, 0, 0, 1], m = new Array(16)
+qFromAxisAngle(dq, 0, 1, 0, 0.02)
+qMul(q, dq, q)                 // accumulate — alias-safe, zero-alloc
+applyMatrix(...qToMat4(m, q))
+```
 
 ## createHandle
 
@@ -1049,17 +1068,21 @@ Returns a stateful controller (like `createCameraTrack`), not a draw call. Creat
 
 | Option | Default | Description |
 |---|---|---|
-| `constraint` | — | `SPHERE` \| `PLANE` \| `AXIS` \| `VIEW` (required). |
+| `constraint` | — | `SPHERE` \| `PLANE` \| `AXIS` \| `DIAL` \| `VIEW`, or a contract object (required). |
 | `report` | per constraint | `POINT` \| `DIRECTION`. |
 | `anchor` | `[0,0,0]` | Constraint origin. `p5.Vector` or `[x,y,z]`. |
-| `radius` | `1` | `SPHERE` radius. |
-| `axis` | `[1,0,0]` | `AXIS` direction. |
+| `radius` | `1` | `SPHERE` / `DIAL` radius. |
+| `axis` | `[1,0,0]` / `[0,1,0]` | `AXIS` direction / `DIAL` plane normal. |
 | `normal` | `[0,1,0]` | `PLANE` normal. |
-| `extent` | — | `AXIS` clamp `[min, max]`. |
-| `grabPx` | `12` | Pick-proxy radius in pixels (the grab hit area). |
+| `zero` | derived | `DIAL` θ=0 reference direction (projected onto the plane). |
+| `extent` | — / unbounded | `AXIS` clamp `[min, max]`; `DIAL` θ clamp in radians. |
+| `grabPx` | `12` | Pick-proxy radius in pixels (the grab hit area; the `DIAL` torus tube). |
+| `snap` | `null` | Quantize step — see [Snap / hover / cancel](#snap--hover--cancel). Settable live. |
+| `hover` | `false` | Lone-handle pick-on-move; the router provides hover shared. |
 | `enabled` | `true` | Gate grab/solve without disposing. |
 | `bind` | — | A `p5.Vector` or `{ get, set }` (a camera needs the chained form — see [bind](#bind)). |
-| `onGrab` / `onChange` / `onRelease` | — | Interaction hooks. |
+| `drawLocus` / `pickProxy` | — | Custom-kind seams: locus draw / tagged grab geometry. |
+| `onGrab` / `onChange` / `onRelease` / `onCancel` | — | Interaction hooks. |
 
 `enabled` and the hooks are also settable on the controller after construction.
 
@@ -1076,10 +1099,12 @@ function draw() {
 }
 ```
 
-A press color-ID picks a proxy at the handle's screen position (via `mousePick`), so only a hit grabs. `onGrab` fires on the grab, `onChange` on each solve while held, `onRelease` on release (firing order mirrors `Track`: your hook, then the lib-space `_on*`). `h.dispose()` removes the listeners; it runs automatically on sketch teardown.
+A press color-ID picks a proxy at the handle's screen position (via `mousePick`), so only a hit grabs — the dot for most kinds, a torus along the ring for a `DIAL`. `onGrab` fires on the grab, `onChange` on each solve while held (post-snap), `onRelease` on release — and `onCancel` *instead of* `onRelease` when the drag is reverted (firing order mirrors `Track`: your hook, then the lib-space `_on*`). `h.dispose()` removes the listeners; it runs automatically on sketch teardown.
 
 ```js
 h.grabbed()          // true between grab and release
+h.hovered()          // true while the pointer rests on the proxy (opt-in / router-fed)
+h.cancel()           // revert the drag in flight (Esc and pointercancel do this too)
 h.enabled = false    // suspend without disposing
 h.anchor([x, y, z])  // move the reference point (chainable)
 ```
@@ -1099,7 +1124,7 @@ h.value({ out: buf })                       // zero-alloc into a Float32Array | 
 `DIRECTION` routes through `mapDirection`, `POINT` through `mapLocation`, so `to` accepts everything those do — the space constants or a raw mat4 for a custom frame (see [Coordinate space conversions](#coordinate-space-conversions)) — plus the same `mat4Eye` / `mat4Proj` / `mat4View` / `mat4PV` overrides, to resolve against a supplied camera instead of live state.
 
 ```js
-h.scalar()       // AXIS — current signed t
+h.scalar()       // AXIS — current signed t · DIAL — accumulated θ in radians (multi-turn)
 h.azEl(out2?)    // SPHERE — [az, el] for readouts / the dial
 ```
 
@@ -1122,6 +1147,53 @@ h.sync()                     // re-read the target after an external change
 
 When binding a `p5.Camera` field, drive a camera you are **not** looking through — binding a field of the active camera feeds the view back into the handle that derives from it (true for `eye` and `center` alike). Driving a secondary camera (shown as a `viewFrustum`) is the stable pattern.
 
+## Rotation — DIAL
+
+```js
+const h = createHandle({
+  constraint: p5.Tree.DIAL,
+  axis:   [0, 1, 0],          // dial-plane normal; θ winds right-handed about it
+  zero:   [1, 0, 0],          // where θ = 0 points (derived from the axis if omitted)
+  radius: 150,
+})
+// draw(): rotateY(h.scalar())   — the accumulated angle, in radians
+```
+
+A `DIAL` is a 1-DOF angle on a circle — the rotate-gizmo ring. Grab **anywhere on the ring** (the pick proxy is a torus along it, tube = `grabPx`), drag around it, and `scalar()` reports the **accumulated** θ: keep going past a full turn and it counts 360°, 720°, … (clamp with `extent`, in radians — unbounded by default). `value()` is the point on the circle (`POINT`, the default — so binding a vector tracks the ring point, handy for aim targets) or the radial unit (`DIRECTION`).
+
+Viewed edge-on — the ring seen as a line, where naive rotate gizmos teleport — the solve switches to the circle's tangent line, so the drag stays bounded and monotone at any incidence. Example [`09-dial-angle`](handle-examples/09-dial-angle.html) is the anatomy; [`handle-experiments/e2`](handle-experiments/e2-edge-on-dial.html) is the torture test.
+
+An arcball is deliberately **not** a kind — it composes from `SPHERE` deltas in a dozen sketch lines ([`handle-experiments/e1`](handle-experiments/e1-dial-vs-arcball.html)).
+
+## Snap / hover / cancel
+
+**Snap** quantizes at the solve seam — the binding and `onChange` only ever see snapped values, and the state IS the snapped state (no release drift). `snap` is a step: angular (radians) for `SPHERE` az/el and `DIAL` θ; a world grid (`number` uniform or `[x,y,z]`) for `PLANE` / `AXIS` / `VIEW` (`PLANE` re-projects, so an off-plane grid lands on the nearest on-plane point). It's settable live — the Blender Ctrl convention is two lines:
+
+```js
+h.snap = keyIsDown(CONTROL) ? 25 : null          // grid, world units
+dial.snap = keyIsDown(CONTROL) ? PI / 12 : null  // 15°
+```
+
+**Hover** is a state, not a style: `hovered()` reads true while the pointer rests on the proxy, and the sketch styles it (set `stroke()` before `draw()` — same philosophy as `grabbed()`). Routed handles get it free from the router's shared pick; a lone handle opts in with `hover: true` (one 1×1 readback per frame with pointer motion).
+
+**Cancel** reverts the drag in flight to its grab-time value — exact θ winding included — restores the binding, and fires `onCancel` (`onRelease` does **not** fire). Esc and `pointercancel` trigger it; `h.cancel()` does it programmatically. The commit-on-release undo pattern composes cleanly: capture in `onGrab`, push in `onRelease`, drop in `onCancel`.
+
+## Overlapping handles — createPointerRouter
+
+Independent, separated handles need no coordination — a plain loop runs them, one finger each. **Overlapping** handles (a clustered TRS gizmo: axes + a dial + a `VIEW` stacked at one origin) break per-handle picking — two proxies under one press each see only themselves and both grab. The router replaces N self-picks with **one depth-resolved pick** across all member proxies: every proxy renders with its own id, the nearest wins, exactly one handle grabs.
+
+```js
+const r = createPointerRouter(hx, hy, hz, dial, view)   // hover on by default
+
+function draw() {
+  background(10)
+  if (!r.update()) orbitControl()    // in place of the members' own updates
+  // style the hovered member, draw all
+}
+```
+
+`r.update()` resolves every queued press (several same-frame presses on different members all land), refreshes shared hover (one extra pick per moved frame; `{ hover: false }` opts out), then delegates to each member's `update()`, returning whether any is grabbed. `r.hovered()` is the member under the pointer; `add(h)` / `remove(h)` re-route live; `dispose()` releases everything (and runs on sketch teardown). Unclaimed pointers fall through to the camera gesture — on a touch surface each member still tracks its own finger, so two fingers drive two cluster members concurrently while a third orbits ([`handle-experiments/e4`](handle-experiments/e4-tabletop-multitouch.html)).
+
 ## Draw
 
 ```js
@@ -1134,8 +1206,8 @@ h.draw({ marker: null })                       // suppress entirely (parity with
 | Bit | Effect |
 |---|---|
 | `p5.Tree.HANDLE` | The draggable dot at the handle's point (constant screen size). |
-| `p5.Tree.AIM` | A line from the anchor to the point. |
-| `p5.Tree.LOCUS` | The constraint surface: `SPHERE` wire / `PLANE` quad / `AXIS` segment / `VIEW` square. |
+| `p5.Tree.AIM` | A line from the anchor to the point (a `DIAL`'s radial spoke). |
+| `p5.Tree.LOCUS` | The constraint surface: `SPHERE` wire / `PLANE` quad / `AXIS` segment / `DIAL` ring / `VIEW` square — or a custom kind's `drawLocus`. |
 | `p5.Tree.RING` | `SPHERE` view-facing limb / `PLANE` border. |
 
 Draws at the ambient p5 state, like every gizmo: `stroke()` colours the stroked parts (AIM / LOCUS / RING), `fill()` the dot (HANDLE) — set both for a one-colour handle, or split the call to colour parts independently (the `axes` / `trackPath` idiom). The dot draws at a constant screen size via `pixelRatio`; `size` (dot radius) and `grabPx` are pixels. Default bits: `HANDLE | AIM | LOCUS`.
@@ -1146,6 +1218,7 @@ Runtime issues log via `console.error('[p5.tree] …')` and degrade gracefully:
 
 - An invalid `constraint` → `createHandle` returns `null`.
 - An unrecognised `bind` target → left pull-only.
+- A custom kind without `drawLocus` → dot + aim only, one warning.
 
 ---
 
