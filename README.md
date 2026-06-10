@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/p5.tree?color=1f6feb)](https://www.npmjs.com/package/p5.tree)
 
-Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera interpolation](https://en.wikipedia.org/wiki/Key_frame), [space transforms](https://wikis.khronos.org/opengl/Rendering_Pipeline_Overview), [frustum visibility](https://en.wikipedia.org/wiki/Hidden-surface_determination), [HUD](https://en.wikipedia.org/wiki/Head-up_display), [post-processing pipe](https://en.wikipedia.org/wiki/Video_post-processing#Uses_in_3D_rendering), [picking](https://webglfundamentals.org/webgl/lessons/webgl-picking.html), and [declarative control panels](https://github.com/dataarts/dat.gui).
+Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera interpolation](https://en.wikipedia.org/wiki/Key_frame), [space transforms](https://wikis.khronos.org/opengl/Rendering_Pipeline_Overview), [frustum visibility](https://en.wikipedia.org/wiki/Hidden-surface_determination), [HUD](https://en.wikipedia.org/wiki/Head-up_display), [post-processing pipe](https://en.wikipedia.org/wiki/Video_post-processing#Uses_in_3D_rendering), [picking](https://webglfundamentals.org/webgl/lessons/webgl-picking.html), [interactive 3D handles](https://en.wikipedia.org/wiki/3D_user_interaction), and [declarative control panels](https://github.com/dataarts/dat.gui).
 
 ![A non-Euclidean geometry cube with faces showcasing teapot, bunny, and Buddha models.](p5.tree.png)
 
@@ -37,10 +37,14 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [trackPath](#trackpath)
 -   [Handles](#handles)
     -   [Constraints](#constraints)
+    -   [Core math on p5.Tree](#core-math-on-p5tree)
     -   [createHandle](#createhandle)
     -   [Lifecycle](#lifecycle)
     -   [value](#value)
     -   [bind](#bind)
+    -   [Rotation — DIAL](#rotation--dial)
+    -   [Snap / hover / cancel](#snap--hover--cancel)
+    -   [Overlapping handles — createPointerRouter](#overlapping-handles--createpointerrouter)
     -   [Draw](#draw)
     -   [Diagnostics](#diagnostics)
 -   [Releases](#releases)
@@ -636,7 +640,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.45'
+p5.Tree.VERSION   // '0.0.46'
 ```
 
 ## Shader helpers
@@ -1024,8 +1028,6 @@ function draw() {
 }
 ```
 
-Runnable examples covering every constraint, world/eye readout via `value({ to })`, the draw bits, and all three `bind` forms live in [`handle-examples/`](handle-examples/); the HCI probes that gate the design (dial vs arcball, edge-on, cluster arbitration, multitouch, snap) live in [`handle-experiments/`](handle-experiments/).
-
 ## Constraints
 
 | `constraint` | DOF | Reports |
@@ -1036,11 +1038,11 @@ Runnable examples covering every constraint, world/eye readout via `value({ to }
 | `p5.Tree.DIAL`   | 1 | accumulated angle `θ` + `POINT` on a circle or `DIRECTION` (radial unit) |
 | `p5.Tree.VIEW`   | 2 | `POINT` on a camera-facing plane |
 
-`SPHERE` is a heading on a sphere — a direction, optionally scaled to a point at `radius`. It solves and reports in world; an eye-relative heading (a headlight, fixed as you orbit) is a read-time conversion — `value({ to: EYE })` — not a separate mode (see example 08). `PLANE` and `AXIS` are world translate handles — `AXIS` clamps to `extent` and also reports a signed `scalar()`. `DIAL` is the **rotation handle** — see [Rotation](#rotation--dial). `VIEW` is a bridge constraint: a `PLANE` whose normal is re-aimed at the camera each frame, so the point free-translates parallel to the screen at constant depth (three's `DragControls` / a Blender grab); it reports a world position and binds like a `PLANE`.
+`SPHERE` is a heading on a sphere — a direction, optionally scaled to a point at `radius`. It solves and reports in world; an eye-relative heading (a headlight, fixed as you orbit) is a read-time conversion — `value({ to: EYE })` — not a separate mode. `PLANE` and `AXIS` are world translate handles — `AXIS` clamps to `extent` and also reports a signed `scalar()`. `DIAL` is the **rotation handle** — see [Rotation](#rotation--dial). `VIEW` is a bridge constraint: a `PLANE` whose normal is re-aimed at the camera each frame, so the point free-translates parallel to the screen at constant depth (three's `DragControls` / a Blender grab); it reports a world position and binds like a `PLANE`.
 
 A fixed `PLANE` is well-conditioned only while it faces the camera — edge-on, a screen pixel maps to a huge step on the plane. `VIEW` sidesteps that by re-aiming every frame; `DIAL` solves it with a tangent fallback.
 
-A **custom** constraint — any object with the core contract (`kind`, `solve`, `value`, `seed`, optional `scalar`/`azEl`) — passes straight in as `constraint:`; supply `drawLocus(h, opts)` (and optionally `pickProxy(h, pos, rad)`) so it has a surface and a grab shape. The controller drives everything else — lifecycle, ray, spaces, bind, hooks, pick, router membership. Example [`10-custom-helix`](handle-examples/10-custom-helix.html) is the contract end to end: a screw constraint in ~70 lines plus a 12-line coil.
+A **custom** constraint — any object with the core contract (`kind`, `solve`, `value`, `seed`, optional `scalar`/`azEl`) — passes straight in as `constraint:`; supply `drawLocus(h, opts)` (and optionally `pickProxy(h, pos, rad)`) so it has a surface and a grab shape. The controller drives everything else — lifecycle, ray, spaces, bind, hooks, pick, router membership.
 
 ## Core math on p5.Tree
 
@@ -1161,9 +1163,9 @@ const h = createHandle({
 
 A `DIAL` is a 1-DOF angle on a circle — the rotate-gizmo ring. Grab **anywhere on the ring** (the pick proxy is a torus along it, tube = `grabPx`), drag around it, and `scalar()` reports the **accumulated** θ: keep going past a full turn and it counts 360°, 720°, … (clamp with `extent`, in radians — unbounded by default). `value()` is the point on the circle (`POINT`, the default — so binding a vector tracks the ring point, handy for aim targets) or the radial unit (`DIRECTION`).
 
-Viewed edge-on — the ring seen as a line, where naive rotate gizmos teleport — the solve switches to the circle's tangent line, so the drag stays bounded and monotone at any incidence. Example [`09-dial-angle`](handle-examples/09-dial-angle.html) is the anatomy; [`handle-experiments/e2`](handle-experiments/e2-edge-on-dial.html) is the torture test.
+Viewed edge-on — the ring seen as a line, where naive rotate gizmos teleport — the solve switches to the circle's tangent line, so the drag stays bounded and monotone at any incidence.
 
-An arcball is deliberately **not** a kind — it composes from `SPHERE` deltas in a dozen sketch lines ([`handle-experiments/e1`](handle-experiments/e1-dial-vs-arcball.html)).
+An arcball is deliberately **not** a kind — it composes from `SPHERE` deltas in a dozen sketch lines, using the `qFromUnitVectors` / `qMul` accumulate idiom from [Core math on p5.Tree](#core-math-on-p5tree).
 
 ## Snap / hover / cancel
 
@@ -1192,7 +1194,7 @@ function draw() {
 }
 ```
 
-`r.update()` resolves every queued press (several same-frame presses on different members all land), refreshes shared hover (one extra pick per moved frame; `{ hover: false }` opts out), then delegates to each member's `update()`, returning whether any is grabbed. `r.hovered()` is the member under the pointer; `add(h)` / `remove(h)` re-route live; `dispose()` releases everything (and runs on sketch teardown). Unclaimed pointers fall through to the camera gesture — on a touch surface each member still tracks its own finger, so two fingers drive two cluster members concurrently while a third orbits ([`handle-experiments/e4`](handle-experiments/e4-tabletop-multitouch.html)).
+`r.update()` resolves every queued press (several same-frame presses on different members all land), refreshes shared hover (one extra pick per moved frame; `{ hover: false }` opts out), then delegates to each member's `update()`, returning whether any is grabbed. `r.hovered()` is the member under the pointer; `add(h)` / `remove(h)` re-route live; `dispose()` releases everything (and runs on sketch teardown). Unclaimed pointers fall through to the camera gesture — on a touch surface each member still tracks its own finger, so two fingers drive two cluster members concurrently while a third orbits.
 
 ## Draw
 
@@ -1233,9 +1235,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.45/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.45/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.45/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.45/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.45/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.45/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.esm.js)
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "p5.tree",
-  "version": "0.0.45",
-  "description": "Render pipeline for p5.js v2 — pose and camera interpolation, space transforms, frustum visibility, HUD, post-processing pipe, picking, and declarative control panels.",
+  "version": "0.0.46",
+  "description": "Render pipeline for p5.js v2 — pose and camera interpolation, space transforms, frustum visibility, HUD, post-processing pipe, picking, interactive 3D handles, and declarative control panels.",
   "type": "module",
   "main": "dist/p5.tree.esm.js",
   "module": "dist/p5.tree.esm.js",
@@ -34,7 +34,10 @@
     "spaces",
     "camera",
     "keyframes",
-    "geometry"
+    "geometry",
+    "gizmo",
+    "manipulator",
+    "quaternion"
   ],
   "author": "Jean Pierre Charalambos <nakednous@gmail.com>",
   "license": "AGPL-3.0-only",
@@ -42,7 +45,7 @@
     "p5": "^2.3.0"
   },
   "dependencies": {
-    "@nakednous/tree": "^0.0.23",
+    "@nakednous/tree": "^0.0.24",
     "@nakednous/ui": "^0.0.10"
   },
   "devDependencies": {
