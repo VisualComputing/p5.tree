@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.46'),
+    VERSION: CONST('0.0.47'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)

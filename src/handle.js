@@ -63,6 +63,20 @@
  * `h.cancel()` programmatically; the binding is restored and `onCancel` fires
  * (release does NOT fire). Mirrors three's `reset()` / Blender's modal cancel.
  *
+ * ── Deferred constraint frame (`from`) ──────────────────────────────────────
+ * The basis opts (`axis` / `normal` / `zero`) are symbolic — "Y, but whose
+ * Y?". `from` names the space they resolve FROM into WORLD: it is literally
+ * `mapDirection`'s `from`, deferred. Resolution (one mapDirection per vector
+ * + a core `aim()`) re-runs each idle frame — so the locus and pick proxy
+ * track a turning frame live — and is implicitly frozen at grab: the basis
+ * never changes mid-drag (snapshot-at-press, well-posed under camera motion).
+ * Directions only; the anchor stays a world location (anchor() moves it when
+ * the frame carries the origin too). WORLD / absent skips it all — identical
+ * to a from-less handle. SPHERE has no basis and VIEW re-aims continuously by
+ * design (a deliberately DIFFERENT semantics from PLANE + from: EYE, which
+ * freezes the plane at press); both reject `from`. A custom kind participates
+ * iff it exposes aim() (§9, optional member).
+ *
  * ── Multitouch: per-pointer capture (A) and the router (B) ──────────────────
  * The whole gesture keys to one pointerId (see update()), and the pick + solve
  * read that pointer's own coords — so on a shared surface each handle tracks
@@ -275,6 +289,45 @@ export function installHandle(p5, fn) {
       this._proxyFn     = typeof opts.pickProxy === 'function' ? opts.pickProxy : null;
       this._warnedLocus = false;
 
+      // Deferred constraint frame (see header / handle-design.md §4.13).
+      // Symbolic basis copies live here; _resolveFrame() maps them into WORLD
+      // and re-aims the core constraint.
+      this._from     = null;
+      this._fromDir  = null;
+      this._fromZero = null;
+      if (opts.from != null && opts.from !== WORLD) {
+        const custom = _isConstraint(kind);
+        const dirOpt = (kind === PLANE) ? opts.normal : (opts.axis ?? opts.normal);
+        const ok = !this._view &&
+                   (kind === PLANE || kind === AXIS || kind === DIAL ||
+                    (custom && typeof this._constraint.aim === 'function'));
+        if (!ok) {
+          console.error('[p5.tree] createHandle: `from` needs an aimable constraint — PLANE, AXIS, DIAL, or a custom kind exposing aim(); ignoring.');
+        } else if (custom && dirOpt == null) {
+          console.error('[p5.tree] createHandle: `from` on a custom kind needs a symbolic `axis` (or `normal`) to resolve; ignoring.');
+        } else {
+          this._from = opts.from;
+          this._fromDir = [
+            _vx(dirOpt, 0, kind === AXIS ? 1 : 0),
+            _vx(dirOpt, 1, kind === AXIS ? 0 : 1),
+            _vx(dirOpt, 2, 0),
+          ];
+          if (opts.zero != null) {
+            this._fromZero = [_vx(opts.zero, 0, 1), _vx(opts.zero, 1, 0), _vx(opts.zero, 2, 0)];
+          } else if (kind === DIAL) {
+            // Derive the θ=0 reference ONCE, in the FROM space, so axis and
+            // zero co-rotate under the frame — re-deriving per resolve from
+            // the resolved axis alone can flip across the least-aligned-axis
+            // branch (a visible θ jump while the frame turns).
+            _b2[0] = this._fromDir[0]; _b2[1] = this._fromDir[1]; _b2[2] = this._fromDir[2];
+            _norm3(_b2);
+            const r0 = [0, 0, 0], r1 = [0, 0, 0];
+            _basisFromNormal(_b2, r0, r1);
+            this._fromZero = r0;
+          }
+        }
+      }
+
       // Runtime gate — false suspends grab/solve without disposing listeners.
       this._enabled = opts.enabled !== false;
 
@@ -442,6 +495,10 @@ export function installHandle(p5, fn) {
         this._pid = null;
         return false;
       }
+      // Deferred frame: refresh the basis while idle so the locus / proxy /
+      // pick track the FROM space live; a grab freezes it for the gesture
+      // (snapshot-at-press — the drag solves a stationary constraint).
+      if (this._from && !this._grabbed) this._resolveFrame();
       // Fresh press → color-ID hit-test at OUR pointer's pixel; grab only on a
       // hit. A miss frees _pid, so the next press — or, on a multitouch surface,
       // another finger — can be adopted. (Routed handles never get here; the
@@ -564,6 +621,22 @@ export function installHandle(p5, fn) {
 
     // ── Grab (color-ID pick) ────────────────────────────────────────────────
 
+    // Resolve the symbolic FROM-space basis into WORLD and re-aim the core
+    // constraint — one mapDirection per vector. Refreshed at every idle
+    // CONSUMPTION site — update() (the self-pick), _proxyPrep (the routed
+    // pick), and _drawScene (the visuals, post-orbit) — and never mid-drag.
+    // The grab needs no extra call: both pick paths resolve before _beginGrab.
+    _resolveFrame() {
+      const p = this._p;
+      p.mapDirection(this._fromDir, { from: this._from, to: WORLD, out: _b2 });
+      if (this._fromZero) {
+        p.mapDirection(this._fromZero, { from: this._from, to: WORLD, out: _b0 });
+        this._constraint.aim(_b2[0], _b2[1], _b2[2], _b0[0], _b0[1], _b0[2]);
+      } else {
+        this._constraint.aim(_b2[0], _b2[1], _b2[2]);
+      }
+    }
+
     // Prep the pick proxy against the LIVE projection: world position + the
     // world radius of a constant `grabPx` screen size. Must run BEFORE
     // colorPick, which installs a narrowed 1×1 pick projection (pixelRatio
@@ -572,6 +645,9 @@ export function installHandle(p5, fn) {
     _proxyPrep() {
       const p = this._p;
       const c = this._constraint;
+      // Routed members are prepped before their update() runs — refresh the
+      // deferred frame here too so the shared pick sees a live basis.
+      if (this._from && !this._grabbed) this._resolveFrame();
       if (c.kind === DIAL && !this._view) {
         // DIAL grabs anywhere on the ring: the proxy is a torus at the anchor;
         // the prepped radius is the constant-px TUBE radius.
@@ -804,6 +880,9 @@ export function installHandle(p5, fn) {
         return this;
       }
       this._binder = binder;
+      // Resolve a deferred frame before seeding, so the seed projects onto
+      // the live basis (bind can run before the first update()).
+      if (this._from && !this._grabbed) this._resolveFrame();
       this._seedFromBinding();
       return this;
     }
@@ -893,6 +972,10 @@ export function installHandle(p5, fn) {
     _drawScene(opts) {
       const p = this._p;
       const c = this._constraint;
+      // Deferred frame: draw runs AFTER orbitControl moved the camera, so
+      // re-resolve here — an EYE / moving-frame basis renders against the live
+      // state, not update()'s pre-orbit snapshot. Idle only; a grab freezes it.
+      if (this._from && !this._grabbed) this._resolveFrame();
       const bits = Number.isFinite(opts.bits)
         ? opts.bits
         : (p5.Tree.HANDLE | p5.Tree.AIM | p5.Tree.LOCUS);
@@ -1333,6 +1416,7 @@ export function installHandle(p5, fn) {
    *   axis?:      p5.Vector | number[],
    *   normal?:    p5.Vector | number[],
    *   zero?:      p5.Vector | number[],
+   *   from?:      *,
    *   extent?:    number[],
    *   grabPx?:    number,
    *   snap?:      number | number[],

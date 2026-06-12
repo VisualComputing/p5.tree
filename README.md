@@ -43,6 +43,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [value](#value)
     -   [bind](#bind)
     -   [Rotation — DIAL](#rotation--dial)
+    -   [Constraint frame — from](#constraint-frame--from)
     -   [Snap / hover / cancel](#snap--hover--cancel)
     -   [Overlapping handles — createPointerRouter](#overlapping-handles--createpointerrouter)
     -   [Draw](#draw)
@@ -640,7 +641,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.46'
+p5.Tree.VERSION   // '0.0.47'
 ```
 
 ## Shader helpers
@@ -1077,6 +1078,7 @@ Returns a stateful controller (like `createCameraTrack`), not a draw call. Creat
 | `axis` | `[1,0,0]` / `[0,1,0]` | `AXIS` direction / `DIAL` plane normal. |
 | `normal` | `[0,1,0]` | `PLANE` normal. |
 | `zero` | derived | `DIAL` θ=0 reference direction (projected onto the plane). |
+| `from` | `WORLD` | Space the symbolic `axis` / `normal` / `zero` resolve from — `WORLD` \| `EYE` \| a mat4 frame. See [Constraint frame — from](#constraint-frame--from). |
 | `extent` | — / unbounded | `AXIS` clamp `[min, max]`; `DIAL` θ clamp in radians. |
 | `grabPx` | `12` | Pick-proxy radius in pixels (the grab hit area; the `DIAL` torus tube). |
 | `snap` | `null` | Quantize step — see [Snap / hover / cancel](#snap--hover--cancel). Settable live. |
@@ -1167,6 +1169,37 @@ Viewed edge-on — the ring seen as a line, where naive rotate gizmos teleport �
 
 An arcball is deliberately **not** a kind — it composes from `SPHERE` deltas in a dozen sketch lines, using the `qFromUnitVectors` / `qMul` accumulate idiom from [Core math on p5.Tree](#core-math-on-p5tree).
 
+## Constraint frame — from
+
+The basis opts are symbolic — `axis: [0, 1, 0]` means "Y, but whose Y?". `from`
+names the space they resolve from (it is `mapDirection`'s `from`, deferred):
+`p5.Tree.WORLD` (the default — a from-less handle, today's behaviour),
+`p5.Tree.EYE` (the camera's basis), or any mat4 frame (another object's basis).
+
+```js
+createHandle({ constraint: p5.Tree.DIAL, radius: 80, from: p5.Tree.EYE })          // screen-space rotation ring
+createHandle({ constraint: p5.Tree.AXIS, axis: [1, 0, 0], from: p5.Tree.EYE })     // screen-horizontal rail
+createHandle({ constraint: p5.Tree.DIAL, axis: [0, 1, 0], from: frameM })          // hinge on another object's axis
+```
+
+One authoring caveat: an `AXIS` nearly parallel to the view ray (`axis:
+[0, 0, 1], from: EYE` — a "dolly") is foreshortened to a single screen point
+and the drag solve degenerates — a draggable rail should live roughly in the
+screen plane; depth input belongs to the wheel.
+
+Resolution happens at the **press**: one `mapDirection` per vector, then the
+drag solves against that frozen world basis — well-posed even while the camera
+moves. While idle the basis refreshes every frame, so the locus and the grab
+proxy track a turning frame live. Directions only — the anchor stays a world
+location (move it with `anchor()` when the frame carries the origin too).
+
+`from` applies to `PLANE` / `AXIS` / `DIAL`, and to custom kinds exposing the
+optional `aim()` contract member. `SPHERE` has no basis and rejects it. `VIEW`
+is *deliberately* not `PLANE` + `from: EYE`: `VIEW` re-aims its plane
+continuously mid-drag (the standard screen-parallel translate), while
+`from: EYE` freezes the plane at the press — two distinct, both useful,
+semantics.
+
 ## Snap / hover / cancel
 
 **Snap** quantizes at the solve seam — the binding and `onChange` only ever see snapped values, and the state IS the snapped state (no release drift). `snap` is a step: angular (radians) for `SPHERE` az/el and `DIAL` θ; a world grid (`number` uniform or `[x,y,z]`) for `PLANE` / `AXIS` / `VIEW` (`PLANE` re-projects, so an off-plane grid lands on the nearest on-plane point). It's settable live — the Blender Ctrl convention is two lines:
@@ -1235,9 +1268,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.46/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.47/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.47/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.47/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.47/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.47/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.47/dist/p5.tree.esm.js)
 
 ---
 
