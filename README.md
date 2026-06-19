@@ -1049,7 +1049,7 @@ A **custom** constraint — any object with the core contract (`kind`, `solve`, 
 
 The bridge surfaces a slice of the core's math directly on the `p5.Tree` namespace — flat, out-first, zero-alloc functions, never wrapper classes. The criterion: a core symbol is surfaced when **p5 has no adequate native equivalent and a sketch-level consumer exists**; where p5 *has* an adequate type, the bridge maps at seams instead (vec3 → `p5.Vector` via `value()`/`mapLocation`; matrices via the matrix seams).
 
-**Quaternions** — flat `[x, y, z, w]` (w-last, glTF layout): `qSet` `qCopy` `qDot` `qNormalize` `qNegate` `qConjugate` `qMul` `qRotateVec3` `qSlerp` `qNlerp` `qFromUnitVectors` `qFromAxisAngle` `qFromLookDir` `qFromRotMat3x3` `qFromMat4` `qToMat4` `qToAxisAngle`. The explicit form is deliberate — `qMul(out, a, b)` reads as the algebra a notebook chapter states above it, and `qToMat4` feeds `applyMatrix(...)` directly. (p5's own `p5.Quat` is `@private` upstream and not a usable surface.)
+**Quaternions** — flat `[x, y, z, w]` (w-last, glTF layout): `qSet` `qCopy` `qDot` `qNormalize` `qNegate` `qConjugate` `qMul` `qRotateVec3` `qSlerp` `qNlerp` `qFromUnitVectors` `qFromAxisAngle` `qFromLookDir` `qFromRotMat3x3` `qFromMat4` `qToMat4` `qToAxisAngle`. The explicit form is deliberate — `qMul(out, a, b)` reads as the algebra it implements, and `qToMat4` feeds `applyMatrix(...)` directly. (p5's own `p5.Quat` is `@private` upstream and not a usable surface.)
 
 **Ray primitives + angular utilities** — what a custom constraint's `solve()` is made of: `raySphere` `rayPlane` `rayClosestPointOnAxis` `dirFromAzEl` `azElFromDir`.
 
