@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.47'),
+    VERSION: CONST('0.0.48'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)
@@ -76,6 +76,10 @@ export function installConstants(p5) {
     TANGENTS_IN:  CONST(1 << 3),   // incoming tangent arrows at keyframes of the target path
     TANGENTS_OUT: CONST(1 << 4),   // outgoing tangent arrows at keyframes of the target path
     TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
+
+    // helmAxes bits — a PoseHelm's DOF profile + live activity (gizmo-local).
+    TRANSLATE: CONST(1 << 0),   // three translation arrows (Tx / Ty / Tz)
+    ROTATE:    CONST(1 << 1),   // three rotation rings (pitch / yaw / roll)
 
     // handle — constraint kinds (core SPHERE/PLANE/AXIS/DIAL + bridge VIEW)
     // and report modes. VIEW is a camera-facing PLANE, reported as a world

@@ -18,6 +18,7 @@ import { installTrack, tickPlayers, clearPlayers } from './track.js';
 import { installPipe } from './pipe.js';
 import { installPanel } from './panel.js';
 import { installHandle, disposeHandles } from './handle.js';
+import { installHelm } from './helm.js';
 
 p5.registerAddon((p5, fn, lifecycles) => {
 
@@ -50,6 +51,9 @@ p5.registerAddon((p5, fn, lifecycles) => {
 
   // §10 — Handle (interactive manipulators: createHandle)
   installHandle(p5, fn);
+
+  // §11 — Helm (live 6-DOF rate stream: createCameraHelm / createPoseHelm)
+  installHelm(p5, fn);
 
   // ── Lifecycle hooks ────────────────────────────────────────────────
 
