@@ -98,6 +98,23 @@ const _HELM_RGB = [[255, 0, 0], [0, 255, 0], [30, 144, 255]];
 
 const _rawMat4 = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
 
+// HUD-rig viewing angle. The FBO overload frames the rig through its own ortho
+// camera; `tilt` is that camera's elevation above the rig's horizontal, with the
+// azimuth fixed at the isometric 45° so X and Z stay symmetric and all three
+// axes read. Default is true isometric. A user-supplied `tilt` honours angleMode
+// (p5 v2 default RADIANS); the iso default is intrinsic, not converted.
+const _AZ_ISO = Math.PI / 4;                  // 45° — iso azimuth (one knob controls the look)
+const _EL_ISO = Math.atan(1 / Math.SQRT2);    // 35.264° — true isometric elevation (the default)
+
+// (p, tilt) → [azimuth, elevation] in radians. tilt omitted → iso; a scalar is
+// the elevation (azimuth stays iso); [az, el] sets both.
+function _rigAzEl(p, tilt) {
+  if (tilt == null) return [_AZ_ISO, _EL_ISO];
+  const rad = (a) => (p.angleMode && p.angleMode() === p.DEGREES) ? a * Math.PI / 180 : a;
+  if (Array.isArray(tilt)) return [rad(tilt[0]), rad(tilt[1])];
+  return [_AZ_ISO, rad(tilt)];
+}
+
 // ── Helpers (camera-aware, but core-agnostic) ───────────────────────────────
 
 // Apply the opts a factory accepts onto a fresh helm. Profile / deadzone are
@@ -340,7 +357,11 @@ export function installHelm(p5, fn) {
     };
     registerPlayer(pInst, player);
 
-    helm.dispose = function () { unregisterPlayer(pInst, player); return helm; };
+    helm.dispose = function () {
+      unregisterPlayer(pInst, player);
+      if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') { helm._rigFbo.remove(); helm._rigFbo = null; }
+      return helm;
+    };
     return helm;
   };
 
@@ -449,7 +470,11 @@ export function installHelm(p5, fn) {
       return helm;
     };
 
-    helm.dispose = function () { unregisterPlayer(pInst, player); return helm; };
+    helm.dispose = function () {
+      unregisterPlayer(pInst, player);
+      if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') { helm._rigFbo.remove(); helm._rigFbo = null; }
+      return helm;
+    };
 
     if (opts && opts.bind != null) helm.bind(opts.bind);
     return helm;
@@ -473,7 +498,7 @@ export function installHelm(p5, fn) {
    * Two forms:
    *
    *   helmRig(helm, { size, bits, identify })   // in-scene rig
-   *   helmRig(helm, { x, y, size })             // FBO-backed HUD overload
+   *   helmRig(helm, { x, y, size, tilt })       // FBO-backed HUD overload
    *
    * In-scene — drawn at the current model transform, oriented to the helm's
    * resolved `from` (WORLD → world axes, EYE → screen, SELF → the object's own
@@ -483,11 +508,14 @@ export function installHelm(p5, fn) {
    * the active-DOF signal), so ambient `stroke()` does not tint it.
    *
    * HUD overload — when `x` and `y` are given, the rig is rendered into a small
-   * framebuffer from a fixed three-quarter view and composited as a screen quad
-   * at `(x, y)` of `size` pixels. Because it lands as a TEXTURE, ambient `tint()`
+   * framebuffer through its own ortho camera and composited as a screen quad at
+   * `(x, y)` of `size` pixels. Because it lands as a TEXTURE, ambient `tint()`
    * modulates it (the `viewFrustum` textured-plane path). Intended for camera
-   * fly — it shows the body DOFs in a corner. The framebuffer is created lazily
-   * and cached on the helm, re-made only when `size` changes.
+   * fly — it shows the body DOFs in a corner. `tilt` aims that camera: the
+   * elevation above the rig's horizontal, in the sketch's `angleMode` unit,
+   * azimuth fixed at the isometric 45° (default true iso ≈ 35.26°; `tilt: 0` is
+   * level; `tilt: [az, el]` sets both). The framebuffer is created lazily and
+   * cached on the helm, re-made only when `size` changes; `tilt` only re-aims.
    *
    * Bits (in-scene; default TRANSLATE | ROTATE):
    *   TRANSLATE — the three translation arrows along ±X / ±Y / ±Z.
@@ -501,7 +529,7 @@ export function installHelm(p5, fn) {
    * @for p5
    * @param {PoseHelm} helm
    * @param {{ size?: number, bits?: number, identify?: boolean,
-   *           x?: number, y?: number }} [opts]
+   *           x?: number, y?: number, tilt?: number | number[] }} [opts]
    * @returns {p5} this
    */
   p5.Renderer3D.prototype.helmRig = function (helm, opts = {}) {
@@ -513,23 +541,33 @@ export function installHelm(p5, fn) {
     if (opts.x != null && opts.y != null) {
       const x = opts.x, y = opts.y, size = opts.size ?? 120;
 
-      // Lazy FBO + dedicated three-quarter-view camera, cached on the helm
-      // (user-owned cache). The rig is drawn at a fixed world reference; the FBO
-      // frames it from a 3/4 ortho view. Re-made only when the screen size
-      // changes. createCamera() must run inside begin()/end().
+      // Lazy FBO + dedicated ortho camera, cached on the helm (user-owned
+      // cache). The rig is drawn at a fixed world reference; the FBO frames it
+      // through this camera, aimed by `tilt` (elevation; azimuth fixed iso). The
+      // FBO is rebuilt only when `size` changes; `tilt` only re-aims the camera.
+      // createCamera() must run inside begin()/end().
+      const RR = 100, d = RR * 2.4;
+      const [_az, _el] = _rigAzEl(p, opts.tilt);
+      const tiltKey = `${_az.toFixed(5)}:${_el.toFixed(5)}`;
       if (helm._rigFbo == null || helm._rigFboSize !== size) {
         if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') helm._rigFbo.remove();
         helm._rigFbo     = p.createFramebuffer({ width: size, height: size });
         helm._rigFboSize = size;
-        const RR = 100, d = RR * 2.4;
         helm._rigFbo.begin();
         helm._rigCam = helm._rigFbo.createCamera();
-        helm._rigCam.camera(d * 0.62, -d * 0.46, d * 0.78, 0, 0, 0, 0, 1, 0);
         helm._rigCam.ortho(-RR * 0.9, RR * 0.9, -RR * 0.9, RR * 0.9, 0.1, d * 4);
         helm._rigFbo.end();
+        helm._rigTiltKey = null;   // force a re-aim after a (re)build
+      }
+      if (helm._rigTiltKey !== tiltKey) {
+        const ce = Math.cos(_el), se = Math.sin(_el), ca = Math.cos(_az), sa = Math.sin(_az);
+        helm._rigFbo.begin();
+        helm._rigCam.camera(d * ce * sa, -d * se, d * ce * ca, 0, 0, 0, 0, 1, 0);
+        helm._rigFbo.end();
+        helm._rigTiltKey = tiltKey;
       }
 
-      // Render the rig into the FBO (transparent bg, fixed 3/4 view). A
+      // Render the rig into the FBO (transparent bg, the tilt-aimed view). A
       // p5.Framebuffer leaves the renderer's ACTIVE camera + matrices pointing
       // at the FBO's own camera after end(), so capture and restore curCamera
       // (plus uPMatrix / uViewMatrix) around the pass — otherwise a live

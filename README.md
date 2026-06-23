@@ -19,6 +19,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
 -   [Panels](#panels)
     -   [Parameter panel](#parameter-panel)
     -   [Track transport panel](#track-transport-panel)
+    -   [Helm panel](#helm-panel)
     -   [Collapsible panels](#collapsible-panels)
 -   [Post-processing](#post-processing)
     -   [pipe](#pipe)
@@ -48,6 +49,11 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [Overlapping handles — createPointerRouter](#overlapping-handles--createpointerrouter)
     -   [Draw](#draw)
     -   [Diagnostics](#diagnostics)
+-   [Helm](#helm)
+    -   [createCameraHelm / createPoseHelm](#createcamerahelm--createposehelm)
+    -   [Transport --- feed](#transport--feed)
+    -   [Bind a target](#bind-a-target)
+    -   [helmRig](#helmrig)
 -   [Releases](#releases)
 -   [Usage](#usage)
     -   [CDN](#cdn)
@@ -511,6 +517,38 @@ panel.parent(el)  // re-mount into a different HTMLElement
 panel.tick()      // called automatically — no need to call manually
 panel.dispose()   // remove from DOM
 ```
+
+## Helm panel
+
+Edits a `PoseHelm`'s 6-DOF profile (`createCameraHelm` / `createPoseHelm`) and reflects its live activity — signed per-DOF sliders, lane cycle-buttons, per-DOF activity meters, and a global deadzone. The profile is driven by reference, so edits land on the live helm immediately.
+
+```js
+const helm = createPoseHelm()
+helm.bind(obj)
+
+const ui = createPanel(helm, {
+  frame:    true,                 // pose helms only — EYE / WORLD / SELF selector
+  inline:   true,                 // flow in document order instead of an absolute float
+  onChange: () => syncOut(),      // fired after any user edit
+  x: 10, y: 10, color: 'white'
+})
+
+// tick is automatic via the draw-loop player — no manual call needed
+```
+
+Each DOF is one **signed slider** spanning `−max … +max`: distance from centre is `sens`, the side is `sign`, and dragging through 0 mutes the DOF and disables its **lane** button. `{ frame: true }` adds an `EYE` / `WORLD` / `SELF` selector writing `helm.from` (pose helms only — a camera helm is always body-fly, so omit it). `onChange()` fires after any edit so a sketch can react without polling each frame; a device calibration sweep that writes the profile directly bypasses the panel, so call `onChange` yourself there. `inline: true` flows the panel in document order for mounting inside an existing sidebar via `parent`.
+
+| Option     | Default       | Description                                                  |
+|------------|---------------|--------------------------------------------------------------|
+| `frame`    | `false`       | Show the `EYE` / `WORLD` / `SELF` selector (pose helms only). |
+| `onChange` | —             | Called after any user edit of the profile.                  |
+| `inline`   | `false`       | Flow in document order instead of an absolute float (ignores `x` / `y`). |
+| `x` / `y`  | `0`           | Container position (px).                                    |
+| `width`    | `130`         | Signed-slider width (px).                                   |
+| `color`    | —             | Container text color (meters inherit it).                   |
+| `parent`   | canvas parent | Mount target (`HTMLElement` or `p5.Element`).               |
+
+The `helmRig` gizmo is the spatial counterpart — see [Helm](#helm).
 
 ## Collapsible panels
 
@@ -1254,6 +1292,122 @@ Runtime issues log via `console.error('[p5.tree] …')` and degrade gracefully:
 - An invalid `constraint` → `createHandle` returns `null`.
 - An unrecognised `bind` target → left pull-only.
 - A custom kind without `drawLocus` → dot + aim only, one warning.
+
+---
+
+# Helm
+
+A **helm** drives a camera or an object from a live 6-DOF rate stream — a SpaceNavigator, a tracked hand, an agent policy. It is the rate-stream sibling of the Track family: a stateful controller (created once, driven from `draw()`) that integrates the stream into a `{ pos, rot }` pose and applies it via `applyPose`. The core integrator is `@nakednous/tree`'s `PoseHelm`; this bridge adds the transport seam, the camera basis, the draw-loop player, the `helmRig` gizmo, and the `createPanel(helm)` profile editor.
+
+```js
+const helm = createCameraHelm()   // fly the current camera (body-relative)
+const helm = createPoseHelm()     // produce a pose; bind() a target to drive it
+```
+
+## createCameraHelm / createPoseHelm
+
+**`createCameraHelm([cam])`** flies a camera from the stream. It is always **body-relative** — a forward push flies forward — because the helm integrates in the driven camera's own frame; there is no `from` to choose. The camera is seeded from its current lookat (frame 0 is continuous) and re-driven every frame.
+
+```js
+let helm
+
+function setup() {
+  createCanvas(720, 480, WEBGL)
+  helm = createCameraHelm()              // or createCameraHelm(getCamera())
+}
+
+function draw() {
+  background(10)
+  helm.feed(translation, rotation)       // a transport feeds raw device rates
+  grid(); axes()
+  helmRig(helm, { x: width - 136, y: 16, size: 120 })   // optional corner readout
+}
+```
+
+**`createPoseHelm({ from })`** produces a pose and drives a bound target. `from` sets what manipulation is relative to:
+
+| `from`          | manipulation is relative to                              |
+|-----------------|----------------------------------------------------------|
+| `p5.Tree.EYE`   | the **viewing** camera — screen-relative (the default)   |
+| `p5.Tree.WORLD` | fixed world axes                                         |
+| `p5.Tree.SELF`  | the target's own evolving pose — body-relative           |
+| a `mat4`        | an explicit fixed frame (e.g. `cam.mat4Eye(buf)`)        |
+
+`SELF` is the object analogue of camera body-fly — a push follows where the object currently points. A camera helm has no `from`; for screen- or world-relative *camera* motion, bind a camera to a `createPoseHelm` instead.
+
+```js
+const obj = { pos: [0, 0, 0], rot: [0, 0, 0, 1] }
+let helm
+
+function setup() {
+  createCanvas(720, 480, WEBGL)
+  helm = createPoseHelm({ from: p5.Tree.EYE }).bind(obj)
+}
+
+function draw() {
+  background(10)
+  helm.feed(translation, rotation)
+  push(); applyPose(obj); box(80); pop()
+}
+```
+
+Both factories expose the core surface (`feed`, `profile`, `deadzone`, `from`, `home`, `eval`, `activity` — see the [core README](https://github.com/nakednous/tree#posehelm--6-dof-rate-driven-pose)) plus `dispose()` (unregisters the player; runs on sketch teardown). The pose factory adds `bind`. Tune the profile live with [`createPanel(helm)`](#helm-panel).
+
+## Transport — feed
+
+The transport is the seam that makes a helm source-agnostic: anything that calls `helm.feed(translation, rotation)` drives it. The two halves may arrive on separate frames (a device reports them separately) and persist until the next feed — so a transport feeds zeros when motion should stop.
+
+```js
+// WebHID SpaceNavigator (sketch-level — device drivers ship as examples)
+helm.feed([tx, ty, tz], [rx, ry, rz])   // raw lane rates; the profile's sens scales them
+
+// a tracked hand differenced frame-to-frame is a 6-DOF rate — the SAME helm:
+const h = handTracker.read()
+if (h.present) helm.feed(h.linVel, h.angVel)
+else           helm.feed([0, 0, 0], [0, 0, 0])
+```
+
+The library wiring is identical across transports — only the source of the rates differs.
+
+## Bind a target
+
+`createPoseHelm` drives a bound target while running. `bind` is polymorphic (dispatch by shape), seeding the integrated pose from the target where one is readable so frame 0 doesn't jump:
+
+```js
+helm.bind(cam)             // p5.Camera — seeded from its lookat, driven via applyPose
+helm.bind({ get, set })    // accessor floor — get() seeds, set(pose) writes
+helm.bind({ applyPose })   // any pose sink — applyPose(pose) each frame (nothing to seed from)
+helm.bind({ pos, rot })    // plain pose object — seeded from, mutated in place
+```
+
+Chainable: `createPoseHelm().bind(obj)`. `opts.bind` binds at construction. An unrecognised target logs and leaves the helm unbound.
+
+## helmRig
+
+Visualise a helm's DOF profile and live activity as a control rig — three translation arrows (Tx / Ty / Tz) and three rotation rings (pitch / yaw / roll). Each channel draws a **dim baseline** whose geometry is the profile readout (arrow direction = `sign`, length / radius = `sens`), and the channel driven this frame overlays a **bright signed** element growing in the live push/pull direction, in its semantic axis colour (X red, Y lime, Z blue). Push a physical axis and watch which DOF moves and which way — the lane→DOF mapping read by doing.
+
+```js
+helmRig(helm, { size, bits, identify })   // in-scene rig
+helmRig(helm, { x, y, size, tilt })       // FBO-backed HUD overload (camera fly)
+```
+
+**In-scene** — drawn at the current model transform, oriented to the helm's resolved `from` so the arrows point where pushes go. The caller supplies position (`translate` to the driven object); the rig owns the rotation, so do **not** `applyPose` the object before it. Colours are intrinsic (they carry the active-DOF signal), so ambient `stroke()` does not tint it.
+
+| Option     | Default               | Description                                                     |
+|------------|-----------------------|-----------------------------------------------------------------|
+| `size`     | `120`                 | Rig extent (world units in-scene; pixels in the HUD overload).  |
+| `bits`     | `TRANSLATE \| ROTATE` | Clusters to draw — `p5.Tree.TRANSLATE`, `p5.Tree.ROTATE`.       |
+| `identify` | `false`               | Label each arrow / ring with its input lane (`L0` …). Needs a font. |
+
+**HUD overload** — when `x` and `y` are given, the rig renders into a small framebuffer through its own camera and composites as a screen quad at `(x, y)` of `size` pixels. Because it lands as a texture, ambient `tint()` modulates it (handy to fade the HUD until a device connects). Intended for camera fly — the body DOFs in a corner.
+
+`tilt` aims the HUD camera: its **elevation** above the rig's horizontal, in the sketch's `angleMode` unit (radians by default in p5 v2; `30` under `angleMode(DEGREES)`). Azimuth is fixed at the isometric 45° so one number controls the look — X and Z stay symmetric and all three axes read. The default is true isometric (≈35.26°); `tilt: 0` is level / head-on (the Z arrow and roll ring go edge-on), `tilt: [az, el]` sets both. Placement (`x, y`) and angle (`tilt`) are independent — sliding the corner never changes the foreshortening. The framebuffer is cached on the helm and rebuilt only when `size` changes; `tilt` only re-aims.
+
+```js
+helmRig(helm, { x: width - 136, y: 16, size: 120 })            // corner HUD, iso
+helmRig(helm, { x: width - 136, y: 16, size: 120, tilt: 0 })   // head-on
+helmRig(helm, { size: 120 })                                   // in-scene at the model transform
+```
 
 ---
 

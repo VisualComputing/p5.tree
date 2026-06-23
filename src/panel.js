@@ -243,10 +243,19 @@ export function installPanel(p5, fn) {
    * // in draw(): use panel.speed.value()
    * ```
    *
+   * **Helm panel** (a PoseHelm's 6-DOF profile + live activity):
+   * ```js
+   * const helm = createPoseHelm()
+   * helm.bind(obj)
+   * // signed per-DOF sliders + lane buttons + activity meters + deadzone;
+   * // { frame: true } adds an EYE|WORLD|SELF selector (pose helms only)
+   * createPanel(helm, { frame: true, x: 10, y: 10, color: 'white' })
+   * ```
+   *
    * @method createPanel
    * @memberof p5
-   * @param {PoseTrack|CameraTrack|Object} trackOrSchema
-   *   A track instance (PoseTrack / CameraTrack) or a plain schema object.
+   * @param {PoseTrack|CameraTrack|PoseHelm|Object} trackOrSchema
+   *   A track (PoseTrack / CameraTrack), a helm (PoseHelm), or a plain schema object.
    * @param {Object} [opt]
    *   Layout and behaviour options.
    * @param {p5.Camera|null} [opt.camera]
@@ -255,6 +264,8 @@ export function installPanel(p5, fn) {
    *   curCamera for PoseTrack.
    * @param {boolean} [opt.reset=true]
    *   Track panels only. Set false to suppress the reset button.
+   * @param {boolean} [opt.frame=false]
+   *   Helm panels only. Show the EYE|WORLD|SELF frame selector.
    * @param {Object|Function} [opt.target]
    *   Param panels only. Value sink: p5 shader, (name,val)=>..., or {set}.
    * @param {(HTMLElement|p5.Element)} [opt.parent]
@@ -297,6 +308,17 @@ export function installPanel(p5, fn) {
       if (isCameraTrack && !('depth' in opt)) opt.depth = false;
 
       const panel = _createPanel(_wrapTrack(track, cam, isCameraTrack, pInst, showReset), opt);
+      registerPlayer(pInst, { tick() { panel.tick(); return true; } });
+      return panel;
+    }
+
+    // ── Helm panel path ────────────────────────────────────────────
+    // A helm (recognised by feed()) gets the profile / config surface. The
+    // profile is plain data and the ui builder owns the widgets, so there is
+    // nothing p5-specific to resolve — the bridge is a thin pass-through plus the
+    // per-frame tick that drives the activity meters.
+    if (typeof trackOrSchema?.feed === 'function') {
+      const panel = _createPanel(trackOrSchema, opt);
       registerPlayer(pInst, { tick() { panel.tick(); return true; } });
       return panel;
     }
