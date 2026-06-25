@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/p5.tree?color=1f6feb)](https://www.npmjs.com/package/p5.tree)
 
-Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera interpolation](https://en.wikipedia.org/wiki/Key_frame), [space transforms](https://wikis.khronos.org/opengl/Rendering_Pipeline_Overview), [frustum visibility](https://en.wikipedia.org/wiki/Hidden-surface_determination), [HUD](https://en.wikipedia.org/wiki/Head-up_display), [post-processing pipe](https://en.wikipedia.org/wiki/Video_post-processing#Uses_in_3D_rendering), [picking](https://webglfundamentals.org/webgl/lessons/webgl-picking.html), [interactive 3D handles](https://en.wikipedia.org/wiki/3D_user_interaction), and [declarative control panels](https://github.com/dataarts/dat.gui).
+Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera interpolation](https://en.wikipedia.org/wiki/Key_frame), [space transforms](https://wikis.khronos.org/opengl/Rendering_Pipeline_Overview), [frustum visibility](https://en.wikipedia.org/wiki/Hidden-surface_determination), [HUD](https://en.wikipedia.org/wiki/Head-up_display), [post-processing pipe](https://en.wikipedia.org/wiki/Video_post-processing#Uses_in_3D_rendering), [picking](https://webglfundamentals.org/webgl/lessons/webgl-picking.html), [interactive 3D handles](https://en.wikipedia.org/wiki/3D_user_interaction), [6-DOF helms](https://en.wikipedia.org/wiki/Six_degrees_of_freedom), and [declarative control panels](https://github.com/dataarts/dat.gui).
 
 ![A non-Euclidean geometry cube with faces showcasing teapot, bunny, and Buddha models.](p5.tree.png)
 
@@ -536,7 +536,7 @@ const ui = createPanel(helm, {
 // tick is automatic via the draw-loop player — no manual call needed
 ```
 
-Each DOF is one **signed slider** spanning `−max … +max`: distance from centre is `sens`, the side is `sign`, and dragging through 0 mutes the DOF and disables its **lane** button. `{ frame: true }` adds an `EYE` / `WORLD` / `SELF` selector writing `helm.from` (pose helms only — a camera helm is always body-fly, so omit it). `onChange()` fires after any edit so a sketch can react without polling each frame; a device calibration sweep that writes the profile directly bypasses the panel, so call `onChange` yourself there. `inline: true` flows the panel in document order for mounting inside an existing sidebar via `parent`.
+Each DOF is one **signed slider** spanning `−max … +max`: distance from centre is `sens`, the side is `sign`, and dragging through 0 mutes the DOF and disables its **lane** button. When `helm.filter` is set, the panel additionally grows `minCutoff` and `beta` sliders beside the deadzone — the 1€ conditioning surface. `{ frame: true }` adds an `EYE` / `WORLD` / `SELF` selector writing `helm.from` (pose helms only — a camera helm is always body-fly, so omit it). `onChange()` fires after any edit so a sketch can react without polling each frame; a device calibration sweep that writes the profile directly bypasses the panel, so call `onChange` yourself there. `inline: true` flows the panel in document order for mounting inside an existing sidebar via `parent`.
 
 | Option     | Default       | Description                                                  |
 |------------|---------------|--------------------------------------------------------------|
@@ -679,7 +679,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.48'
+p5.Tree.VERSION   // '0.0.49'
 ```
 
 ## Shader helpers
@@ -1091,6 +1091,8 @@ The bridge surfaces a slice of the core's math directly on the `p5.Tree` namespa
 
 **Ray primitives + angular utilities** — what a custom constraint's `solve()` is made of: `raySphere` `rayPlane` `rayClosestPointOnAxis` `dirFromAzEl` `azElFromDir`.
 
+**Input conditioning** — the rate-stream helpers a helm feeds on (see the [core README](https://github.com/nakednous/tree#input-conditioning--oneeuro--posedelta)): `oneEuro` (the 1€ filter — assign to `helm.filter`) and `poseDelta` (absolute→rate differencing with the quaternion double-cover guard).
+
 ```js
 const { qMul, qFromAxisAngle, qToMat4 } = p5.Tree
 const q = [0, 0, 0, 1], dq = [0, 0, 0, 1], m = new Array(16)
@@ -1351,7 +1353,9 @@ function draw() {
 }
 ```
 
-Both factories expose the core surface (`feed`, `profile`, `deadzone`, `from`, `home`, `eval`, `activity` — see the [core README](https://github.com/nakednous/tree#posehelm--6-dof-rate-driven-pose)) plus `dispose()` (unregisters the player; runs on sketch teardown). The pose factory adds `bind`. Tune the profile live with [`createPanel(helm)`](#helm-panel).
+Both factories expose the core surface (`feed`, `profile`, `deadzone`, `filter`, `fullScale`, `from`, `home`, `eval`, `activity` — see the [core README](https://github.com/nakednous/tree#posehelm--6-dof-rate-driven-pose)) plus `dispose()` (unregisters the player; runs on sketch teardown). The pose factory adds `bind`. Tune the profile live with [`createPanel(helm)`](#helm-panel).
+
+For a noisy or absolute source, set `helm.filter = oneEuro(...)` — an input conditioner applied before the deadzone (filter → deadzone) — and `helm.fullScale` to the transport's raw full-deflection so the rig and panel meters read honestly. `poseDelta` turns an absolute pose stream into the rate `feed` wants. Both `oneEuro` and `poseDelta` live on `p5.Tree` (see [Core math on p5.Tree](#core-math-on-p5tree)).
 
 ## Transport — feed
 
@@ -1422,9 +1426,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.48/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.48/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.48/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.48/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.48/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.48/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.esm.js)
 
 ---
 
