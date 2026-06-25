@@ -227,7 +227,8 @@ function _drawRig(p, helm, size, doT, doR, identify) {
   const head   = size * 0.08;
   const ringR0 = size * 0.5;
   const TREF   = 0.30, RREF = 0.0025;
-  const ACT_FULL = 500;        // raw rate ≈ full deflection (the e7/e8 HUD reference)
+  const ACT_FULL = helm.fullScale;   // full-deflection scale, read off the helm — honest
+                                     // across input scales (no hard-coded 500, no HELM_FULL)
   const ARC_FULL = Math.PI;    // a full push sweeps half the ring
 
   if (doT) {

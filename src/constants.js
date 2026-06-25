@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.48'),
+    VERSION: CONST('0.0.49'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)
@@ -138,5 +138,12 @@ export function installConstants(p5) {
     rayClosestPointOnAxis:  CONST(C.rayClosestPointOnAxis),
     dirFromAzEl:            CONST(C.dirFromAzEl),
     azElFromDir:            CONST(C.azElFromDir),
+
+    // Value layer — input conditioning (0.0.49). The 1€ filter and the
+    // absolute→rate differencer: p5 has neither native, and sketch-level
+    // consumers exist (the e9 / e11 experiments, the Sensing notebook figures,
+    // sketch-side handle conditioning). Same flat, out-first form as the rest.
+    oneEuro:   CONST(C.oneEuro),
+    poseDelta: CONST(C.poseDelta),
   });
 }
