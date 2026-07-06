@@ -679,7 +679,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.49'
+p5.Tree.VERSION   // '0.0.50'
 ```
 
 ## Shader helpers
@@ -1426,9 +1426,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.49/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.esm.js)
 
 ---
 
