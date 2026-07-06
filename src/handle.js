@@ -1154,8 +1154,10 @@ export function installHandle(p5, fn) {
 
     /**
      * Move the constraint's reference point — sphere centre / plane point /
-     * axis anchor / dial centre, or the dragged point for a VIEW handle. In
-     * place; chainable.
+     * axis anchor / dial centre, or the dragged point for a VIEW handle. The
+     * stored handle point rides along (AXIS keeps its scalar; PLANE re-projects
+     * its point; DIAL recomputes from θ), so the dot and the pick proxy never
+     * lag a moved anchor. In place; chainable.
      * @param {p5.Vector|number[]} v
      * @returns {Handle} this
      */
@@ -1166,7 +1168,24 @@ export function installHandle(p5, fn) {
       t[0] = _vx(v, 0, t[0]);
       t[1] = _vx(v, 1, t[1]);
       t[2] = _vx(v, 2, t[2]);
-      if (c.kind === DIAL && !this._view) c._dialPoint();
+      // The stored point must ride the moved reference — pt is canonical state
+      // for AXIS / PLANE / DIAL (SPHERE derives its POINT live from
+      // anchor + dir). Without this, an idle handle's dot AND its pick proxy
+      // stay at the OLD anchor's point until the next solve — visibly detached
+      // when another handle drives the anchor (a PLANE + AXIS "place" pair).
+      // Mirrors aim()'s per-kind maintenance: AXIS keeps its scalar, PLANE
+      // re-projects its point onto the translated plane, DIAL recomputes from θ.
+      if (!this._view) {
+        if (c.kind === DIAL) {
+          c._dialPoint();
+        } else if (c.kind === AXIS) {
+          c.pt[0] = c.anchor[0] + c.s * c.u[0];
+          c.pt[1] = c.anchor[1] + c.s * c.u[1];
+          c.pt[2] = c.anchor[2] + c.s * c.u[2];
+        } else if (c.kind === PLANE) {
+          c.seed(c.pt[0], c.pt[1], c.pt[2]);
+        }
+      }
       return this;
     }
 
