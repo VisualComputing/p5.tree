@@ -40,7 +40,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // §6 — Picking (colorPick, mousePick, mouseHit, pointerHit, tag)
   installPicking(p5, fn);
 
-  // §7 — PoseTrack, adapters, camera path API + global forwarders
+  // §7 — PoseTrack / CameraTrack factories, TrackHandles (keyframe
+  //      manipulators via the `handles` opt), camera pose helpers + forwarders
   installTrack(p5, fn);
 
   // §8 — Pipe (post-processing chain)

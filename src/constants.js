@@ -12,7 +12,7 @@ export function installConstants(p5) {
   const CONST = value => ({ value, writable: false, enumerable: true, configurable: false });
 
   Object.defineProperties(p5.Tree, {
-    VERSION: CONST('0.0.50'),
+    VERSION: CONST('0.0.51'),
     NONE: CONST(0),
 
     // Core constants (spaces, visibility, NDC, basis vectors)
@@ -77,6 +77,9 @@ export function installConstants(p5) {
     TANGENTS_IN:  CONST(1 << 3),   // incoming tangent arrows at keyframes of the target path
     TANGENTS_OUT: CONST(1 << 4),   // outgoing tangent arrows at keyframes of the target path
     TANGENTS:     CONST((1 << 3) | (1 << 4)),  // convenience — IN | OUT
+    HANDLES:      CONST(1 << 5),   // keyframe manipulator dots — draws track.handles
+                                   // (the { handles } factory opt); no-op otherwise.
+                                   // See track-handles-design.md.
 
     // helmRig bits — a PoseHelm's DOF profile + live activity (gizmo-local).
     TRANSLATE: CONST(1 << 0),   // three translation arrows (Tx / Ty / Tz)
@@ -139,10 +142,10 @@ export function installConstants(p5) {
     dirFromAzEl:            CONST(C.dirFromAzEl),
     azElFromDir:            CONST(C.azElFromDir),
 
-    // Value layer — input conditioning (0.0.50). The 1€ filter and the
-    // absolute→rate differencer: p5 has neither native, and sketch-level
-    // consumers exist (the e9 / e11 experiments, the Sensing notebook figures,
-    // sketch-side handle conditioning). Same flat, out-first form as the rest.
+    // Value layer — input conditioning. The 1€ filter and the absolute→rate
+    // differencer: p5 has neither native, and sketch-level consumers exist
+    // (the e9 / e11 experiments, the Sensing notebook figures, sketch-side
+    // handle conditioning). Same flat, out-first form as the rest.
     oneEuro:   CONST(C.oneEuro),
     poseDelta: CONST(C.poseDelta),
   });

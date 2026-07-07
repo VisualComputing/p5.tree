@@ -11,6 +11,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [CameraTrack --- camera keyframe paths](#cameratrack--camera-keyframe-paths)
     -   [Playback options](#playback-options)
     -   [Camera helpers](#camera-helpers)
+    -   [Keyframe handles --- track.handles](#keyframe-handles--trackhandles)
 -   [Space transformations](#space-transformations)
     -   [Matrix operations](#matrix-operations)
     -   [Frustum queries](#frustum-queries)
@@ -69,6 +70,9 @@ A unified factory creates either a **PoseTrack** (object animation) or a **Camer
 const track = createPoseTrack()       // PoseTrack — animates any object
 const track = createCameraTrack()     // CameraTrack — binds to the current camera
 const track = createCameraTrack(cam)  // CameraTrack — binds to a specific camera
+
+const track = createPoseTrack({ handles: true })         // + draggable keyframes
+const track = createCameraTrack(cam, { handles: true })  // see Keyframe handles below
 ```
 
 ## PoseTrack — object animation
@@ -265,6 +269,72 @@ queries in the Matrix operations section below. Renderer-level
 `cam.mat4Proj(out)` reads the projection of a *specific* camera regardless
 of whether it's currently active. Same distinction applies to
 `mat4View` / `mat4Eye`.
+
+## Keyframe handles — track.handles
+
+Grab a track's keyframes in the scene. The `handles` factory opt decorates the track with a `track.handles` controller — one screen-parallel drag dot per keyframe field (a [`VIEW`](#constraints) handle: the point follows the pointer at its own depth), all routed through one shared [pointer router](#overlapping-handles--createpointerrouter). Keyframes are written **in place**, and the core samplers read them live — so the path, the auto-CR tangents, `eval()`, and any `viewFrustum({ camera: track })` reflow on the very next call, mid-playback included.
+
+```js
+const track = createPoseTrack({ handles: true })
+const track = createPoseTrack({ handles: { rot: [0, 1, 0] } })   // + a rotation ring per keyframe
+const track = createCameraTrack(cam, { handles: true })          // eye + center dots
+const track = createCameraTrack({ handles: true })               // opts-only call works too
+```
+
+| Track | Field | Handle | Default |
+|---|---|---|---|
+| `PoseTrack`   | `kf.pos`    | `VIEW` drag dot | always |
+| `PoseTrack`   | `kf.rot`    | one `DIAL` about a declared axis | opt-in `rot: axis` |
+| `CameraTrack` | `kf.eye`    | `VIEW` drag dot | always |
+| `CameraTrack` | `kf.center` | `VIEW` drag dot | `center: true` |
+
+A camera keyframe's orientation **is** its center — lookat derives the frame from eye→center+up — so the center dot is the camera **orientation editor**: dragging it re-aims the gaze ray and the keyframe marker. (`rot` is rejected on a `CameraTrack`, `center` on a `PoseTrack`.) When every keyframe targets the same center (the common authoring style) the center dots start coincident — the first grab picks one arbitrarily; drag it and they separate.
+
+Drive the controller host-side and gate the orbit — the standard [handle lifecycle](#lifecycle), against the **observer** camera in a two-camera sketch:
+
+```js
+function draw() {
+  setCamera(viewCam)
+  if (!track.handles.update()) orbitControl()   // a grab wins over orbit
+  // ... scene ...
+  stroke('white');  trackPath(track, { bits: p5.Tree.PATH, marker: null })
+  fill('#ffd166');  trackPath(track, { bits: p5.Tree.HANDLES })   // markers + dots
+}
+```
+
+Drawing is the [`HANDLES` trackPath bit](#trackpath): a constant-px dot per draggable field, the ring + spoke for a rot `DIAL`, hovered/grabbed dots growing ×1.4 (colour stays ambient — `fill()` the dots, `stroke()` the ring). The bit no-ops on a track without handles, and obeys `marker: null` like every per-keyframe layer. `track.handles.draw()` is the same render standalone.
+
+Opts (`handles: true` = all defaults):
+
+| Option | Default | Description |
+|---|---|---|
+| `center` | `true` | `CameraTrack` only — center dots (the orientation editor). |
+| `rot` | — | `PoseTrack` only — a `DIAL` per keyframe about this world axis. |
+| `rotRadius` | `40` | `DIAL` ring radius (world units). |
+| `rotSnap` | `null` | Angular snap step (radians) for the `DIAL`. |
+| `grabPx` | `12` | Pick-proxy + dot radius (px). |
+| `snap` | `null` | World-grid snap for the position dots. |
+| `hover` | `true` | Router shared hover. |
+
+Controller surface:
+
+```js
+track.handles.update()      // rebuild-if-needed, sync, route — returns grabbed (the orbit gate)
+track.handles.enabled       // get/set — suspend grab/solve/draw without disposing
+track.handles.grabbed()     // true while any keyframe handle is held
+track.handles.hovered()     // keyframe index under the pointer, or null
+track.handles.selected      // last-grabbed keyframe index, or null
+track.handles.sync()        // re-seed idle handles (update() already does this each frame)
+track.handles.draw(opts)    // what the HANDLES bit calls — { size, emphasis }
+track.handles.dispose()     // release members + router; detaches from the track
+
+track.handles.onGrab    = (index, field, h) => { }   // field: 'pos'|'eye'|'center'|'rot'
+track.handles.onChange  = (value, index, field, h) => { }
+track.handles.onRelease = (index, field, h) => { }
+track.handles.onCancel  = (index, field, h) => { }   // Esc / pointercancel reverts the keyframe
+```
+
+The member handles are internal — hooks arrive with keyframe coordinates instead. Keyframe count changes rebuild the member set automatically, so the [transport panel](#track-transport-panel)'s `+` button and `track.remove(i)` just work; external edits (`track.set(i, spec)`, another handle) are picked up by the per-frame idle sync. The `PoseTrack` rot `DIAL` edits the **twist** about the declared axis and *replaces* `kf.rot` with an axis-angle rotation — exact for keyframes authored about that axis, a projection otherwise. Full spec: `track-handles-design.md` in the [core repo](https://github.com/nakednous/tree).
 
 ---
 
@@ -679,7 +749,7 @@ Both accept the same options object:
 # Utilities
 
 ```js
-p5.Tree.VERSION   // '0.0.50'
+p5.Tree.VERSION   // '0.0.51'
 ```
 
 ## Shader helpers
@@ -958,8 +1028,11 @@ Bits:
 | `p5.Tree.TANGENTS_OUT` | Outgoing tangent arrow at each keyframe of the target path.               |
 | `p5.Tree.TANGENTS`     | Convenience alias — `TANGENTS_IN \| TANGENTS_OUT`.                        |
 | `p5.Tree.CENTER`       | `CameraTrack` only. Gaze line from `kf.eye` to `kf.center` at each keyframe, with a `point()` at `kf.center`. Target-independent. |
+| `p5.Tree.HANDLES`      | Keyframe manipulator dots when the track carries [`track.handles`](#keyframe-handles--trackhandles) — delegates to the controller's `draw()`; no-op otherwise. |
 
 Default bits: `PATH`.
+
+`HANDLES` renders only when the track was created with the [`handles`](#keyframe-handles--trackhandles) factory opt — dots take the ambient `fill()`, the rot ring the ambient `stroke()`, and hovered/grabbed dots grow ×1.4. Picking is host-driven (`track.handles.update()`); the bit is the drawing half only.
 
 `opts.target` — `'eye'` (default) or `'center'`. `CameraTrack` only: redirects `PATH` / `CONTROLS` / `TANGENTS_IN` / `TANGENTS_OUT` to the center path instead of the eye path. `PoseTrack` ignores `target` (there is only one path). `CENTER` is target-independent — it is inherently an eye→center relationship. Call `trackPath` twice (once per target) to decorate both paths with distinct `stroke()`s.
 
@@ -1267,7 +1340,7 @@ function draw() {
 }
 ```
 
-`r.update()` resolves every queued press (several same-frame presses on different members all land), refreshes shared hover (one extra pick per moved frame; `{ hover: false }` opts out), then delegates to each member's `update()`, returning whether any is grabbed. `r.hovered()` is the member under the pointer; `add(h)` / `remove(h)` re-route live; `dispose()` releases everything (and runs on sketch teardown). Unclaimed pointers fall through to the camera gesture — on a touch surface each member still tracks its own finger, so two fingers drive two cluster members concurrently while a third orbits.
+`r.update()` resolves every queued press (several same-frame presses on different members all land), refreshes shared hover (one extra pick per moved frame; `{ hover: false }` opts out), then delegates to each member's `update()`, returning whether any is grabbed. `r.hovered()` is the member under the pointer; `add(h)` / `remove(h)` re-route live; `dispose()` releases everything (and runs on sketch teardown). Unclaimed pointers fall through to the camera gesture — on a touch surface each member still tracks its own finger, so two fingers drive two cluster members concurrently while a third orbits. The library's own routed cluster is a track's [keyframe handles](#keyframe-handles--trackhandles) — one member per draggable keyframe field.
 
 ## Draw
 
@@ -1426,9 +1499,9 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.50/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.min.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.esm.js)
 
 ---
 

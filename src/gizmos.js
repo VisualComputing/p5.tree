@@ -14,7 +14,9 @@
  *               ONTO the frustum plane
  * hermite     — a single Hermite segment given endpoints and tangents
  * trackPath   — PoseTrack / CameraTrack path + control polygon + tangents +
- *               per-keyframe marker (pluggable via opts.marker)
+ *               per-keyframe marker (pluggable via opts.marker) + keyframe
+ *               handle dots (HANDLES bit — draws track.handles, the track
+ *               factories' `handles` opt; see track.js)
  *
  * Depends on p5.tree/hud (beginHUD / endHUD), p5.tree/matrix (mapLocation,
  * pixelRatio, p5.Tree constants), and p5.tree/visibility (computePlanes).
@@ -660,6 +662,20 @@ export function installGizmos(p5, fn) {
    *                   CENTER is most useful when a CUSTOM marker is
    *                   supplied and gaze rays are wanted in a separate
    *                   ambient stroke() colour.
+   *   HANDLES       — keyframe manipulator dots, when the track was created
+   *                   with the { handles } factory opt (track.handles).
+   *                   Delegates to the controller's draw(): a constant-px
+   *                   dot per draggable field (pos / eye / center), the
+   *                   ring + spoke for a PoseTrack rot DIAL, hover/grab
+   *                   emphasis by size (×1.4). Ambient fill() colours the
+   *                   dots, ambient stroke() the ring/spoke. No-op when
+   *                   track.handles is absent or disabled — the bit is
+   *                   always safe to set. Like every per-keyframe gizmo it
+   *                   is orthogonal to marker: pass marker: null on the
+   *                   HANDLES call to draw dots without markers. NOTE:
+   *                   drawing is only the visual half — the pick/solve half
+   *                   is host-driven via track.handles.update(); see the
+   *                   createPoseTrack / createCameraTrack docs.
    *
    * opts.target — 'eye' (default) or 'center'. CameraTrack only: redirects
    * PATH / CONTROLS / TANGENTS_IN / TANGENTS_OUT to the center path instead
@@ -817,6 +833,16 @@ export function installGizmos(p5, fn) {
       for (let i = 0; i < n; i++) {
         marker(kfs[i], i, track, ctx);
       }
+    }
+
+    // HANDLES: keyframe manipulator dots (track.handles). Delegates to the
+    // TrackHandles controller created by the track factory's { handles }
+    // opt. Duck-typed so trackPath needs no import; a track without handles
+    // renders nothing for this bit. Drawn last so the dots sit on top of
+    // markers and overlays.
+    if ((bits & p5.Tree.HANDLES) !== 0 && track.handles &&
+        typeof track.handles.draw === 'function') {
+      track.handles.draw();
     }
   };
 }

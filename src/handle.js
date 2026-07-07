@@ -82,7 +82,8 @@
  * read that pointer's own coords — so on a shared surface each handle tracks
  * its own finger and ignores the rest. Independent, non-overlapping handles
  * work with a plain loop (one finger each). OVERLAPPING handles (a clustered
- * TRS gizmo) break per-handle self-picking — two proxies under one finger each
+ * TRS gizmo; a track's keyframe handles — TrackHandles, track.js) break
+ * per-handle self-picking — two proxies under one finger each
  * see only themselves and double-grab — so they share a `createPointerRouter`:
  * ONE depth-resolved pick across all member proxies (one pass, distinct ids,
  * winner-by-id, nearest wins by z), an id→handle map, and a claimed-pointer

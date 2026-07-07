@@ -8,8 +8,12 @@
  *    registerPlayer / unregisterPlayer / tickPlayers / clearPlayers
  *
  *  fn.getCamera          Return the current p5 camera (curCamera).
- *  fn.createPoseTrack()        PoseTrack wired to the draw loop.
- *  fn.createCameraTrack([cam]) CameraTrack wired + auto-apply; defaults to current camera.
+ *  fn.createPoseTrack([opts])          PoseTrack wired to the draw loop.
+ *  fn.createCameraTrack([cam][, opts]) CameraTrack wired + auto-apply; defaults to current camera.
+ *
+ *  TrackHandles          Per-keyframe manipulators — the factories' `handles`
+ *                        opt, stored at track.handles. Section below; full
+ *                        spec: track-handles-design.md (tree repo root).
  *
  *  p5.Renderer3D.rotateQuat   rotate by [x,y,z,w] quaternion
  *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
@@ -29,7 +33,7 @@
 'use strict';
 
 import {
-  PoseTrack, CameraTrack, qToMat4,
+  PoseTrack, CameraTrack, qToMat4, qFromAxisAngle,
   projFov, projTop, projIsOrtho,
   projNear, projFar,
 } from '@nakednous/tree';
@@ -161,6 +165,335 @@ function _patchCameraTrackAdd(track) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// TrackHandles — per-keyframe manipulators (the factories' `handles` opt)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Bridge-only decoration stored at `track.handles`. The numeric core is
+// untouched: its samplers read `keyframes` live with zero caching, so an
+// in-place keyframe write reflows the path, the auto-CR tangents, eval(),
+// and viewFrustum on the very next call — no invalidation machinery.
+// Full spec: track-handles-design.md (tree repo root).
+//
+// Composition — one VIEW handle per draggable keyframe field (screen-
+// parallel drag plane through the point; the object follows the pointer at
+// its own depth), bound in place via the accessor-floor bind:
+//
+//   PoseTrack    kf.pos                        always
+//                kf.rot   (one DIAL, opt-in)   opts.rot = axis
+//   CameraTrack  kf.eye                        always
+//                kf.center                     opts.center (default true)
+//
+// A camera keyframe's orientation IS its center (lookat), so the center dot
+// is the camera orientation editor — no rotation widget. The PoseTrack rot
+// DIAL edits the twist about the declared axis: θ → qFromAxisAngle → kf.rot,
+// REPLACING the quaternion (a general rotation is twist-projected on sync
+// and overwritten on drag — the common authoring case is rotations about one
+// axis, which round-trips exactly).
+//
+// All members share one PointerRouter (depth-resolved pick, shared hover,
+// per-finger multitouch). Members are internal: their user hooks are owned
+// by the controller, which re-exposes them with keyframe coordinates —
+// onGrab(index, field, h) / onChange(value, index, field, h) / onRelease /
+// onCancel, field ∈ 'pos' | 'eye' | 'center' | 'rot'.
+//
+// update() ordering contract (inherited from Handle): host-driven, never a
+// predraw hook — pick and solve must run against the OBSERVER camera, after
+// setCamera(viewCam) and before orbitControl(); in a two-camera sketch only
+// the host knows that moment.
+//
+//   setCamera(viewCam)
+//   if (!track.handles.update()) orbitControl()
+//   ...
+//   trackPath(track, { bits: p5.Tree.HANDLES })   // the drawing seam
+//
+// Lifecycle: update() rebuilds the member set when keyframes.length changes
+// (the transport panel's `+` and core remove() just work) and idle-syncs
+// every ungrabbed member from its keyframe each frame (VIEW's seed is a
+// direct set), so external edits never desync a dot. A dragged pos forwards
+// its keyframe's position into that keyframe's rot DIAL anchor immediately
+// (onChange), so the ring never trails the dot mid-drag.
+
+/**
+ * Local factory — construction happens only through the track factories'
+ * `handles` opt; never installed on p5.
+ *
+ * @param {p5constructor} p5     The p5 constructor (for p5.Tree constants).
+ * @param {p5}      pInst        The sketch instance (createHandle / router).
+ * @param {Object}  track        PoseTrack | CameraTrack (core instance).
+ * @param {true|Object} opts     `true` for all defaults, or
+ *   { center?, rot?, rotRadius?, rotSnap?, grabPx?, snap?, hover? }.
+ * @param {boolean} isCamera     CameraTrack (eye/center) vs PoseTrack (pos/rot).
+ * @returns {TrackHandles}
+ */
+function createTrackHandles(p5, pInst, track, opts, isCamera) {
+  return new TrackHandles(p5, pInst, track, opts === true ? {} : (opts || {}), isCamera);
+}
+
+class TrackHandles {
+  constructor(p5, pInst, track, opts, isCamera) {
+    this._p5       = p5;
+    this._p        = pInst;
+    this._track    = track;
+    this._isCamera = !!isCamera;
+
+    // Members: { h, index, field } — rebuilt whenever keyframes.length moves.
+    this._members    = [];
+    this._rotByIndex = new Map();
+    this._n          = -1;          // force build on first update()
+    this._enabled    = true;
+
+    /** Last-grabbed keyframe index (null until a grab). @type {number|null} */
+    this.selected = null;
+
+    // ── Options ──────────────────────────────────────────────────────
+    this._grabPx  = Number.isFinite(opts.grabPx) ? opts.grabPx : 12;
+    this._snap    = opts.snap    ?? null;   // world grid — position handles
+    this._rotSnap = opts.rotSnap ?? null;   // angular step (rad) — rot DIAL
+
+    // center — CameraTrack only (default ON: it is the orientation editor).
+    this._center = this._isCamera ? (opts.center !== false) : false;
+    if (!this._isCamera && opts.center !== undefined) {
+      console.error('[p5.tree] track handles: `center` is CameraTrack-only — ignoring.');
+    }
+
+    // rot — PoseTrack only: one DIAL per keyframe about a world axis.
+    this._rotAxis   = null;
+    this._rotRadius = Number.isFinite(opts.rotRadius) ? opts.rotRadius : 40;
+    if (opts.rot != null) {
+      if (this._isCamera) {
+        console.error('[p5.tree] track handles: `rot` is PoseTrack-only — a camera keyframe\'s orientation is its center; drag that instead. Ignoring.');
+      } else {
+        const a  = opts.rot;
+        const ax = a.x ?? a[0] ?? 0, ay = a.y ?? a[1] ?? 1, az = a.z ?? a[2] ?? 0;
+        const l  = Math.hypot(ax, ay, az) || 1;
+        this._rotAxis = [ax / l, ay / l, az / l];
+      }
+    }
+
+    // User hooks — keyframe-coordinate re-exposure of the member hooks.
+    this.onGrab    = null;   // (index, field, h)
+    this.onChange  = null;   // (value, index, field, h)
+    this.onRelease = null;   // (index, field, h)
+    this.onCancel  = null;   // (index, field, h)
+
+    // One router for all members: shared depth-resolved pick + hover.
+    this._router = pInst.createPointerRouter({ hover: opts.hover !== false });
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  /**
+   * Rebuild-if-needed, idle-sync, then route. Call FIRST in draw(), after
+   * setCamera of the observer camera and before orbitControl():
+   *
+   *   if (!track.handles.update()) orbitControl()
+   *
+   * @returns {boolean} true while any keyframe handle is grabbed.
+   */
+  update() {
+    if (this._track.keyframes.length !== this._n) this._rebuild();
+    if (this._enabled) this._syncIdle();
+    return this._router.update();
+  }
+
+  /** Runtime gate — false suspends grab/solve/draw and empties the pick. */
+  get enabled() { return this._enabled; }
+  set enabled(v) {
+    this._enabled = !!v;
+    for (const m of this._members) m.h.enabled = this._enabled;
+  }
+
+  /** @returns {boolean} true while any member is grabbed. */
+  grabbed() {
+    for (const m of this._members) if (m.h.grabbed()) return true;
+    return false;
+  }
+
+  /** @returns {number|null} keyframe index under the pointer (or grabbed). */
+  hovered() {
+    for (const m of this._members) if (m.h.hovered()) return m.index;
+    return null;
+  }
+
+  /**
+   * Re-seed every idle member from its keyframe. update() already does this
+   * each frame; call directly only between update() and a same-frame read.
+   * Chainable.
+   * @returns {TrackHandles} this
+   */
+  sync() { this._syncIdle(); return this; }
+
+  /** Dispose members + router and detach from the track. */
+  dispose() {
+    this._teardownMembers();
+    this._router.dispose();
+    if (this._track.handles === this) this._track.handles = null;
+  }
+
+  // ── Draw (the trackPath HANDLES bit lands here) ─────────────────────
+
+  /**
+   * Render every member at the ambient p5 state: fill() colours the dots,
+   * stroke() the rot ring/spoke. Hover/grab emphasis is geometric — the dot
+   * grows by `emphasis` — so colour stays the sketch's, per the ambient
+   * philosophy. Normally invoked by trackPath's HANDLES bit; callable
+   * standalone. No-op while disabled. Chainable.
+   *
+   * @param {{ size?: number, emphasis?: number }} [opts]
+   *        size — base dot radius in px (default grabPx);
+   *        emphasis — hover/grab scale factor (default 1.4).
+   * @returns {TrackHandles} this
+   */
+  draw(opts = {}) {
+    if (!this._enabled) return this;
+    const T    = this._p5.Tree;
+    const base = Number.isFinite(opts.size)     ? opts.size     : this._grabPx;
+    const emph = Number.isFinite(opts.emphasis) ? opts.emphasis : 1.4;
+    for (const m of this._members) {
+      const hot  = m.h.hovered() || m.h.grabbed();
+      const bits = m.field === 'rot' ? (T.HANDLE | T.AIM | T.LOCUS) : T.HANDLE;
+      m.h.draw({ bits, size: base * (hot ? emph : 1) });
+    }
+    return this;
+  }
+
+  // ── Members ────────────────────────────────────────────────────────────────
+
+  _rebuild() {
+    this._teardownMembers();
+    const n = this._track.keyframes.length;
+    this._n = n;
+    for (let i = 0; i < n; i++) {
+      this._addViewMember(i, this._isCamera ? 'eye' : 'pos');
+      if (this._center)  this._addViewMember(i, 'center');
+      if (this._rotAxis) this._addRotMember(i);
+    }
+    if (this.selected != null && this.selected >= n) this.selected = null;
+  }
+
+  _teardownMembers() {
+    for (const m of this._members) {
+      this._router.remove(m.h);
+      m.h.dispose();
+    }
+    this._members.length = 0;
+    this._rotByIndex.clear();
+  }
+
+  // A VIEW member: screen-parallel drag of kf[field], bound in place. The
+  // binder resolves the keyframe BY INDEX at call time, so track.set(i, spec)
+  // replacing the object never leaves a stale reference behind.
+  _addViewMember(index, field) {
+    const track = this._track;
+    const h = this._p.createHandle({
+      constraint: this._p5.Tree.VIEW,
+      grabPx:     this._grabPx,
+      snap:       this._snap,
+      bind: {
+        get: () => track.keyframes[index] ? track.keyframes[index][field] : null,
+        set: (v) => {
+          const k = track.keyframes[index];
+          if (!k) return;
+          const a = k[field];
+          a[0] = v.x; a[1] = v.y; a[2] = v.z;
+        },
+      },
+    });
+    if (!h) return;
+    this._wire(h, index, field);
+    this._members.push({ h, index, field });
+    this._router.add(h);
+  }
+
+  // A rot member: one DIAL about the declared world axis, anchored at the
+  // keyframe's position. Unbound (DIAL reports θ, not a vec3) — the quat
+  // write happens in the onChange wiring below.
+  _addRotMember(index) {
+    const kf = this._track.keyframes[index];
+    const h  = this._p.createHandle({
+      constraint: this._p5.Tree.DIAL,
+      anchor:     [kf.pos[0], kf.pos[1], kf.pos[2]],
+      axis:       this._rotAxis,
+      radius:     this._rotRadius,
+      grabPx:     this._grabPx,
+      snap:       this._rotSnap,
+    });
+    if (!h) return;
+    this._wire(h, index, 'rot');
+    const m = { h, index, field: 'rot' };
+    this._members.push(m);
+    this._rotByIndex.set(index, m);
+    this._router.add(h);
+    this._syncRot(m);   // seed θ from the keyframe's current twist
+  }
+
+  _wire(h, index, field) {
+    // Member user hooks are owned here (members are internal); the router
+    // owns their lib-space _onRelease/_onCancel seams.
+    h.onGrab = () => {
+      this.selected = index;
+      if (this.onGrab) this.onGrab(index, field, h);
+    };
+    h.onChange = (v) => {
+      if (field === 'rot') {
+        const k = this._track.keyframes[index];
+        if (k) {
+          const u = this._rotAxis;
+          qFromAxisAngle(k.rot, u[0], u[1], u[2], h.scalar());
+        }
+      } else if (field === 'pos') {
+        // Forward the dragged position into this keyframe's rot ring NOW —
+        // idle sync would trail the dot by a frame.
+        const rm = this._rotByIndex.get(index);
+        if (rm) {
+          const k = this._track.keyframes[index];
+          if (k) rm.h.anchor(k.pos);
+        }
+      }
+      if (this.onChange) this.onChange(v, index, field, h);
+    };
+    h.onRelease = () => { if (this.onRelease) this.onRelease(index, field, h); };
+    h.onCancel = () => {
+      // A VIEW cancel restores the keyframe through its binding; a DIAL is
+      // unbound, so re-derive the quat from the reverted θ here.
+      if (field === 'rot') {
+        const k = this._track.keyframes[index];
+        if (k) {
+          const u = this._rotAxis;
+          qFromAxisAngle(k.rot, u[0], u[1], u[2], h.scalar());
+        }
+      }
+      if (this.onCancel) this.onCancel(index, field, h);
+    };
+  }
+
+  // ── Sync ───────────────────────────────────────────────────────────────────
+
+  _syncIdle() {
+    for (const m of this._members) {
+      if (m.h.grabbed()) continue;
+      if (m.field === 'rot') this._syncRot(m);
+      else m.h.sync();                 // VIEW: binder get → direct pt set
+    }
+  }
+
+  // Anchor the ring at the live keyframe position and set θ to the twist of
+  // kf.rot about the declared axis: θ = 2·atan2(q.xyz · u, q.w) — exact for
+  // rotations about u, the swing-twist projection otherwise.
+  _syncRot(m) {
+    const k = this._track.keyframes[m.index];
+    if (!k) return;
+    m.h.anchor(k.pos);
+    const u  = this._rotAxis;
+    const th = 2 * Math.atan2(
+      k.rot[0] * u[0] + k.rot[1] * u[1] + k.rot[2] * u[2],
+      k.rot[3]);
+    const c = m.h._constraint;         // lib-space: same package as handle.js
+    if (c.s !== th) { c.s = th; c._dialPoint(); }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Install
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -206,13 +539,32 @@ export function installTrack(p5, fn) {
    * }
    * ```
    *
+   * Keyframe handles (opt-in): `{ handles: true }` (or an options object —
+   * `{ rot?, rotRadius?, rotSnap?, grabPx?, snap?, hover? }`) decorates the
+   * track with a `track.handles` controller — one screen-parallel drag dot
+   * per keyframe position, plus an optional per-keyframe rotation DIAL about
+   * a declared axis (`rot: [0,1,0]`). Drive it host-side and gate the orbit:
+   *
+   * ```js
+   * const track = createPoseTrack({ handles: { rot: [0, 1, 0] } })
+   * // draw():
+   * if (!track.handles.update()) orbitControl()
+   * trackPath(track, { bits: p5.Tree.HANDLES })
+   * ```
+   *
+   * See track-handles-design.md (tree repo).
+   *
    * @method createPoseTrack
    * @memberof p5
+   * @param {{ handles?: boolean|Object }} [opts]
    * @returns {PoseTrack}
    */
-  fn.createPoseTrack = function () {
+  fn.createPoseTrack = function (opts = {}) {
     const track = new PoseTrack();
     _wirePoseTrack(track, this);
+    if (opts.handles) {
+      track.handles = createTrackHandles(p5, this, track, opts.handles, false);
+    }
     return track;
   };
 
@@ -251,14 +603,41 @@ export function installTrack(p5, fn) {
    * track.centerInterp = 'linear'    // 'hermite' | 'linear' | 'step'
    * ```
    *
+   * Keyframe handles (opt-in): `{ handles: true }` (or an options object —
+   * `{ center?, grabPx?, snap?, hover? }`) decorates the track with a
+   * `track.handles` controller — a screen-parallel drag dot per keyframe eye
+   * AND per keyframe center (`center: false` opts out). The center dot IS
+   * the orientation editor: a lookat keyframe's orientation is derived from
+   * eye→center+up, so dragging the center re-aims the gaze and the marker.
+   * Coincident centers (the common every-keyframe-targets-the-origin
+   * authoring style) leave the first grab ambiguous until dragged apart.
+   * Drive it host-side against the OBSERVER camera and gate the orbit:
+   *
+   * ```js
+   * const track = createCameraTrack(animCam, { handles: true })
+   * // draw():
+   * setCamera(viewCam)
+   * if (!track.handles.update()) orbitControl()
+   * trackPath(track, { bits: p5.Tree.HANDLES })
+   * ```
+   *
+   * See track-handles-design.md (tree repo).
+   *
    * @method createCameraTrack
    * @memberof p5
    * @param {p5.Camera} [cam]  Camera to drive. Defaults to the current camera.
    *                           Use createCamera() for a dedicated camera.
+   * @param {{ handles?: boolean|Object }} [opts]
    * @returns {CameraTrack}
    */
-  fn.createCameraTrack = function (cam) {
+  fn.createCameraTrack = function (cam, opts = {}) {
     const pInst = this;
+    // Options-only call — createCameraTrack({ handles: true }): a plain
+    // object with no lookat surface is an opts bag, not a camera.
+    if (cam && typeof cam === 'object' && !(cam instanceof p5.Camera) &&
+        cam.eyeX === undefined) {
+      opts = cam; cam = undefined;
+    }
     cam = cam ?? this.getCamera() ?? null;
     const track  = new CameraTrack();
     const out    = {
@@ -284,6 +663,10 @@ export function installTrack(p5, fn) {
       unregisterPlayer(pInst, applyPlayer);
       if (cam && track.keyframes.length > 0) cam.applyPose(track.eval(out));
     };
+
+    if (opts.handles) {
+      track.handles = createTrackHandles(p5, pInst, track, opts.handles, true);
+    }
 
     return track;
   };
