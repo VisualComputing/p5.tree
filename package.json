@@ -15,7 +15,8 @@
   ],
   "scripts": {
     "build": "rollup -c",
-    "clean": "rm -rf dist",
+    "docs": "node tools/docs/index.js",
+    "clean": "rm -rf dist site",
     "rebuild": "npm run clean && npm run build",
     "reset": "rm -rf node_modules dist package-lock.json && npm install",
     "link:core": "npm link @nakednous/tree @nakednous/ui",
@@ -46,10 +47,12 @@
   },
   "dependencies": {
     "@nakednous/tree": "^0.0.27",
-    "@nakednous/ui": "^0.0.12"
+    "@nakednous/ui": "^0.0.13"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "rollup": "^4.62.2"
+    "comment-parser": "^1.4.8",
+    "marked": "^18.0.11",
+    "rollup": "^4.63.1"
   }
 }

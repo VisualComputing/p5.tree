@@ -4,6 +4,8 @@ package-lock.json
 
 # Build output (already covered by dist/ but explicit)
 dist/
+# Generated docs site (npm run docs)
+site/
 # IIFE bundle copied to root for CDN (if you still do that)
 p5.tree.js
 p5.tree.js.map
