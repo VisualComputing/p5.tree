@@ -65,7 +65,7 @@ const _rawMat3 = (m) => (m != null && m.mat3 != null) ? m.mat3 : m;
 
 let _ndcZ = WEBGL;
 
-/** Detect NDC Z convention from renderer context. Called from postsetup. */
+// Detect NDC Z convention from renderer context. Called from postsetup.
 export function detectNDC(renderer) {
   _ndcZ = (renderer.drawingContext &&
            typeof WebGL2RenderingContext !== 'undefined' &&
@@ -104,7 +104,13 @@ export function installMatrix(p5, fn) {
   // ── Simple matrix queries ─────────────────────────────────────────────────
   //   out: Float32Array | ArrayLike | p5.Matrix — 16-element destination.
 
-  /** Projection matrix (eye → clip) — reads live renderer state (perspective or ortho). */
+  /**
+   * Projection matrix (eye → clip) — reads live renderer state (perspective or ortho).
+   * @function mat4Proj
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   */
   p5.Renderer3D.prototype.mat4Proj = function (out) {
     const buf = _rawMat4(out), s = _projMat4(this);
     for (let i = 0; i < 16; i++) buf[i] = s[i];
@@ -120,7 +126,10 @@ export function installMatrix(p5, fn) {
    * Symmetric with `cam.mat4View` / `cam.mat4Eye` which read from
    * `cam.cameraMatrix`.
    *
+   * @function mat4Proj
+   * @memberof p5.Camera
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   p5.Camera.prototype.mat4Proj = function (out) {
     const buf = _rawMat4(out), s = this.projMatrix.mat4;
@@ -130,9 +139,20 @@ export function installMatrix(p5, fn) {
 
   /**
    * Perspective projection matrix (standalone constructor, general frustum).
-   * mat4Persp(out, left, right, bottom, top, near, far[, ndcZMin[, ndcYSign]])
-   * Symmetric: left=-right, bottom=-top — derive from fov+aspect in user space.
-   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   * Symmetric: `left = -right`, `bottom = -top` — derive from fov + aspect in
+   * user space. `ndcZMin` defaults to the renderer's backend convention.
+   * @function mat4Persp
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {number} left
+   * @param {number} right
+   * @param {number} bottom
+   * @param {number} top
+   * @param {number} near
+   * @param {number} far
+   * @param {number} [ndcZMin]  {@link WEBGL} (−1) or {@link WEBGPU} (0).
+   * @param {number} [ndcYSign]  Sign of the NDC y axis.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   fn.mat4Persp = function (out, ...args) {
     if (args[6] == null) args[6] = _ndcZ;
@@ -141,9 +161,20 @@ export function installMatrix(p5, fn) {
   };
 
   /**
-   * Orthographic projection matrix (standalone constructor).
-   * mat4Ortho(out, left, right, bottom, top, near, far[, ndcZMin[, ndcYSign]])
-   * @param {Float32Array|ArrayLike|p5.Matrix} out
+   * Orthographic projection matrix (standalone constructor). `ndcZMin`
+   * defaults to the renderer's backend convention.
+   * @function mat4Ortho
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {number} left
+   * @param {number} right
+   * @param {number} bottom
+   * @param {number} top
+   * @param {number} near
+   * @param {number} far
+   * @param {number} [ndcZMin]  {@link WEBGL} (−1) or {@link WEBGPU} (0).
+   * @param {number} [ndcYSign]  Sign of the NDC y axis.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   fn.mat4Ortho = function (out, ...args) {
     if (args[6] == null) args[6] = _ndcZ;
@@ -151,7 +182,13 @@ export function installMatrix(p5, fn) {
     return out;
   };
 
-  /** Model matrix (local → world). */
+  /**
+   * Model matrix (local → world) — the current transform stack.
+   * @function mat4Model
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   */
   p5.Renderer3D.prototype.mat4Model = function (out) {
     const buf = _rawMat4(out), s = _modelMat4(this);
     for (let i = 0; i < 16; i++) buf[i] = s[i];
@@ -159,25 +196,67 @@ export function installMatrix(p5, fn) {
   };
   fn.mat4Model = function (out) { return this._renderer.mat4Model(out); };
 
-  /** View matrix (world → eye). */
+  /**
+   * View matrix (world → eye) of a specific p5.Camera.
+   * @function mat4View
+   * @memberof p5.Camera
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   */
   p5.Camera.prototype.mat4View = function (out) {
     const buf = _rawMat4(out), s = this.cameraMatrix.mat4;
     for (let i = 0; i < 16; i++) buf[i] = s[i];
     return out;
   };
   p5.Renderer3D.prototype.mat4View = function (out) { return this.states.curCamera.mat4View(out); };
+  /**
+   * View matrix (world → eye) — the current camera's, or a standalone lookat
+   * built from nine scalars with no camera state involved.
+   *
+   * ```js
+   * mat4View(out)                                // current camera
+   * mat4View(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)  // standalone lookat
+   * ```
+   *
+   * @function mat4View
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {...number} [lookat]  `ex, ey, ez, cx, cy, cz, ux, uy, uz`.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   */
   fn.mat4View = function (out, ...args) {
     if (args.length === 0) return this._renderer.mat4View(out);
     _mat4View(_rawMat4(out), ...args);
     return out;
   };
 
-  /** Eye matrix (eye → world, i.e. inverse view). Returns null if singular. */
+  /**
+   * Eye matrix (eye → world, the inverse view) of a specific p5.Camera.
+   * @function mat4Eye
+   * @memberof p5.Camera
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   */
   p5.Camera.prototype.mat4Eye = function (out) {
     const buf = _rawMat4(out);
     return mat4Invert(buf, this.cameraMatrix.mat4) === null ? null : out;
   };
   p5.Renderer3D.prototype.mat4Eye = function (out) { return this.states.curCamera.mat4Eye(out); };
+  /**
+   * Eye matrix (eye → world, the inverse view) — the current camera's, or a
+   * standalone lookat built from nine scalars with no camera state involved.
+   *
+   * ```js
+   * mat4Eye(out)                                // current camera
+   * mat4Eye(out, ex,ey,ez, cx,cy,cz, ux,uy,uz)  // standalone lookat
+   * ```
+   *
+   * @function mat4Eye
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {...number} [lookat]  `ex, ey, ez, cx, cy, cz, ux, uy, uz`.
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   */
   fn.mat4Eye = function (out, ...args) {
     if (args.length === 0) return this._renderer.mat4Eye(out);
     _mat4Eye(_rawMat4(out), ...args);
@@ -189,8 +268,11 @@ export function installMatrix(p5, fn) {
 
   /**
    * Projection-view matrix: P · V.
-   * @param {Float32Array|ArrayLike|p5.Matrix} out
-   * @param {{ mat4Proj?, mat4View? }} [opts]
+   * @function mat4PV
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {{ mat4Proj?, mat4View? }} [opts]  Precomputed matrices to skip redundant work.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   p5.Renderer3D.prototype.mat4PV = function (out, { mat4Proj, mat4View } = {}) {
     mat4Mul(_rawMat4(out), _rawMat4(mat4Proj) ?? _projMat4(this), _rawMat4(mat4View) ?? _viewMat4(this));
@@ -200,9 +282,12 @@ export function installMatrix(p5, fn) {
 
   /**
    * Inverse projection-view matrix: inv(P · V).
-   * Pass mat4PV to skip recomputing P · V. Returns null if singular.
-   * @param {Float32Array|ArrayLike|p5.Matrix} out
-   * @param {{ mat4Proj?, mat4View?, mat4PV? }} [opts]
+   * Pass mat4PV to skip recomputing P · V.
+   * @function mat4PVInv
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {{ mat4Proj?, mat4View?, mat4PV? }} [opts]  Precomputed matrices to skip redundant work.
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
    */
   p5.Renderer3D.prototype.mat4PVInv = function (out, { mat4Proj, mat4View, mat4PV } = {}) {
     const pv = _rawMat4(mat4PV) ??
@@ -213,8 +298,11 @@ export function installMatrix(p5, fn) {
 
   /**
    * Model-view matrix: V · M.
-   * @param {Float32Array|ArrayLike|p5.Matrix} out
-   * @param {{ mat4Model?, mat4View? }} [opts]
+   * @function mat4MV
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {{ mat4Model?, mat4View? }} [opts]  Precomputed matrices to skip redundant work.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   p5.Renderer3D.prototype.mat4MV = function (out, { mat4Model, mat4View } = {}) {
     mat4Mul(_rawMat4(out), _rawMat4(mat4View) ?? _viewMat4(this), _rawMat4(mat4Model) ?? _modelMat4(this));
@@ -224,8 +312,11 @@ export function installMatrix(p5, fn) {
 
   /**
    * Projection-model-view matrix: P · V · M.
-   * @param {Float32Array|ArrayLike|p5.Matrix} out
-   * @param {{ mat4Proj?, mat4Model?, mat4View? }} [opts]
+   * @function mat4PMV
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {{ mat4Proj?, mat4Model?, mat4View? }} [opts]  Precomputed matrices to skip redundant work.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   p5.Renderer3D.prototype.mat4PMV = function (out, { mat4Proj, mat4Model, mat4View } = {}) {
     mat4Mul(_wa, _rawMat4(mat4View) ?? _viewMat4(this), _rawMat4(mat4Model) ?? _modelMat4(this));
@@ -237,8 +328,11 @@ export function installMatrix(p5, fn) {
   /**
    * Normal matrix: inverseTranspose(upper 3×3 of V · M).
    * Pass mat4MV to skip recomputing V · M.
+   * @function mat3Normal
+   * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
-   * @param {{ mat4Model?, mat4View?, mat4MV? }} [opts]
+   * @param {{ mat4Model?, mat4View?, mat4MV? }} [opts]  Precomputed matrices to skip redundant work.
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
    */
   p5.Renderer3D.prototype.mat3Normal = function (out, { mat4Model, mat4View, mat4MV } = {}) {
     const mv = _rawMat4(mat4MV) ??
@@ -250,10 +344,12 @@ export function installMatrix(p5, fn) {
 
   /**
    * Location transform between frames: out = inv(to) · from.
-   * Returns null if `to` is singular.
+   * @function mat4Location
+   * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} from
    * @param {Float32Array|ArrayLike|p5.Matrix} to
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if `to` is singular.
    */
   p5.Renderer3D.prototype.mat4Location = function (out, from, to) {
     return mat4Location(_rawMat4(out), _rawMat4(from), _rawMat4(to)) === null ? null : out;
@@ -262,10 +358,12 @@ export function installMatrix(p5, fn) {
 
   /**
    * Direction transform between frames: out = to₃ · inv(from₃).
-   * Returns null if `from` is singular.
+   * @function mat3Direction
+   * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} from
    * @param {Float32Array|ArrayLike|p5.Matrix} to
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if `from` is singular.
    */
   p5.Renderer3D.prototype.mat3Direction = function (out, from, to) {
     return mat3Direction(_rawMat3(out), _rawMat4(from), _rawMat4(to)) === null ? null : out;
@@ -276,14 +374,29 @@ export function installMatrix(p5, fn) {
   //   For sketches that need custom matrix arithmetic (e.g. bias·lightPV for
   //   shadow mapping) without importing @nakednous/tree directly.
 
-  /** out = A · B  (column-major) */
+  /**
+   * Matrix product: out = A · B (column-major).
+   * @function mat4Mul
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} A
+   * @param {Float32Array|ArrayLike|p5.Matrix} B
+   * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   */
   p5.Renderer3D.prototype.mat4Mul = function (out, A, B) {
     mat4Mul(_rawMat4(out), _rawMat4(A), _rawMat4(B));
     return out;
   };
   fn.mat4Mul = function (out, A, B) { return this._renderer.mat4Mul(out, A, B); };
 
-  /** out = inv(src). Returns null if singular. */
+  /**
+   * Matrix inverse: out = inv(src).
+   * @function mat4Invert
+   * @memberof p5
+   * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} src
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   */
   p5.Renderer3D.prototype.mat4Invert = function (out, src) {
     return mat4Invert(_rawMat4(out), _rawMat4(src)) === null ? null : out;
   };
@@ -295,7 +408,14 @@ export function installMatrix(p5, fn) {
   //   out3: Float32Array | number[] | p5.Vector — p5.Vector written back via _tmp3.
   //   out4: Float32Array | number[] only — quaternion is 4-component, no p5.Vector.
 
-  /** Extract translation (column 3) from a mat4. */
+  /**
+   * Extract the translation (column 3) of a mat4.
+   * @function mat4ToTranslation
+   * @memberof p5
+   * @param {Float32Array|number[]|p5.Vector} out3  3-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} m
+   * @returns {Float32Array|number[]|p5.Vector} out3
+   */
   fn.mat4ToTranslation = function (out3, m) {
     const isVec = out3 instanceof p5.Vector;
     const buf = isVec ? _tmp3 : out3;
@@ -304,7 +424,14 @@ export function installMatrix(p5, fn) {
     return out3;
   };
 
-  /** Extract scale (column vector lengths) from a mat4. Assumes no shear. */
+  /**
+   * Extract the scale (column vector lengths) of a mat4. Assumes no shear.
+   * @function mat4ToScale
+   * @memberof p5
+   * @param {Float32Array|number[]|p5.Vector} out3  3-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} m
+   * @returns {Float32Array|number[]|p5.Vector} out3
+   */
   fn.mat4ToScale = function (out3, m) {
     const isVec = out3 instanceof p5.Vector;
     const buf = isVec ? _tmp3 : out3;
@@ -313,7 +440,14 @@ export function installMatrix(p5, fn) {
     return out3;
   };
 
-  /** Extract rotation as a unit quaternion [x,y,z,w]. Assumes no shear. */
+  /**
+   * Extract the rotation of a mat4 as a unit quaternion [x,y,z,w]. Assumes no shear.
+   * @function mat4ToRotation
+   * @memberof p5
+   * @param {Float32Array|number[]} out4  4-element destination.
+   * @param {Float32Array|ArrayLike|p5.Matrix} m
+   * @returns {Float32Array|number[]} out4
+   */
   fn.mat4ToRotation = function (out4, m) {
     mat4ToRotation(out4, _rawMat4(m));
     return out4;
@@ -332,14 +466,50 @@ export function installMatrix(p5, fn) {
   p5.Renderer3D.prototype.projFov     = function () { return projFov    (_projMat4(this)); };
   p5.Renderer3D.prototype.projHfov    = function () { return projHfov   (_projMat4(this)); };
 
+  /** Whether the current projection is orthographic.
+   * @function projIsOrtho
+   * @memberof p5
+   * @returns {boolean} */
   fn.projIsOrtho = function () { return this._renderer.projIsOrtho(); };
+  /** Near clip distance of the current projection (positive).
+   * @function projNear
+   * @memberof p5
+   * @returns {number} */
   fn.projNear    = function () { return this._renderer.projNear();    };
+  /** Far clip distance of the current projection (positive).
+   * @function projFar
+   * @memberof p5
+   * @returns {number} */
   fn.projFar     = function () { return this._renderer.projFar();     };
+  /** Left extent of the current projection's near plane (camera space; negative).
+   * @function projLeft
+   * @memberof p5
+   * @returns {number} */
   fn.projLeft    = function () { return this._renderer.projLeft();    };
+  /** Right extent of the current projection's near plane (camera space).
+   * @function projRight
+   * @memberof p5
+   * @returns {number} */
   fn.projRight   = function () { return this._renderer.projRight();   };
+  /** Top extent of the current projection's near plane (camera space).
+   * @function projTop
+   * @memberof p5
+   * @returns {number} */
   fn.projTop     = function () { return this._renderer.projTop();     };
+  /** Bottom extent of the current projection's near plane (camera space; negative).
+   * @function projBottom
+   * @memberof p5
+   * @returns {number} */
   fn.projBottom  = function () { return this._renderer.projBottom();  };
+  /** Vertical field of view of the current projection, in radians.
+   * @function projFov
+   * @memberof p5
+   * @returns {number} */
   fn.projFov     = function () { return this._renderer.projFov();     };
+  /** Horizontal field of view of the current projection, in radians.
+   * @function projHfov
+   * @memberof p5
+   * @returns {number} */
   fn.projHfov    = function () { return this._renderer.projHfov();    };
 
   // ── _buildBag ─────────────────────────────────────────────────────────────
@@ -375,6 +545,8 @@ export function installMatrix(p5, fn) {
    * Hot path (zero-alloc):  pass `opts.out` as a caller-owned buffer.
    * Ergonomic path:         omit `opts.out`; a fresh p5.Vector is returned.
    *
+   * @function mapLocation
+   * @memberof p5
    * @param {Float32Array|number[]|p5.Vector} [point]  Input point. Default: ORIGIN.
    * @param {{
    *   out?:       Float32Array | number[] | p5.Vector,
@@ -440,6 +612,8 @@ export function installMatrix(p5, fn) {
    * Hot path (zero-alloc):  pass `opts.out` as a caller-owned buffer.
    * Ergonomic path:         omit `opts.out`; a fresh p5.Vector is returned.
    *
+   * @function mapDirection
+   * @memberof p5
    * @param {Float32Array|number[]|p5.Vector} [dir]  Input direction. Default: −Z (look direction).
    * @param {{
    *   out?:      Float32Array | number[] | p5.Vector,
@@ -485,6 +659,8 @@ export function installMatrix(p5, fn) {
 
   /**
    * World-units-per-pixel at a world position (defaults to camera position).
+   * @function pixelRatio
+   * @memberof p5
    * @param {Float32Array|number[]|p5.Vector} [worldPos]
    * @param {{ mat4Proj?, mat4View? }} [opts]
    * @returns {number}
@@ -510,6 +686,8 @@ export function installMatrix(p5, fn) {
   /**
    * Physical canvas size in pixels: [pixelDensity×width, pixelDensity×height].
    * Use as `u_resolution` for shaders that use `gl_FragCoord.xy`.
+   * @function screenSize
+   * @memberof p5
    * @returns {number[]} [w, h]
    */
   p5.Renderer3D.prototype.screenSize = function () {
@@ -523,6 +701,8 @@ export function installMatrix(p5, fn) {
   /**
    * Texel size of an image-like object: [1/width, 1/height].
    * Accepts p5.Image, p5.Framebuffer, p5.Graphics, or any `{ width, height }`.
+   * @function texelSize
+   * @memberof p5
    * @param {{ width:number, height:number }} img
    * @returns {number[]} [1/w, 1/h]
    */

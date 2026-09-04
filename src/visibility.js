@@ -7,23 +7,27 @@
  *
  * ── Usage pattern ─────────────────────────────────────────────────────────
  *
- *   // setup
- *   m._c1 = new Float32Array(3)
- *   m._c2 = new Float32Array(3)
+ * ```js
+ * // setup
+ * m._c1 = new Float32Array(3)
+ * m._c2 = new Float32Array(3)
  *
- *   // draw — zero allocations
- *   m._c1.set([px - hw, py - hh, pz - hd])
- *   m._c2.set([px + hw, py + hh, pz + hd])
- *   m.visibility = p.visibility({ corner1: m._c1, corner2: m._c2 })
+ * // draw — zero allocations
+ * m._c1.set([px - hw, py - hh, pz - hd])
+ * m._c2.set([px + hw, py + hh, pz + hd])
+ * m.visibility = p.visibility({ corner1: m._c1, corner2: m._c2 })
+ * ```
  *
  * ── Sign contract ─────────────────────────────────────────────────────────
  *
  * Frustum extents are near-plane coordinates in camera space (y-up, z into
  * screen):
  *
- *   top    > 0   bottom < 0   (y axis)
- *   right  > 0   left   < 0   (x axis)
- *   near, far > 0              (positive distances along −z)
+ * ```
+ * top    > 0   bottom < 0   (y axis)
+ * right  > 0   left   < 0   (x axis)
+ * near, far > 0              (positive distances along −z)
+ * ```
  *
  * All of frustumPlanes, viewFrustum, projTop/projBottom, projLeft/projRight,
  * mat4Proj, mat4Ortho, and p5 v2's frustum()/ortho() share this contract.
@@ -63,12 +67,8 @@ const _viewMat4 = (r) => r.states.curCamera.cameraMatrix.mat4;
 // computePlanes — exported for gizmos (viewFrustum); not part of public API
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Fill the module-level _planes buffer from the current renderer state.
- * @param {p5.Renderer3D} renderer
- * @param {Float32Array}  [eRaw]  Pre-computed eye matrix — skips inversion.
- * @returns {Float64Array} _planes
- */
+// Fill the module-level _planes buffer from the current renderer state.
+// eRaw: a pre-computed eye matrix — skips the inversion. Returns _planes.
 export function computePlanes(renderer, eRaw) {
   const view = _viewMat4(renderer);
   const e    = eRaw ?? (mat4Invert(_eye, view), _eye);
@@ -92,11 +92,7 @@ export function computePlanes(renderer, eRaw) {
 // Install
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Install visibility helpers on fn and p5.Renderer3D.
- * @param {p5}    p5
- * @param {Object} fn  p5 prototype.
- */
+// Install visibility helpers on fn and p5.Renderer3D.
 export function installVisibility(p5, fn) {
 
   // ── Public forwarders ─────────────────────────────────────────────────────
@@ -146,9 +142,12 @@ export function installVisibility(p5, fn) {
    * Test visibility of a point, sphere, or AABB against the view frustum.
    *
    * Three query forms:
-   *   visibility({ corner1, corner2 })          // axis-aligned box
-   *   visibility({ center, radius })            // sphere
-   *   visibility({ center })                    // point
+   *
+   * ```js
+   * visibility({ corner1, corner2 })          // axis-aligned box
+   * visibility({ center, radius })            // sphere
+   * visibility({ center })                    // point
+   * ```
    *
    * All corner/center values accept Float32Array(3), plain array, or p5.Vector.
    *
@@ -171,8 +170,8 @@ export function installVisibility(p5, fn) {
    * Fallback (user-supplied `bounds` object): scalar arithmetic on the keyed
    * plane object.
    *
-   * @method visibility
-   * @for p5
+   * @function visibility
+   * @memberof p5
    * @param {{
    *   corner1?:   Float32Array | ArrayLike | p5.Vector,
    *   corner2?:   Float32Array | ArrayLike | p5.Vector,
@@ -331,8 +330,8 @@ export function installVisibility(p5, fn) {
    * For per-object visibility tests prefer calling `visibility()` directly —
    * its fast path bypasses this object entirely.
    *
-   * @method bounds
-   * @for p5
+   * @function bounds
+   * @memberof p5
    * @param {{ mat4Eye?: Float32Array | ArrayLike | p5.Matrix }} [opts]
    * @returns {object}
    */
@@ -354,8 +353,8 @@ export function installVisibility(p5, fn) {
    * Signed distance from a point to one frustum plane.
    * Positive → outside (invisible side).
    *
-   * @method distanceToBound
-   * @for p5
+   * @function distanceToBound
+   * @memberof p5
    * @param {ArrayLike|p5.Vector} point
    * @param {number|string} key  p5.Tree plane constant (LEFT, RIGHT, NEAR, FAR, TOP, BOTTOM).
    * @param {object} [bounds]    Keyed bounds object. Defaults to current frustum.

@@ -45,8 +45,8 @@
  * locus).
  *
  * A CUSTOM kind passes a contract-conforming constraint object
- * (`kind`/`solve`/`value`/`seed`, optional `scalar`/`azEl` — handle-design.md
- * §9) as `constraint:`, plus a bridge-side `drawLocus(h, opts)` (and optionally
+ * (`kind`/`solve`/`value`/`seed`, optional `scalar`/`azEl`) as
+ * `constraint:`, plus a bridge-side `drawLocus(h, opts)` (and optionally
  * `pickProxy(h, pos, rad)`) — the controller drives lifecycle, ray, value
  * conversion, bind, hooks, and pick for it; without a `drawLocus` it draws only
  * dot + aim and warns once.
@@ -75,7 +75,7 @@
  * to a from-less handle. SPHERE has no basis and VIEW re-aims continuously by
  * design (a deliberately DIFFERENT semantics from PLANE + from: EYE, which
  * freezes the plane at press); both reject `from`. A custom kind participates
- * iff it exposes aim() (§9, optional member).
+ * iff it exposes aim() (an optional contract member).
  *
  * ── Multitouch: per-pointer capture (A) and the router (B) ──────────────────
  * The whole gesture keys to one pointerId (see update()), and the pick + solve
@@ -184,11 +184,8 @@ function _handleSet(pInst) {
 function _register(pInst, h)   { if (pInst && h) _handleSet(pInst).add(h); }
 function _unregister(pInst, h) { if (pInst && h) HANDLES.get(pInst)?.delete(h); }
 
-/**
- * Dispose every handle and router registered with a p5 instance. Called from
- * `lifecycles.remove`.
- * @param {p5} pInst
- */
+// Dispose every handle and router registered with a p5 instance. Called from
+// `lifecycles.remove`.
 export function disposeHandles(pInst) {
   const s = HANDLES.get(pInst);
   if (!s) return;
@@ -216,7 +213,7 @@ export function installHandle(p5, fn) {
     return c ?? v[i] ?? d;
   };
 
-  // Contract check for a custom constraint object (handle-design.md §9).
+  // Contract check for a custom constraint object.
   const _isConstraint = (c) =>
     c && typeof c === 'object' &&
     typeof c.solve === 'function' &&
@@ -260,7 +257,7 @@ export function installHandle(p5, fn) {
       // VIEW is a bridge constraint: a core PLANE whose normal is re-aimed at
       // the camera each solve (a screen-parallel drag plane). The core stays
       // camera-oblivious; _view marks the bridge behaviour. A custom constraint
-      // object passes straight through (§9 contract; checked in the factory).
+      // object passes straight through (contract checked in the factory).
       this._view = (kind === p5.Tree.VIEW);
 
       if (_isConstraint(kind)) {
@@ -290,7 +287,7 @@ export function installHandle(p5, fn) {
       this._proxyFn     = typeof opts.pickProxy === 'function' ? opts.pickProxy : null;
       this._warnedLocus = false;
 
-      // Deferred constraint frame (see header / handle-design.md §4.13).
+      // Deferred constraint frame (see the header).
       // Symbolic basis copies live here; _resolveFrame() maps them into WORLD
       // and re-aims the core constraint.
       this._from     = null;
@@ -486,6 +483,8 @@ export function installHandle(p5, fn) {
      * `onCancel` instead of `onRelease` when the drag is reverted (Esc /
      * `pointercancel` / `cancel()`).
      *
+     * @function update
+     * @memberof Handle
      * @returns {boolean} grabbed
      */
     update() {
@@ -587,6 +586,8 @@ export function installHandle(p5, fn) {
      * state is restored (exact θ winding included), the binding is re-set, and
      * `onCancel` fires (`onRelease` does not). No-op when not grabbed.
      * Triggered by Esc and `pointercancel` automatically. Chainable.
+     * @function cancel
+     * @memberof Handle
      * @returns {Handle} this
      */
     cancel() {
@@ -802,6 +803,8 @@ export function installHandle(p5, fn) {
      * supplied camera instead of live state (parity with mapLocation). The
      * default `to` is WORLD, so nothing converts unless asked.
      *
+     * @function value
+     * @memberof Handle
      * @param {{ to?: string | Float32Array | number[] | p5.Matrix,
      *           report?: number,
      *           out?: Float32Array | number[] | p5.Vector,
@@ -852,8 +855,10 @@ export function installHandle(p5, fn) {
      * `get()` seeds the constraint immediately, so the handle starts at the
      * target's current value. While grabbed, each solve calls `set(value)` and
      * fires `onChange`. Values cross in WORLD (the `value()` default). An
-     * unrecognised target logs and leaves the handle pull-only (§5). Chainable.
+     * unrecognised target logs and leaves the handle pull-only. Chainable.
      *
+     * @function bind
+     * @memberof Handle
      * @param {p5.Vector | p5.Camera | { get: Function, set: Function }} target
      * @param {string} [field]  Camera lookat field: 'eye' | 'center' | 'up'.
      * @returns {Handle} this
@@ -892,6 +897,8 @@ export function installHandle(p5, fn) {
      * Re-seed the constraint from the bound target after it changed externally
      * (the camera moved, a keyframe was edited, …). No-op when unbound.
      * Chainable.
+     * @function sync
+     * @memberof Handle
      * @returns {Handle} this
      */
     sync() {
@@ -920,7 +927,7 @@ export function installHandle(p5, fn) {
 
     // Push the freshly solved value to the binding and fire onChange — once per
     // solve while grabbed. Reuses _bindVal (lazily allocated) so a bound or
-    // observed drag allocates nothing per frame. set() before onChange, per §4.4.
+    // observed drag allocates nothing per frame. set() before onChange.
     _afterSolve() {
       const bound  = this._binder !== null;
       const notify = !!(this.onChange || this._onChange);
@@ -959,6 +966,8 @@ export function installHandle(p5, fn) {
      * `marker: null` suppresses the whole draw (parity with trackPath).
      * Chainable.
      *
+     * @function draw
+     * @memberof Handle
      * @param {{ bits?: number, size?: number, marker?: null }} [opts]
      * @returns {Handle} this
      */
@@ -992,7 +1001,7 @@ export function installHandle(p5, fn) {
       p.push();
 
       // LOCUS — the surface of allowed positions (dispatch; custom kinds
-      // supply drawLocus, see §9).
+      // supply drawLocus).
       if ((bits & p5.Tree.LOCUS) !== 0) this._drawLocus(opts);
 
       // RING — SPHERE limb (circle ⊥ the view direction) | PLANE border.
@@ -1035,7 +1044,7 @@ export function installHandle(p5, fn) {
       p.pop();
     }
 
-    // LOCUS dispatch — the §9 extension seam. A custom `drawLocus(h, opts)`
+    // LOCUS dispatch — the custom-kind extension seam. A custom `drawLocus(h, opts)`
     // wins; built-in kinds draw their own; an unknown kind without one draws
     // nothing here (dot + aim still render) and warns once.
     _drawLocus(opts) {
@@ -1123,6 +1132,8 @@ export function installHandle(p5, fn) {
     /**
      * Current scalar parameter: AXIS — signed t; DIAL — accumulated θ in
      * radians (multi-turn). NaN otherwise.
+     * @function scalar
+     * @memberof Handle
      * @returns {number}
      */
     scalar() { return typeof this._constraint.scalar === 'function' ? this._constraint.scalar() : NaN; }
@@ -1130,6 +1141,8 @@ export function installHandle(p5, fn) {
     /**
      * Derive `[az, el]` from the current direction (SPHERE readout). Writes
      * into `out2` when supplied.
+     * @function azEl
+     * @memberof Handle
      * @param {number[]} [out2]
      * @returns {number[]} [az, el]
      */
@@ -1141,6 +1154,8 @@ export function installHandle(p5, fn) {
 
     /**
      * True between grab and release.
+     * @function grabbed
+     * @memberof Handle
      * @returns {boolean}
      */
     grabbed() { return this._grabbed; }
@@ -1149,6 +1164,8 @@ export function installHandle(p5, fn) {
      * True while the pointer rests on the proxy (and while grabbed). Lone
      * handles opt in with `hover: true` (one pick per moved frame); routed
      * handles get it from the router's shared pick for free.
+     * @function hovered
+     * @memberof Handle
      * @returns {boolean}
      */
     hovered() { return this._hovered; }
@@ -1159,6 +1176,8 @@ export function installHandle(p5, fn) {
      * stored handle point rides along (AXIS keeps its scalar; PLANE re-projects
      * its point; DIAL recomputes from θ), so the dot and the pick proxy never
      * lag a moved anchor. In place; chainable.
+     * @function anchor
+     * @memberof Handle
      * @param {p5.Vector|number[]} v
      * @returns {Handle} this
      */
@@ -1201,7 +1220,11 @@ export function installHandle(p5, fn) {
 
     // ── Teardown ────────────────────────────────────────────────────────────
 
-    /** Remove pointer + key listeners and unregister. */
+    /**
+     * Remove pointer + key listeners and unregister.
+     * @function dispose
+     * @memberof Handle
+     */
     dispose() {
       const c = this._canvas;
       if (c) {
@@ -1217,7 +1240,7 @@ export function installHandle(p5, fn) {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // PointerRouter — shared arbitration for OVERLAPPING handles (§4.11 B)
+  // PointerRouter — shared arbitration for OVERLAPPING handles
   // ═════════════════════════════════════════════════════════════════════════
 
   /**
@@ -1229,7 +1252,7 @@ export function installHandle(p5, fn) {
    * with a distinct id and lets the depth buffer pick the winner.
    *
    * Members keep their own move/up/cancel machinery (per-pointer multitouch,
-   * §4.11 A, verbatim); the router replaces only the DOWN step. Presses are
+   * verbatim); the router replaces only the DOWN step. Presses are
    * queued and resolved in `update()` (all listener work stays flag-setting),
    * so several same-frame presses on different members all land — lifting A's
    * single-candidate limit. Unclaimed pointers fall through to the camera
@@ -1290,6 +1313,8 @@ export function installHandle(p5, fn) {
      * Route a handle: its own pointerdown adoption is disabled and the router's
      * shared pick grabs it via `_adopt`. Move/solve/release stay the handle's
      * own. Chainable.
+     * @function add
+     * @memberof PointerRouter
      * @param {Handle} h
      * @returns {PointerRouter} this
      */
@@ -1309,6 +1334,8 @@ export function installHandle(p5, fn) {
 
     /**
      * Un-route a handle (it self-picks again). Chainable.
+     * @function remove
+     * @memberof PointerRouter
      * @param {Handle} h
      * @returns {PointerRouter} this
      */
@@ -1328,8 +1355,12 @@ export function installHandle(p5, fn) {
      * more when the pointer moved, then delegate to every member's `update()`.
      * Call FIRST in `draw()`, in place of the members' own updates:
      *
-     *   if (!router.update()) orbitControl()
+     * ```js
+     * if (!router.update()) orbitControl()
+     * ```
      *
+     * @function update
+     * @memberof PointerRouter
      * @returns {boolean} true if any member is grabbed.
      */
     update() {
@@ -1384,11 +1415,17 @@ export function installHandle(p5, fn) {
     /**
      * The member currently under the pointer, or null. Grabbed members read
      * hovered via their own `hovered()`.
+     * @function hovered
+     * @memberof PointerRouter
      * @returns {Handle|null}
      */
     hovered() { return this._hoveredH; }
 
-    /** Remove listeners, un-route every member, and unregister. */
+    /**
+     * Remove listeners, un-route every member, and unregister.
+     * @function dispose
+     * @memberof PointerRouter
+     */
     dispose() {
       const c = this._canvas;
       if (c) {
@@ -1426,8 +1463,8 @@ export function installHandle(p5, fn) {
    * }
    * ```
    *
-   * @method createHandle
-   * @for p5
+   * @function createHandle
+   * @memberof p5
    * @param {{
    *   constraint: number | Object,
    *   report?:    number,
@@ -1476,8 +1513,8 @@ export function installHandle(p5, fn) {
    * // draw(): if (!r.update()) orbitControl(); hs.forEach(h => h.draw())
    * ```
    *
-   * @method createPointerRouter
-   * @for p5
+   * @function createPointerRouter
+   * @memberof p5
    * @param {...(Handle | { hover?: boolean })} args  Handles, then an optional
    *        options object last.
    * @returns {PointerRouter}

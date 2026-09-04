@@ -3,20 +3,18 @@
  * @module p5.tree/gizmos
  * @license AGPL-3.0-only
  *
- * axes        — coordinate frame (X/Y/Z, optional labels), semantic colouring
- * grid        — ground plane
- * cross       — screen-space crosshair centred on current model origin
- * bullsEye    — screen-space bulls-eye centred on current model origin
- * pane        — textured/untextured quad primitive (4 corners, optional UVs)
- * viewFrustum — another renderer's view frustum drawn in this renderer; NEAR
- *               and FAR planes optionally textured (e.g. the scene rendered
- *               from that camera) to visualise projection as a projection
- *               ONTO the frustum plane
- * hermite     — a single Hermite segment given endpoints and tangents
- * trackPath   — PoseTrack / CameraTrack path + control polygon + tangents +
- *               per-keyframe marker (pluggable via opts.marker) + keyframe
- *               handle dots (HANDLES bit — draws track.handles, the track
- *               factories' `handles` opt; see track.js)
+ * - {@link axes} — coordinate frame (X/Y/Z, optional labels), semantic colouring
+ * - {@link grid} — ground plane
+ * - {@link cross} — screen-space crosshair centred on the current model origin
+ * - {@link bullsEye} — screen-space bulls-eye centred on the current model origin
+ * - {@link pane} — textured / untextured quad primitive (4 corners, optional UVs)
+ * - {@link viewFrustum} — another camera's view frustum drawn in this renderer;
+ *   NEAR and FAR planes optionally textured (e.g. the scene rendered from that
+ *   camera) to visualise projection as a projection ONTO the frustum plane
+ * - {@link hermite} — a single Hermite segment given endpoints and tangents
+ * - {@link trackPath} — PoseTrack / CameraTrack path + control polygon +
+ *   tangents + per-keyframe marker (pluggable via `marker`) + keyframe handle
+ *   dots (HANDLES bit — draws `track.handles`, the track factories' `handles` opt)
  *
  * Depends on p5.tree/hud (beginHUD / endHUD), p5.tree/matrix (mapLocation,
  * pixelRatio, p5.Tree constants), and p5.tree/visibility (computePlanes).
@@ -192,11 +190,18 @@ export function installGizmos(p5, fn) {
   /**
    * Draw a 3D coordinate frame at the current model origin.
    *
-   * Colouring:
-   *   semantic: true  (default) — X red, Y lime, Z blue; labels inherit axis colour.
-   *   semantic: false           — every axis and label uses ambient stroke.
+   * Colouring: `semantic: true` (default) — X red, Y lime, Z blue, labels
+   * inherit the axis colour; `semantic: false` — every axis and label uses the
+   * ambient stroke. Bits: {@link X} {@link _X} {@link Y} {@link _Y} {@link Z}
+   * {@link _Z} {@link LABELS}.
    *
+   * @function axes
+   * @memberof p5
    * @param {{ size?: number, semantic?: boolean, bits?: number }} [opts]
+   * @param {number} [opts.size=100]  Axis length.
+   * @param {boolean} [opts.semantic=true]  Semantic per-axis colours.
+   * @param {number} [opts.bits=LABELS | X | Y | Z]  Which half-axes and labels to draw.
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.axes = function ({
     size     = 100,
@@ -240,6 +245,17 @@ export function installGizmos(p5, fn) {
 
   fn.grid = function (opts) { this._renderer.grid(opts); return this; };
 
+  /**
+   * Draw a grid in the XY plane at the current model origin: `subdivisions`
+   * cells per side spanning ±`size`, at the ambient stroke.
+   *
+   * @function grid
+   * @memberof p5
+   * @param {{ size?: number, subdivisions?: number }} [opts]
+   * @param {number} [opts.size=100]  Half-extent.
+   * @param {number} [opts.subdivisions=10]  Cells per side.
+   * @returns {p5} this
+   */
   p5.Renderer3D.prototype.grid = function ({ size = 100, subdivisions = 10 } = {}) {
     const p = this._pInst;
     if (!p) return;
@@ -284,6 +300,26 @@ export function installGizmos(p5, fn) {
 
   fn.cross = function (opts) { this._renderer.cross(opts); return this; };
 
+  /**
+   * Draw a screen-space crosshair centred on the current model origin, or at
+   * explicit screen coordinates. Drawn in HUD space at the ambient stroke.
+   * Centred on the model origin, `size` is in world units at that depth
+   * (the cross shrinks with distance); with `x`, `y` given, `size` is pixels.
+   * The matrix opts resolve against a supplied camera instead of live state.
+   *
+   * @function cross
+   * @memberof p5
+   * @param {{
+   *   x?: number, y?: number, size?: number,
+   *   mat4Model?: Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Eye?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4PV?:    Float32Array | ArrayLike | p5.Matrix,
+   * }} [opts]
+   * @param {number} [opts.size=50]
+   * @returns {p5} this
+   */
   p5.Renderer3D.prototype.cross = function ({
     mat4Model, x, y, size = 50, mat4Eye, mat4Proj, mat4View, mat4PV
   } = {}) {
@@ -307,6 +343,28 @@ export function installGizmos(p5, fn) {
 
   fn.bullsEye = function (opts) { this._renderer.bullsEye(opts); return this; };
 
+  /**
+   * Draw a screen-space bulls-eye — a circle or a cornered square plus a
+   * central cross — centred on the current model origin, or at explicit screen
+   * coordinates. Drawn in HUD space at the ambient stroke. Centred on the model
+   * origin, `size` is in world units at that depth; with `x`, `y` given, `size`
+   * is pixels. The matrix opts resolve against a supplied camera instead of
+   * live state.
+   *
+   * @function bullsEye
+   * @memberof p5
+   * @param {{
+   *   x?: number, y?: number, size?: number, shape?: number,
+   *   mat4Model?: Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Eye?:   Float32Array | ArrayLike | p5.Matrix,
+   *   mat4Proj?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4View?:  Float32Array | ArrayLike | p5.Matrix,
+   *   mat4PV?:    Float32Array | ArrayLike | p5.Matrix,
+   * }} [opts]
+   * @param {number} [opts.size=50]
+   * @param {number} [opts.shape=CIRCLE]  {@link CIRCLE} or {@link SQUARE}.
+   * @returns {p5} this
+   */
   p5.Renderer3D.prototype.bullsEye = function ({
     mat4Model, x, y, size = 50, shape = p5.Tree.CIRCLE,
     mat4Eye, mat4Proj, mat4View, mat4PV
@@ -375,10 +433,14 @@ export function installGizmos(p5, fn) {
    *     pane(tl, tr, br, bl, { texture: myFbo })
    *     pane(tl, tr, br, bl, { texture: myImg, uvs: [[0,1],[1,1],[1,0],[0,0]] })
    *
-   * @method pane
-   * @for p5
-   * @param {number[]} p0,p1,p2,p3  Corner positions (CCW when viewed from front).
+   * @function pane
+   * @memberof p5
+   * @param {number[]} p0  Corner position (CCW when viewed from the front).
+   * @param {number[]} p1  Corner position.
+   * @param {number[]} p2  Corner position.
+   * @param {number[]} p3  Corner position.
    * @param {{ texture?:*, uvs?:number[][] }} [opts]
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.pane = function (p0, p1, p2, p3, { texture = null, uvs = null } = {}) {
     const p = this._pInst;
@@ -423,26 +485,26 @@ export function installGizmos(p5, fn) {
    * Draw the view frustum of a secondary camera into this renderer.
    *
    * `camera` accepts three forms:
-   *   p5.Camera         — eye and projection read via cam.mat4Eye / cam.mat4Proj.
-   *   CameraTrack       — sampled at the cursor via track.eval + track.mat4Eye.
-   *                       The frustum animates with the track's playback.
-   *   pose spec object  — { eye, center?, up?, fov?, halfHeight?, near?, far? },
-   *                       same shape capturePose() and CameraTrack.add() use.
-   *                       Defaults: center=[0,0,0], up=[0,1,0], near=0.1, far=1000,
-   *                       fov=π/3 if neither fov nor halfHeight is set.
+   *
+   * - `p5.Camera` — eye and projection read via `cam.mat4Eye` / `cam.mat4Proj`.
+   * - `CameraTrack` — sampled at the cursor via `track.eval` + `track.mat4Eye`;
+   *   the frustum animates with the track's playback.
+   * - pose spec `{ eye, center?, up?, fov?, halfHeight?, near?, far? }` — the
+   *   shape `capturePose()` returns and `CameraTrack.add()` accepts. Defaults:
+   *   `center=[0,0,0]`, `up=[0,1,0]`, `near=0.1`, `far=1000`, `fov=π/3` if
+   *   neither `fov` nor `halfHeight` is set.
    *
    * Alternatively pass explicit `mat4Eye` + `mat4Proj` buffers. `mat4View`
    * defaults to the current renderer's view — override when drawing from a
    * third viewpoint.
    *
    * `bits` selects which parts render:
-   *   NEAR  — near plane (as closed shape; lines only if bit off)
-   *   FAR   — far plane  (as closed shape; lines only if bit off)
-   *   BODY  — four side walls between near and far (closed quads; diagonal
-   *           edge lines only if bit off)
-   *   APEX  — for perspective: replaces the near-corner body start with the
-   *           camera origin (0,0,0) so the body edges converge at the apex.
-   *           Ignored for orthographic projections.
+   *
+   * - {@link NEAR} — the near plane (a closed quad; textured when `nearTexture` is set).
+   * - {@link FAR} — the far plane (a closed quad; textured when `farTexture` is set).
+   * - {@link BODY} — the four edges joining near corners to far corners.
+   * - {@link APEX} — perspective only: four lines from the camera origin to the
+   *   near corners. Ignored for orthographic projections.
    *
    * `viewer` is a callback invoked AFTER the view/eye matrices have been
    * installed — use it to draw anything that belongs in the secondary
@@ -461,8 +523,8 @@ export function installGizmos(p5, fn) {
    * because NEAR sits in front of the external viewer in the typical
    * "look at the camera from outside" configuration.
    *
-   * @method viewFrustum
-   * @for p5
+   * @function viewFrustum
+   * @memberof p5
    * @param {{
    *   camera?:      p5.Camera | CameraTrack | { eye:number[], center?:number[], up?:number[], fov?:number, halfHeight?:number, near?:number, far?:number },
    *   mat4Eye?:     Float32Array | ArrayLike | p5.Matrix,
@@ -473,6 +535,8 @@ export function installGizmos(p5, fn) {
    *   nearTexture?: p5.Image | p5.Graphics | p5.Texture,
    *   farTexture?:  p5.Image | p5.Graphics | p5.Texture,
    * }} [opts]
+   * @param {number} [opts.bits=NEAR | FAR | BODY]
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.viewFrustum = function ({
     camera, mat4Eye, mat4Proj, mat4View,
@@ -614,14 +678,20 @@ export function installGizmos(p5, fn) {
   /**
    * Draw one cubic Hermite segment between two endpoints with explicit tangents.
    *
-   *   hermite([0,0,0], [100,0,0], [200,0,0], [0,100,0])
-   *   hermite(p0, m0, p1, m1, { samples: 64 })
+   * ```js
+   * hermite([0,0,0], [100,0,0], [200,0,0], [0,100,0])
+   * hermite(p0, m0, p1, m1, { samples: 64 })
+   * ```
    *
+   * @function hermite
+   * @memberof p5
    * @param {number[]} p0  Segment start — [x,y,z].
    * @param {number[]} m0  Outgoing tangent at p0.
    * @param {number[]} p1  Segment end — [x,y,z].
    * @param {number[]} m1  Incoming tangent at p1.
    * @param {{ samples?: number }} [opts]
+   * @param {number} [opts.samples=32]  Line segments along the curve.
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.hermite = function (p0, m0, p1, m1, { samples = 32 } = {}) {
     const p = this._pInst;
@@ -648,43 +718,33 @@ export function installGizmos(p5, fn) {
    * gaze rays from each eye keyframe to its center.
    *
    * Bits:
-   *   PATH          — sampled polyline along the target path.
-   *   CONTROLS      — straight control polygon along the target path.
-   *   TANGENTS_IN   — incoming tangent arrow at each keyframe.
-   *   TANGENTS_OUT  — outgoing tangent arrow at each keyframe.
-   *   TANGENTS      — convenience alias (IN | OUT).
-   *   CENTER        — CameraTrack only. Gaze line from each kf.eye to
-   *                   kf.center, with a point() at kf.center. Target-
-   *                   independent — always expresses the eye→center
-   *                   relationship regardless of opts.target. The default
-   *                   CameraTrack marker already draws the same eye→center
-   *                   line as part of the "mini camera" it renders, so
-   *                   CENTER is most useful when a CUSTOM marker is
-   *                   supplied and gaze rays are wanted in a separate
-   *                   ambient stroke() colour.
-   *   HANDLES       — keyframe manipulator dots, when the track was created
-   *                   with the { handles } factory opt (track.handles).
-   *                   Delegates to the controller's draw(): a constant-px
-   *                   dot per draggable field (pos / eye / center), the
-   *                   ring + spoke for a PoseTrack rot DIAL, hover/grab
-   *                   emphasis by size (×1.4). Ambient fill() colours the
-   *                   dots, ambient stroke() the ring/spoke. No-op when
-   *                   track.handles is absent or disabled — the bit is
-   *                   always safe to set. Like every per-keyframe gizmo it
-   *                   is orthogonal to marker: pass marker: null on the
-   *                   HANDLES call to draw dots without markers. NOTE:
-   *                   drawing is only the visual half — the pick/solve half
-   *                   is host-driven via track.handles.update(); see the
-   *                   createPoseTrack / createCameraTrack docs.
    *
-   * opts.target — 'eye' (default) or 'center'. CameraTrack only: redirects
+   * - {@link PATH} — sampled polyline along the target path.
+   * - {@link CONTROLS} — straight control polygon along the target path.
+   * - {@link TANGENTS_IN} / {@link TANGENTS_OUT} — incoming / outgoing tangent
+   *   arrow at each keyframe; {@link TANGENTS} is both.
+   * - {@link CENTER} — CameraTrack only. Gaze line from each `kf.eye` to
+   *   `kf.center`, with a `point()` at `kf.center`. Target-independent — always
+   *   the eye→center relationship regardless of `target`. The default marker
+   *   does not draw this line, so CENTER is the gaze layer, in its own ambient
+   *   `stroke()`.
+   * - {@link HANDLES} — keyframe manipulator dots when the track was created
+   *   with the `handles` factory opt (`track.handles`): a constant-px dot per
+   *   draggable field (pos / eye / center), the ring + spoke of a PoseTrack rot
+   *   DIAL, hover / grab emphasis by size (×1.4). Ambient `fill()` colours the
+   *   dots, ambient `stroke()` the ring / spoke. A no-op when `track.handles`
+   *   is absent or disabled. Drawing is the visual half only — picking is
+   *   host-driven via `track.handles.update()`; see {@link createPoseTrack} /
+   *   {@link createCameraTrack}.
+   *
+   * `target` — `'eye'` (default) or `'center'`. CameraTrack only: redirects
    * PATH / CONTROLS / TANGENTS_IN / TANGENTS_OUT to the center path instead
    * of the eye path. PoseTrack ignores target (there is only one path).
    * Call trackPath twice (once per target) to decorate both paths with
    * different ambient stroke() colours.
    *
-   * The `marker` callback is called once per keyframe with
-   *   marker(kf, index, track, ctx)
+   * The `marker` callback is called once per keyframe as
+   * `marker(kf, index, track, ctx)`,
    * where ctx = { near, far, aspect, ndcZMin } is read from the current
    * renderer's projection. The gizmo does NOT pre-translate or rotate
    * before calling marker — markers position themselves using kf.pos/kf.rot
@@ -696,23 +756,21 @@ export function installGizmos(p5, fn) {
    * constructors.
    *
    * Defaults (when `marker` is not supplied):
-   *   PoseTrack                    — six axes (length 30) at the keyframe's pose.
-   *   CameraTrack, target='eye'    — "mini camera" at each keyframe: triad
-   *                                  (X | Y | _Z, size = kf.near), apex
-   *                                  lines (perspective only, from origin
-   *                                  to near corners), near plane outline
-   *                                  at the keyframe's real extents (from
-   *                                  kf.fov or kf.halfHeight at the ambient
-   *                                  aspect), and a center line from
-   *                                  kf.eye to kf.center. All drawn at the
-   *                                  keyframe's real dimensions — shares
-   *                                  its geometry with viewFrustum. Supply
-   *                                  a custom marker if you want markers
-   *                                  that stay sane at any scene scale.
-   *   CameraTrack, target='center' — point() at each keyframe's center.
+   *
+   * - PoseTrack — six axes (length 30) at the keyframe's pose.
+   * - CameraTrack, `target: 'eye'` — a "mini camera" at each keyframe: a triad
+   *   (X | Y | _Z, size = `kf.near`), apex lines (perspective only, from the
+   *   origin to the near corners), and the near plane outline at the
+   *   keyframe's real extents (from `kf.fov` or `kf.halfHeight` at the ambient
+   *   aspect). All at the keyframe's real dimensions — the geometry
+   *   {@link viewFrustum} draws. Supply a custom marker for markers that stay
+   *   legible at any scene scale.
+   * - CameraTrack, `target: 'center'` — a `point()` at each keyframe's center.
    *
    * Pass `marker: null` to suppress per-keyframe markers entirely.
    *
+   * @function trackPath
+   * @memberof p5
    * @param {PoseTrack|CameraTrack} track
    * @param {{
    *   bits?:    number,
@@ -720,6 +778,10 @@ export function installGizmos(p5, fn) {
    *   target?:  'eye' | 'center',
    *   marker?:  Function | null,
    * }} [opts]
+   * @param {number} [opts.bits=PATH]
+   * @param {number} [opts.samples=32]  Line segments per path segment.
+   * @param {string} [opts.target='eye']
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.trackPath = function (track, opts = {}) {
     const p = this._pInst;

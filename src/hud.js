@@ -6,19 +6,16 @@
  * Coordinates: (x, y) ∈ [0, width] × [0, height], origin top-left,
  * y increasing downward.
  *
- * Usage:
- *   beginHUD()
- *   text('FPS: ' + frameRate().toFixed(1), 10, 20)
- *   endHUD()
+ * ```js
+ * beginHUD()
+ * text('FPS: ' + frameRate().toFixed(1), 10, 20)
+ * endHUD()
+ * ```
  */
 
 'use strict';
 
-/**
- * Install beginHUD() and endHUD() on fn.
- * @param {p5}    p5
- * @param {Object} fn  p5 prototype.
- */
+// Install beginHUD() and endHUD() on fn.
 export function installHud(p5, fn) {
 
   fn.beginHUD = function (...args) { this._renderer?.beginHUD?.(...args); return this; };
@@ -30,8 +27,9 @@ export function installHud(p5, fn) {
    * Clears depth, installs an orthographic camera matching canvas pixel
    * dimensions, origin top-left. Pair with `endHUD()`.
    *
-   * @method beginHUD
-   * @for p5
+   * @function beginHUD
+   * @memberof p5
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
@@ -68,8 +66,9 @@ export function installHud(p5, fn) {
   /**
    * End HUD mode, restoring the 3D camera and depth state.
    *
-   * @method endHUD
-   * @for p5
+   * @function endHUD
+   * @memberof p5
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.endHUD = function () {
     if (this._hudActive !== true) return;

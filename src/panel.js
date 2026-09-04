@@ -196,11 +196,7 @@ function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
 
 // ── installPanel ──────────────────────────────────────────────────────────────
 
-/**
- * Install fn.createPanel onto p5.
- * @param {p5} p5
- * @param {Object} fn  p5 prototype.
- */
+// Install fn.createPanel onto p5.
 export function installPanel(p5, fn) {
 
   /**
@@ -252,7 +248,7 @@ export function installPanel(p5, fn) {
    * createPanel(helm, { frame: true, x: 10, y: 10, color: 'white' })
    * ```
    *
-   * @method createPanel
+   * @function createPanel
    * @memberof p5
    * @param {PoseTrack|CameraTrack|PoseHelm|Object} trackOrSchema
    *   A track (PoseTrack / CameraTrack), a helm (PoseHelm), or a plain schema object.

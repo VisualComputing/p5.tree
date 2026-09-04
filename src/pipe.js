@@ -8,11 +8,7 @@
 
 'use strict';
 
-/**
- * Install pipe() and releasePipe() on fn.
- * @param {p5} p5  The p5 constructor.
- * @param {Object} fn  p5 prototype.
- */
+// Install pipe() and releasePipe() on fn.
 export function installPipe(p5, fn) {
   /**
    * Pipes a source through one or more post-processing passes (filters), optionally displaying
@@ -23,14 +19,11 @@ export function installPipe(p5, fn) {
    *
    * Args may be provided in any order (source, pass(es), opt).
    *
-   * Logical args:
-   * - source: p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics (if a p5.Framebuffer is provided, its .color is used)
-   * - passes: a pass or array of passes (e.g. baseFilterShader().modify(...)); falsy entries ignored
-   * - opt: options object
-   *
-   * @method pipe
-   * @for p5
-   * @param {...*} args Source, pass(es), and options in any order.
+   * @function pipe
+   * @memberof p5
+   * @param {p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics} source  Input texture; a p5.Framebuffer contributes its `.color`.
+   * @param {p5.Shader|p5.Shader[]} passes  A pass or array of passes (e.g. `baseFilterShader().modify(...)`); falsy entries ignored.
+   * @param {Object} [opt]  Options.
    * @param {boolean} [opt.display=true] If true, draw the final output to the main canvas.
    * @param {boolean} [opt.allocate=true] If true, allocate internal ping/pong when missing (cached per key).
    * @param {string} [opt.key='default'] Cache key for internal ping/pong (advanced; useful for multiple independent pipelines).
@@ -149,8 +142,8 @@ export function installPipe(p5, fn) {
    * Release internal cached pipe framebuffers created by pipe() when opt.allocate is true.
    * Does NOT remove user-provided ping/pong passed via opt.ping/opt.pong.
    *
-   * @method releasePipe
-   * @for p5
+   * @function releasePipe
+   * @memberof p5
    * @param {string|boolean} [key] If omitted, releases the default key ('default').
    *                              If a string, releases only that key.
    *                              If true, releases all keys.
@@ -176,10 +169,7 @@ export function installPipe(p5, fn) {
   };
 }
 
-/**
- * Release all pipe framebuffers. Called from lifecycles.remove.
- * @param {p5} pInst  The p5 instance.
- */
+// Release all pipe framebuffers. Called from lifecycles.remove.
 export function releaseAllPipes(pInst) {
   if (typeof pInst.releasePipe === 'function') {
     pInst.releasePipe(true);

@@ -319,8 +319,8 @@ export function installHelm(p5, fn) {
    * The returned helm exposes the core surface (`feed`, `profile`, `deadzone`,
    * `home`, `eval`, `activity`) plus `dispose()` to unregister.
    *
-   * @method createCameraHelm
-   * @for p5
+   * @function createCameraHelm
+   * @memberof p5
    * @param {p5.Camera | Object} [cam]  Camera to drive, or the opts object.
    *                                    Defaults to the current camera.
    * @param {{ profile?: Object, deadzone?: number }} [opts]
@@ -399,18 +399,18 @@ export function installHelm(p5, fn) {
    *
    * `bind(target)` is polymorphic (dispatch by shape, no positional ambiguity):
    *
-   *   bind(cam)               p5.Camera — seeded from its lookAt; driven via
-   *                           applyPose (manipulate the camera as an object).
-   *   bind({ get, set })      accessor floor — get() seeds, set(pose) writes.
-   *   bind({ applyPose })     any pose sink — applyPose(pose) each frame.
-   *   bind({ pos, rot })      plain pose object — seeded from, mutated in place.
+   * - `bind(cam)` — p5.Camera: seeded from its lookAt; driven via applyPose
+   *   (manipulate the camera as an object).
+   * - `bind({ get, set })` — accessor floor: get() seeds, set(pose) writes.
+   * - `bind({ applyPose })` — any pose sink: applyPose(pose) each frame.
+   * - `bind({ pos, rot })` — plain pose object: seeded from, mutated in place.
    *
    * The returned helm exposes the core surface (`feed`, `profile`, `deadzone`,
    * `from`, `home`, `eval`, `activity`) plus `bind(target)` and `dispose()`.
    * `opts.bind` binds immediately. Chainable: `createPoseHelm().bind(obj)`.
    *
-   * @method createPoseHelm
-   * @for p5
+   * @function createPoseHelm
+   * @memberof p5
    * @param {{ profile?: Object, deadzone?: number,
    *           from?: string | Float32Array | p5.Matrix,
    *           bind?: p5.Camera | Object }} [opts]
@@ -445,6 +445,8 @@ export function installHelm(p5, fn) {
      * pose) so there's no frame-0 jump. An unrecognised target logs and leaves
      * the helm unbound (the player keeps idling). Chainable.
      *
+     * @function bind
+     * @memberof PoseHelm
      * @param {p5.Camera | { get: Function, set: Function } |
      *         { applyPose: Function } | { pos: number[], rot: number[] }} target
      * @returns {PoseHelm} this
@@ -498,8 +500,10 @@ export function installHelm(p5, fn) {
    *
    * Two forms:
    *
-   *   helmRig(helm, { size, bits, identify })   // in-scene rig
-   *   helmRig(helm, { x, y, size, tilt })       // FBO-backed HUD overload
+   * ```js
+   * helmRig(helm, { size, bits, identify })   // in-scene rig
+   * helmRig(helm, { x, y, size, tilt })       // FBO-backed HUD overload
+   * ```
    *
    * In-scene — drawn at the current model transform, oriented to the helm's
    * resolved `from` (WORLD → world axes, EYE → screen, SELF → the object's own
@@ -519,18 +523,22 @@ export function installHelm(p5, fn) {
    * cached on the helm, re-made only when `size` changes; `tilt` only re-aims.
    *
    * Bits (in-scene; default TRANSLATE | ROTATE):
-   *   TRANSLATE — the three translation arrows along ±X / ±Y / ±Z.
-   *   ROTATE    — the three rotation rings (pitch ⊥X, yaw ⊥Y, roll ⊥Z).
+   *
+   * - {@link TRANSLATE} — the three translation arrows along ±X / ±Y / ±Z.
+   * - {@link ROTATE} — the three rotation rings (pitch ⊥X, yaw ⊥Y, roll ⊥Z).
    *
    * `identify: true` (in-scene) labels each arrow / ring with its input lane
    * index ('L0' …) — the fed channel that drives that DOF — for wiring up a new
    * transport. Requires a font (textFont(...)); p5 draws no text without one.
    *
-   * @method helmRig
-   * @for p5
+   * @function helmRig
+   * @memberof p5
    * @param {PoseHelm} helm
    * @param {{ size?: number, bits?: number, identify?: boolean,
    *           x?: number, y?: number, tilt?: number | number[] }} [opts]
+   * @param {number} [opts.size=100]  Rig extent — world units in-scene, pixels (default 120) in the HUD overload.
+   * @param {number} [opts.bits=TRANSLATE | ROTATE]
+   * @param {boolean} [opts.identify=false]
    * @returns {p5} this
    */
   p5.Renderer3D.prototype.helmRig = function (helm, opts = {}) {

@@ -12,8 +12,7 @@
  *  fn.createCameraTrack([cam][, opts]) CameraTrack wired + auto-apply; defaults to current camera.
  *
  *  TrackHandles          Per-keyframe manipulators — the factories' `handles`
- *                        opt, stored at track.handles. Section below; full
- *                        spec: track-handles-design.md (tree repo root).
+ *                        opt, stored at track.handles.
  *
  *  p5.Renderer3D.rotateQuat   rotate by [x,y,z,w] quaternion
  *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
@@ -51,29 +50,18 @@ function _getPlayers(pInst) {
   return p;
 }
 
-/**
- * Register a player with a p5 instance.
- * `player.tick()` is called each predraw; removed when it returns false.
- * @param {p5} pInst
- * @param {{ tick: () => boolean }} player
- */
+// Register a player with a p5 instance.
+// `player.tick()` is called each predraw; removed when it returns false.
 export function registerPlayer(pInst, player) {
   if (pInst && player) _getPlayers(pInst).add(player);
 }
 
-/**
- * Unregister a player from a p5 instance.
- * @param {p5} pInst
- * @param {{ tick: () => boolean }} player
- */
+// Unregister a player from a p5 instance.
 export function unregisterPlayer(pInst, player) {
   if (pInst && player) _getPlayers(pInst).delete(player);
 }
 
-/**
- * Tick all registered players. Called from the predraw lifecycle.
- * @param {p5} pInst
- */
+// Tick all registered players. Called from the predraw lifecycle.
 export function tickPlayers(pInst) {
   const players = PATH_PLAYERS.get(pInst);
   if (!players) return;
@@ -82,10 +70,7 @@ export function tickPlayers(pInst) {
   }
 }
 
-/**
- * Remove all players. Called from the remove lifecycle.
- * @param {p5} pInst
- */
+// Remove all players. Called from the remove lifecycle.
 export function clearPlayers(pInst) {
   const players = PATH_PLAYERS.get(pInst);
   if (players) players.clear();
@@ -172,7 +157,6 @@ function _patchCameraTrackAdd(track) {
 // untouched: its samplers read `keyframes` live with zero caching, so an
 // in-place keyframe write reflows the path, the auto-CR tangents, eval(),
 // and viewFrustum on the very next call — no invalidation machinery.
-// Full spec: track-handles-design.md (tree repo root).
 //
 // Composition — one VIEW handle per draggable keyframe field (screen-
 // parallel drag plane through the point; the object follows the pointer at
@@ -286,8 +270,12 @@ class TrackHandles {
    * Rebuild-if-needed, idle-sync, then route. Call FIRST in draw(), after
    * setCamera of the observer camera and before orbitControl():
    *
-   *   if (!track.handles.update()) orbitControl()
+   * ```js
+   * if (!track.handles.update()) orbitControl()
+   * ```
    *
+   * @function update
+   * @memberof TrackHandles
    * @returns {boolean} true while any keyframe handle is grabbed.
    */
   update() {
@@ -303,13 +291,21 @@ class TrackHandles {
     for (const m of this._members) m.h.enabled = this._enabled;
   }
 
-  /** @returns {boolean} true while any member is grabbed. */
+  /**
+   * @function grabbed
+   * @memberof TrackHandles
+   * @returns {boolean} true while any member is grabbed.
+   */
   grabbed() {
     for (const m of this._members) if (m.h.grabbed()) return true;
     return false;
   }
 
-  /** @returns {number|null} keyframe index under the pointer (or grabbed). */
+  /**
+   * @function hovered
+   * @memberof TrackHandles
+   * @returns {number|null} keyframe index under the pointer (or grabbed).
+   */
   hovered() {
     for (const m of this._members) if (m.h.hovered()) return m.index;
     return null;
@@ -319,11 +315,17 @@ class TrackHandles {
    * Re-seed every idle member from its keyframe. update() already does this
    * each frame; call directly only between update() and a same-frame read.
    * Chainable.
+   * @function sync
+   * @memberof TrackHandles
    * @returns {TrackHandles} this
    */
   sync() { this._syncIdle(); return this; }
 
-  /** Dispose members + router and detach from the track. */
+  /**
+   * Dispose members + router and detach from the track.
+   * @function dispose
+   * @memberof TrackHandles
+   */
   dispose() {
     this._teardownMembers();
     this._router.dispose();
@@ -339,9 +341,11 @@ class TrackHandles {
    * philosophy. Normally invoked by trackPath's HANDLES bit; callable
    * standalone. No-op while disabled. Chainable.
    *
+   * @function draw
+   * @memberof TrackHandles
    * @param {{ size?: number, emphasis?: number }} [opts]
-   *        size — base dot radius in px (default grabPx);
-   *        emphasis — hover/grab scale factor (default 1.4).
+   * @param {number} [opts.size=grabPx]  Base dot radius in px.
+   * @param {number} [opts.emphasis=1.4]  Hover / grab scale factor.
    * @returns {TrackHandles} this
    */
   draw(opts = {}) {
@@ -509,7 +513,7 @@ export function installTrack(p5, fn) {
    *
    * Returns null if called before createCanvas().
    *
-   * @method getCamera
+   * @function getCamera
    * @memberof p5
    * @returns {p5.Camera|null}
    */
@@ -552,9 +556,7 @@ export function installTrack(p5, fn) {
    * trackPath(track, { bits: p5.Tree.HANDLES })
    * ```
    *
-   * See track-handles-design.md (tree repo).
-   *
-   * @method createPoseTrack
+   * @function createPoseTrack
    * @memberof p5
    * @param {{ handles?: boolean|Object }} [opts]
    * @returns {PoseTrack}
@@ -621,9 +623,7 @@ export function installTrack(p5, fn) {
    * trackPath(track, { bits: p5.Tree.HANDLES })
    * ```
    *
-   * See track-handles-design.md (tree repo).
-   *
-   * @method createCameraTrack
+   * @function createCameraTrack
    * @memberof p5
    * @param {p5.Camera} [cam]  Camera to drive. Defaults to the current camera.
    *                           Use createCamera() for a dedicated camera.
@@ -674,12 +674,13 @@ export function installTrack(p5, fn) {
   // ── p5.Renderer3D — TRS helpers ────────────────────────────────────────────
 
   /**
-   * Rotate by a unit quaternion [x,y,z,w].
-   * @method rotateQuat
-   * @memberof p5.Renderer3D
+   * Rotate the current transform by a unit quaternion [x,y,z,w].
+   * @function rotateQuat
+   * @memberof p5
    * @param {Float32Array|ArrayLike} q  Unit quaternion [x,y,z,w].
    * @param {{ eps?:number }} [opts]
-   * @returns {p5.Renderer3D} this
+   * @param {number} [opts.eps=1e-8]  Below this sine of the half-angle the rotation is skipped.
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.rotateQuat = function (q, opts) {
     const p = this._pInst, eps = opts?.eps ?? 1e-8;
@@ -693,10 +694,10 @@ export function installTrack(p5, fn) {
 
   /**
    * Apply a TRS pose { pos, rot, scl } to the current transform stack.
-   * @method applyPose
-   * @memberof p5.Renderer3D
+   * @function applyPose
+   * @memberof p5
    * @param {{ pos?:ArrayLike, rot?:ArrayLike, scl?:ArrayLike }} pose
-   * @returns {p5.Renderer3D} this
+   * @returns {p5} this
    */
   p5.Renderer3D.prototype.applyPose = function (pose) {
     if (!pose) return this;
@@ -707,9 +708,8 @@ export function installTrack(p5, fn) {
     return this;
   };
 
-  /** @method rotateQuat @memberof p5 */
+  // Sketch-level forwarders.
   fn.rotateQuat = function (q, opts) { this._renderer.rotateQuat(q, opts); return this; };
-  /** @method applyPose @memberof p5 */
   fn.applyPose  = function (pose)    { this._renderer.applyPose(pose);     return this; };
 
   // ── p5.Camera — capturePose / applyPose ────────────────────────────────────
@@ -730,12 +730,12 @@ export function installTrack(p5, fn) {
    * `cam.ortho()`, or `cam.frustum()`. Does NOT depend on the camera
    * being active on the renderer, so `otherCam.capturePose()` returns
    * otherCam's actual projection regardless of what's live):
-   *   fov        — vertical fov (radians) for perspective cameras; null for ortho.
-   *   halfHeight — world-unit half-height of ortho frustum; null for perspective.
-   *   near, far  — clip plane distances (positive). Always real — extracted
-   *                from the projection matrix regardless of projection type.
-   *                Falls back to (0.1, 1000) when no projection matrix is
-   *                populated (e.g. pre-setup()).
+   *
+   * - `fov` — vertical fov (radians) for perspective cameras; null for ortho.
+   * - `halfHeight` — world-unit half-height of an ortho frustum; null for perspective.
+   * - `near`, `far` — clip plane distances (positive), extracted from the
+   *   projection matrix regardless of projection type; (0.1, 1000) when no
+   *   projection matrix is populated yet (pre-setup()).
    *
    * Pass a pre-allocated out to avoid allocation per frame:
    * ```js
@@ -744,7 +744,7 @@ export function installTrack(p5, fn) {
    * track.add(cam.capturePose(out))
    * ```
    *
-   * @method capturePose
+   * @function capturePose
    * @memberof p5.Camera
    * @param {{ eye:number[], center:number[], up:number[],
    *           fov:number|null, halfHeight:number|null,
@@ -792,17 +792,17 @@ export function installTrack(p5, fn) {
    * reconstruction, no up_ortho drift, exact roundtrip from capturePose().
    *
    * The projection is applied when fov or halfHeight is non-null:
-   *   fov set        — perspective(fov, aspect, near, far)
-   *   halfHeight set — ortho(-hw*aspect, hw*aspect, -hw, hw, near, far)
+   *
+   * - `fov` set — `perspective(fov, aspect, near, far)`
+   * - `halfHeight` set — `ortho(-hw*aspect, hw*aspect, -hw, hw, near, far)`
    *
    * `near` / `far` on the pose are used when present, falling back to
-   * (0.1, 1000) for back-compat with hand-built poses that predate those
-   * fields.
+   * (0.1, 1000).
    *
-   * Also handles legacy { pos, rot, scl } TRS poses from PoseTrack for
-   * object-on-camera effects (translate/rotate only; scl is ignored).
+   * Also accepts a { pos, rot, scl } TRS pose (a PoseTrack sample) for
+   * object-on-camera effects — translate / rotate only; scl is ignored.
    *
-   * @method applyPose
+   * @function applyPose
    * @memberof p5.Camera
    * @param {{ eye:number[], center:number[], up:number[],
    *           fov?:number|null, halfHeight?:number|null,

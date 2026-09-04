@@ -23,11 +23,13 @@
  *
  * ── API symmetry ──────────────────────────────────────────────────────────
  *
- *   colorPick(x, y, drawFn)   GPU — base form
- *   mousePick(drawFn)         GPU — shorthand for colorPick(mouseX, mouseY, fn)
+ * ```js
+ * colorPick(x, y, drawFn)   // GPU — base form
+ * mousePick(drawFn)         // GPU — shorthand for colorPick(mouseX, mouseY, fn)
  *
- *   pointerHit(x, y, opts)    CPU — base form (renderer method)
- *   mouseHit(opts)            CPU — shorthand for pointerHit(mouseX, mouseY, opts)
+ * pointerHit(x, y, opts)    // CPU — base form
+ * mouseHit(opts)            // CPU — shorthand for pointerHit(mouseX, mouseY, opts)
+ * ```
  */
 
 'use strict';
@@ -64,8 +66,8 @@ export function installPicking(p5, fn) {
    * Encode an integer id as a CSS hex color string for use with `fill()`.
    * id `0` is reserved — decodes as background / miss.
    *
-   * @method tag
-   * @for p5
+   * @function tag
+   * @memberof p5
    * @param {number} id  Integer in [1, 16_777_215].
    * @returns {string}   CSS hex string, e.g. `'#010000'` for id `1`.
    */
@@ -88,8 +90,8 @@ export function installPicking(p5, fn) {
    * `noLights()`, `noStroke()`, `resetShader()`.
    * The FBO is lazily allocated on first use and released in `lifecycles.remove`.
    *
-   * @method colorPick
-   * @for p5
+   * @function colorPick
+   * @memberof p5
    * @param {number}   px      X coordinate in canvas CSS pixels.
    * @param {number}   py      Y coordinate in canvas CSS pixels.
    * @param {function} drawFn  Scene draw callback — tag objects with fill(tag(id)).
@@ -153,9 +155,9 @@ export function installPicking(p5, fn) {
 
   /**
    * Shorthand for `colorPick(mouseX, mouseY, drawFn)`.
-   * @method mousePick
-   * @for p5
-   * @param {function} drawFn
+   * @function mousePick
+   * @memberof p5
+   * @param {function} drawFn  Scene draw callback — tag objects with fill(tag(id)).
    * @returns {number}  Decoded id (0 = background / miss).
    */
   fn.mousePick = function (drawFn) {
@@ -171,10 +173,10 @@ export function installPicking(p5, fn) {
    * model's screen-space origin. CPU — zero GPU round-trip.
    * Call inside `push()`/`pop()` for each pickable object.
    *
-   * @method pointerHit
-   * @for p5
-   * @param {number}  [pointerX]
-   * @param {number}  [pointerY]
+   * @function pointerHit
+   * @memberof p5
+   * @param {number}  [pointerX]  Defaults to mouseX.
+   * @param {number}  [pointerY]  Defaults to mouseY.
    * @param {{
    *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
@@ -219,8 +221,8 @@ export function installPicking(p5, fn) {
 
   /**
    * Shorthand for `pointerHit(mouseX, mouseY, opts)`.
-   * @method mouseHit
-   * @for p5
+   * @function mouseHit
+   * @memberof p5
    * @param {{
    *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
@@ -242,10 +244,7 @@ export function installPicking(p5, fn) {
 // FBO lifecycle
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Release the cached pick FBO. Called from lifecycles.remove.
- * @param {p5} pInst
- */
+// Release the cached pick FBO. Called from lifecycles.remove.
 export function releasePickFbo(pInst) {
   const fbo = pInst._tree?._pickFbo;
   if (fbo) { fbo.remove(); delete pInst._tree._pickFbo; }
