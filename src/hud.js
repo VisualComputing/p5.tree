@@ -30,6 +30,27 @@ export function installHud(p5, fn) {
    * @function beginHUD
    * @memberof p5
    * @returns {p5} this
+   * @example
+   * <caption>Frame-rate readout over a 3D scene</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('fps ' + frameRate().toFixed(0), 10, 20)
+   *   endHUD()
+   * }
    */
   p5.Renderer3D.prototype.beginHUD = function () {
     if (this._hudActive === true) return;
@@ -69,6 +90,25 @@ export function installHud(p5, fn) {
    * @function endHUD
    * @memberof p5
    * @returns {p5} this
+   * @example
+   * <caption>3D drawing resumes after endHUD()</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   beginHUD()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   circle(mouseX, mouseY, 16)
+   *   endHUD()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   * }
    */
   p5.Renderer3D.prototype.endHUD = function () {
     if (this._hudActive !== true) return;

@@ -267,6 +267,89 @@ export function installPanel(p5, fn) {
    * @param {(HTMLElement|p5.Element)} [opt.parent]
    *   Mount target. Defaults to the canvas parent element.
    * @returns {Object} Panel handle with .el, .tick(), .dispose().
+   * @example
+   * <caption>A parameter panel: sliders, a checkbox and a colour driving scene state through target</caption>
+   * const params = { speed: 0.02, size: 60, spin: true, tint: '#ff4fd8' }
+   * let angle = 0
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   createPanel({
+   *     speed: { min: 0, max: 0.1, value: params.speed, step: 0.005 },
+   *     size:  { min: 20, max: 120, value: params.size, step: 1, type: 'int' },
+   *     spin:  { value: params.spin },
+   *     tint:  { value: params.tint }
+   *   }, {
+   *     x: 10, y: 10, labels: true, title: 'box', color: 'white',
+   *     target: (name, value) => { params[name] = value }
+   *   })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   if (params.spin) angle += params.speed
+   *   rotateY(angle)
+   *   stroke('white')
+   *   fill(params.tint)
+   *   box(params.size)
+   * }
+   * @example
+   * <caption>A transport panel for a PoseTrack: play, seek, rate and loop, plus + to add a keyframe</caption>
+   * let track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   *   createPanel(track, { x: 10, y: 10, width: 150, info: true, color: 'white' })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track)
+   *   push()
+   *   applyPose(track.eval(pose))
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
+   * @example
+   * <caption>A helm panel: the 6-DOF profile edited live, its meters reading a scripted probe</caption>
+   * let helm
+   * const obj = { pos: [80, 0, 0], rot: [0, 0, 0, 1] }
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createPoseHelm({ from: p5.Tree.WORLD }).bind(obj)
+   *   createPanel(helm, { frame: true, x: 10, y: 10, width: 100, color: 'white' })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   // a probe in place of a device: lane 1 (Tz) and lane 2 (Ry) at the default mapping
+   *   const s = sin(millis() / 1000)
+   *   lin[1] = 250 * s
+   *   ang[2] = 250 * s
+   *   helm.feed(lin, ang)
+   *   push()
+   *   applyPose(obj)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(40)
+   *   pop()
+   * }
    */
   fn.createPanel = function (trackOrSchema, opt) {
     const pInst = this;

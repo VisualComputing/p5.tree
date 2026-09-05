@@ -70,6 +70,28 @@ export function installPicking(p5, fn) {
    * @memberof p5
    * @param {number} id  Integer in [1, 16_777_215].
    * @returns {string}   CSS hex string, e.g. `'#010000'` for id `1`.
+   * @example
+   * <caption>What the pick buffer sees: ids as near-black fills</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noStroke()
+   *   push()
+   *   translate(-70, 0, 0)
+   *   fill(tag(1))
+   *   box(50)
+   *   pop()
+   *   push()
+   *   translate(70, 0, 0)
+   *   fill(tag(2))
+   *   sphere(35)
+   *   pop()
+   * }
    */
   fn.tag = function (id) {
     const r= id        & 0xff;
@@ -96,6 +118,35 @@ export function installPicking(p5, fn) {
    * @param {number}   py      Y coordinate in canvas CSS pixels.
    * @param {function} drawFn  Scene draw callback — tag objects with fill(tag(id)).
    * @returns {number}         Decoded id (0 = background / miss).
+   * @example
+   * <caption>Pick at the canvas centre; orbit to bring an object under the cross</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const hit = colorPick(width / 2, height / 2, () => scene(tag))
+   *   axes()
+   *   stroke('white')
+   *   scene(id => hit === id ? '#ff4fd8' : 'white')
+   *   cross({ x: width / 2, y: height / 2, size: 20 })
+   * }
+   *
+   * // one geometry serves both passes; paint(id) decides the fill
+   * function scene(paint) {
+   *   push()
+   *   translate(-70, 0, 0)
+   *   fill(paint(1))
+   *   box(50)
+   *   pop()
+   *   push()
+   *   translate(70, 0, 0)
+   *   fill(paint(2))
+   *   sphere(35)
+   *   pop()
+   * }
    */
   fn.colorPick = function (px, py, drawFn) {
     const p        = this;
@@ -159,6 +210,34 @@ export function installPicking(p5, fn) {
    * @memberof p5
    * @param {function} drawFn  Scene draw callback — tag objects with fill(tag(id)).
    * @returns {number}  Decoded id (0 = background / miss).
+   * @example
+   * <caption>Hover to highlight</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const hit = mousePick(() => scene(tag))
+   *   axes()
+   *   stroke('white')
+   *   scene(id => hit === id ? '#ff4fd8' : 'white')
+   * }
+   *
+   * // one geometry serves both passes; paint(id) decides the fill
+   * function scene(paint) {
+   *   push()
+   *   translate(-70, 0, 0)
+   *   fill(paint(1))
+   *   box(50)
+   *   pop()
+   *   push()
+   *   translate(70, 0, 0)
+   *   fill(paint(2))
+   *   sphere(35)
+   *   pop()
+   * }
    */
   fn.mousePick = function (drawFn) {
     return this.colorPick(this.mouseX, this.mouseY, drawFn);
@@ -188,6 +267,31 @@ export function installPicking(p5, fn) {
    *   mat4PV?:     Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {boolean}
+   * @example
+   * <caption>Proximity test at an explicit, sweeping screen point</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const x = width / 2 + 120 * sin(frameCount * 0.02)
+   *   const y = height / 2
+   *   stroke('white')
+   *   push()
+   *   translate(-70, 0, 0)
+   *   fill(pointerHit(x, y, { size: 60 }) ? '#ff4fd8' : 'white')
+   *   box(50)
+   *   pop()
+   *   push()
+   *   translate(70, 0, 0)
+   *   fill(pointerHit(x, y, { size: 70 }) ? '#ff4fd8' : 'white')
+   *   sphere(35)
+   *   pop()
+   *   cross({ x, y, size: 20 })
+   * }
    */
   p5.Renderer3D.prototype.pointerHit = function (...args) {
     let pointerX, pointerY;
@@ -234,6 +338,30 @@ export function installPicking(p5, fn) {
    *   mat4PV?:     Float32Array | ArrayLike | p5.Matrix,
    * }} [opts]
    * @returns {boolean}
+   * @example
+   * <caption>Hover test per object; the hit zone drawn as a bulls-eye</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   push()
+   *   translate(-70, 0, 0)
+   *   fill(mouseHit({ size: 60 }) ? '#ff4fd8' : 'white')
+   *   box(50)
+   *   bullsEye({ size: 60 })
+   *   pop()
+   *   push()
+   *   translate(70, 0, 0)
+   *   fill(mouseHit({ size: 80, shape: p5.Tree.SQUARE }) ? '#ff4fd8' : 'white')
+   *   sphere(35)
+   *   bullsEye({ size: 80, shape: p5.Tree.SQUARE })
+   *   pop()
+   * }
    */
   fn.mouseHit = function (opts) {
     return this._renderer.pointerHit(this.mouseX, this.mouseY, opts);

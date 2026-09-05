@@ -181,6 +181,65 @@ export function installVisibility(p5, fn) {
    *   mat4Model?: Float32Array | ArrayLike | p5.Matrix,
    * }} opts
    * @returns {number} p5.Tree.VISIBLE | SEMIVISIBLE | INVISIBLE
+   * @example
+   * <caption>Sphere test against the current camera: edge-crossers flagged, culled ones skipped</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noStroke()
+   *   let drawn = 0
+   *   for (let i = 0; i < 8; i++) {
+   *     const x = 300 * sin(frameCount * 0.01 + i * PI / 4)
+   *     const y = (i - 3.5) * 30
+   *     const v = visibility({ center: [x, y, 0], radius: 15 })
+   *     if (v === p5.Tree.INVISIBLE) continue
+   *     fill(v === p5.Tree.VISIBLE ? 'white' : '#ff4fd8')
+   *     push()
+   *     translate(x, y, 0)
+   *     sphere(15)
+   *     pop()
+   *     drawn++
+   *   }
+   *   beginHUD()
+   *   fill('white')
+   *   text('drawn ' + drawn + ' / 8', 10, 20)
+   *   endHUD()
+   * }
+   * @example
+   * <caption>Local-space AABB under mat4Model</caption>
+   * const m = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   translate(260 * sin(frameCount * 0.01), 0, 0)
+   *   rotateY(frameCount * 0.02)
+   *   rotateX(frameCount * 0.013)
+   *   const v = visibility({
+   *     corner1: [-30, -30, -30],
+   *     corner2: [30, 30, 30],
+   *     mat4Model: mat4Model(m)
+   *   })
+   *   if (v !== p5.Tree.INVISIBLE) {
+   *     noFill()
+   *     stroke(v === p5.Tree.VISIBLE ? 'white' : '#ff4fd8')
+   *     box(60)
+   *   }
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.visibility = function (...args) {
     const { corner1, corner2, center, radius, bounds: userBounds, mat4Model } = this._parseVisibilityArgs(...args);
@@ -334,6 +393,57 @@ export function installVisibility(p5, fn) {
    * @memberof p5
    * @param {{ mat4Eye?: Float32Array | ArrayLike | p5.Matrix }} [opts]
    * @returns {object}
+   * @example
+   * <caption>Cull against a second camera's frustum</caption>
+   * let scope
+   * const eye = new Float32Array(16)
+   * const proj = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(350, -250, 650, 0, 0, 0, 0, 1, 0)
+   *   scope = createFramebuffer({ width: 1, height: 1 })
+   * }
+   *
+   * function draw() {
+   *   orbitControl()
+   *   // the test camera lives inside a scope: begin() lends it a camera
+   *   // of its own, end() restores the observer's
+   *   scope.begin()
+   *   const t = frameCount * 0.01
+   *   camera(320 * sin(t), -60, 320 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   perspective(PI / 5, width / height, 60, 450)
+   *   mat4Eye(eye)
+   *   mat4Proj(proj)
+   *   const b = bounds({ mat4Eye: eye })
+   *   scope.end()
+   *   background('#138D75')
+   *   axes()
+   *   for (let x = -80; x <= 80; x += 80) {
+   *     for (let y = -80; y <= 80; y += 80) {
+   *       for (let z = -80; z <= 80; z += 80) {
+   *         paint(visibility({ center: [x, y, z], radius: 12, bounds: b }))
+   *         push()
+   *         translate(x, y, z)
+   *         sphere(12, 8, 6)
+   *         pop()
+   *       }
+   *     }
+   *   }
+   *   stroke('#ffd166')
+   *   noFill()
+   *   viewFrustum({ mat4Eye: eye, mat4Proj: proj })
+   * }
+   *
+   * function paint(v) {
+   *   if (v === p5.Tree.INVISIBLE) {
+   *     noFill()
+   *     stroke('white')
+   *   } else {
+   *     noStroke()
+   *     fill(v === p5.Tree.VISIBLE ? '#ff4fd8' : 'white')
+   *   }
+   * }
    */
   p5.Renderer3D.prototype.bounds = function ({ mat4Eye } = {}) {
     const eRaw = _rawMat4(mat4Eye) ?? (mat4Invert(_eye, _viewMat4(this)), _eye);
@@ -359,6 +469,31 @@ export function installVisibility(p5, fn) {
    * @param {number|string} key  p5.Tree plane constant (LEFT, RIGHT, NEAR, FAR, TOP, BOTTOM).
    * @param {object} [bounds]    Keyed bounds object. Defaults to current frustum.
    * @returns {number}
+   * @example
+   * <caption>Signed distance to the RIGHT plane: negative inside, positive outside</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const x = 250 * sin(frameCount * 0.01)
+   *   const d = distanceToBound([x, 0, 0], p5.Tree.RIGHT)
+   *   noStroke()
+   *   fill(d > 0 ? '#ff4fd8' : 'white')
+   *   push()
+   *   translate(x, 0, 0)
+   *   sphere(10)
+   *   pop()
+   *   beginHUD()
+   *   fill('white')
+   *   text('right plane: ' + d.toFixed(0), 10, 20)
+   *   endHUD()
+   * }
    */
   p5.Renderer3D.prototype.distanceToBound = function (...args) {
     let point, key, bounds;

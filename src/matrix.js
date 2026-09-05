@@ -110,6 +110,39 @@ export function installMatrix(p5, fn) {
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>The live projection, dumped; press the mouse for ortho</caption>
+   * const m = new Float32Array(16)
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(12)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (mouseIsPressed) ortho()
+   *   else perspective()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   mat4Proj(m)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   show(m, 10, 20)
+   *   endHUD()
+   * }
+   *
+   * // the four rows of a column-major mat4
+   * function show(m, x, y) {
+   *   for (let r = 0; r < 4; r++) {
+   *     const row = [m[r], m[r + 4], m[r + 8], m[r + 12]]
+   *     text(row.map(v => v.toFixed(2)).join('  '), x, y + r * 16)
+   *   }
+   * }
    */
   p5.Renderer3D.prototype.mat4Proj = function (out) {
     const buf = _rawMat4(out), s = _projMat4(this);
@@ -130,6 +163,30 @@ export function installMatrix(p5, fn) {
    * @memberof p5.Camera
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>A second camera's frustum from its own eye and projection matrices</caption>
+   * let cam
+   * const eye = new Float32Array(16)
+   * const proj = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.camera(0, -80, 250, 0, 0, 0, 0, 1, 0)
+   *   cam.perspective(PI / 4, width / height, 50, 350)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({ mat4Eye: cam.mat4Eye(eye), mat4Proj: cam.mat4Proj(proj) })
+   * }
    */
   p5.Camera.prototype.mat4Proj = function (out) {
     const buf = _rawMat4(out), s = this.projMatrix.mat4;
@@ -153,6 +210,30 @@ export function installMatrix(p5, fn) {
    * @param {number} [ndcZMin]  {@link WEBGL} (−1) or {@link WEBGPU} (0).
    * @param {number} [ndcYSign]  Sign of the NDC y axis.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>A frustum from numbers alone: a lookat eye plus a perspective projection</caption>
+   * const eye = new Float32Array(16)
+   * const proj = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   mat4Eye(eye, 0, -80, 250, 0, 0, 0, 0, 1, 0)
+   *   const near = 50, far = 350
+   *   const top = near * tan(PI / 8), right = top * width / height
+   *   mat4Persp(proj, -right, right, -top, top, near, far)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({ mat4Eye: eye, mat4Proj: proj })
+   * }
    */
   fn.mat4Persp = function (out, ...args) {
     if (args[6] == null) args[6] = _ndcZ;
@@ -175,6 +256,28 @@ export function installMatrix(p5, fn) {
    * @param {number} [ndcZMin]  {@link WEBGL} (−1) or {@link WEBGPU} (0).
    * @param {number} [ndcYSign]  Sign of the NDC y axis.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>An orthographic box from numbers alone</caption>
+   * const eye = new Float32Array(16)
+   * const proj = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   mat4Eye(eye, 0, -80, 250, 0, 0, 0, 0, 1, 0)
+   *   mat4Ortho(proj, -80, 80, -60, 60, 50, 350)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({ mat4Eye: eye, mat4Proj: proj })
+   * }
    */
   fn.mat4Ortho = function (out, ...args) {
     if (args[6] == null) args[6] = _ndcZ;
@@ -188,6 +291,42 @@ export function installMatrix(p5, fn) {
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>The transform stack, read from inside push/pop</caption>
+   * const m = new Float32Array(16)
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(12)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   translate(100 * sin(frameCount * 0.02), 0, 0)
+   *   rotateY(frameCount * 0.01)
+   *   mat4Model(m)
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(40)
+   *   pop()
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   show(m, 10, 20)
+   *   endHUD()
+   * }
+   *
+   * // the four rows of a column-major mat4
+   * function show(m, x, y) {
+   *   for (let r = 0; r < 4; r++) {
+   *     const row = [m[r], m[r + 4], m[r + 8], m[r + 12]]
+   *     text(row.map(v => v.toFixed(2)).join('  '), x, y + r * 16)
+   *   }
+   * }
    */
   p5.Renderer3D.prototype.mat4Model = function (out) {
     const buf = _rawMat4(out), s = _modelMat4(this);
@@ -202,6 +341,47 @@ export function installMatrix(p5, fn) {
    * @memberof p5.Camera
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>Depth of a point as seen by a second camera</caption>
+   * let cam
+   * const view = new Float32Array(16)
+   * const p = new Float32Array(3)
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.perspective(PI / 4, width / height, 50, 350)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = frameCount * 0.01
+   *   cam.camera(250 * sin(t), -80, 250 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   axes()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   push()
+   *   translate(80, 0, 0)
+   *   sphere(15)
+   *   pop()
+   *   stroke('#ffd166')
+   *   noFill()
+   *   viewFrustum({ camera: cam })
+   *   // eye space looks down -z, so depth is the negated z
+   *   mapLocation([80, 0, 0], {
+   *     from: p5.Tree.WORLD, to: p5.Tree.EYE,
+   *     out: p, mat4View: cam.mat4View(view)
+   *   })
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('depth from cam ' + (-p[2]).toFixed(0), 10, 20)
+   *   endHUD()
+   * }
    */
   p5.Camera.prototype.mat4View = function (out) {
     const buf = _rawMat4(out), s = this.cameraMatrix.mat4;
@@ -223,6 +403,75 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {...number} [lookat]  `ex, ey, ez, cx, cy, cz, ux, uy, uz`.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>The live view matrix, dumped; orbit to watch it change</caption>
+   * const v = new Float32Array(16)
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(12)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   mat4View(v)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   show(v, 10, 20)
+   *   endHUD()
+   * }
+   *
+   * // the four rows of a column-major mat4
+   * function show(m, x, y) {
+   *   for (let r = 0; r < 4; r++) {
+   *     const row = [m[r], m[r + 4], m[r + 8], m[r + 12]]
+   *     text(row.map(v => v.toFixed(2)).join('  '), x, y + r * 16)
+   *   }
+   * }
+   * @example
+   * <caption>Standalone lookat: depth from a virtual camera, no camera state touched</caption>
+   * const v = new Float32Array(16)
+   * const p = new Float32Array(3)
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   *   mat4View(v, 200, -100, 300, 0, 0, 0, 0, 1, 0)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const q = [120 * cos(frameCount * 0.02), 0, 120 * sin(frameCount * 0.02)]
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   push()
+   *   translate(q[0], q[1], q[2])
+   *   sphere(12)
+   *   pop()
+   *   fill('#ffd166')
+   *   push()
+   *   translate(200, -100, 300)
+   *   sphere(8)
+   *   pop()
+   *   stroke('#ffd166')
+   *   line(200, -100, 300, 0, 0, 0)
+   *   mapLocation(q, { from: p5.Tree.WORLD, to: p5.Tree.EYE, out: p, mat4View: v })
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('depth from the virtual eye ' + (-p[2]).toFixed(0), 10, 20)
+   *   endHUD()
+   * }
    */
   fn.mat4View = function (out, ...args) {
     if (args.length === 0) return this._renderer.mat4View(out);
@@ -236,6 +485,33 @@ export function installMatrix(p5, fn) {
    * @memberof p5.Camera
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   * @example
+   * <caption>The camera body drawn from its own eye matrix</caption>
+   * let cam
+   * const eye = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = frameCount * 0.01
+   *   cam.camera(250 * sin(t), -80, 250 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   push()
+   *   applyMatrix(...cam.mat4Eye(eye))
+   *   axes({ size: 40, bits: p5.Tree.X | p5.Tree.Y | p5.Tree._Z })
+   *   stroke('#ffd166')
+   *   box(20, 20, 30)
+   *   pop()
+   * }
    */
   p5.Camera.prototype.mat4Eye = function (out) {
     const buf = _rawMat4(out);
@@ -256,6 +532,54 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {...number} [lookat]  `ex, ey, ez, cx, cy, cz, ux, uy, uz`.
    * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   * @example
+   * <caption>Current camera: the last column is the camera position</caption>
+   * const e = new Float32Array(16)
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   mat4Eye(e)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('eye ' + [e[12], e[13], e[14]].map(v => v.toFixed(0)).join('  '), 10, 20)
+   *   endHUD()
+   * }
+   * @example
+   * <caption>Standalone lookat: a virtual camera's frustum, no camera state touched</caption>
+   * const eye = new Float32Array(16)
+   * const proj = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   mat4Eye(eye, 0, -80, 250, 0, 0, 0, 0, 1, 0)
+   *   const near = 50, far = 350
+   *   const top = near * tan(PI / 8), right = top * width / height
+   *   mat4Persp(proj, -right, right, -top, top, near, far)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({ mat4Eye: eye, mat4Proj: proj })
+   * }
    */
   fn.mat4Eye = function (out, ...args) {
     if (args.length === 0) return this._renderer.mat4Eye(out);
@@ -273,6 +597,35 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {{ mat4Proj?, mat4View? }} [opts]  Precomputed matrices to skip redundant work.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>One PV per frame projects every corner: HUD dots pinned to a box</caption>
+   * const pv = new Float32Array(16)
+   * const pts = new Float32Array(24)
+   * const s = new Float32Array(3)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(80)
+   *   mat4PV(pv)
+   *   for (let i = 0; i < 8; i++) {
+   *     const c = [i & 1 ? 40 : -40, i & 2 ? 40 : -40, i & 4 ? 40 : -40]
+   *     mapLocation(c, { from: p5.Tree.WORLD, to: p5.Tree.SCREEN, out: s, mat4PV: pv })
+   *     pts.set(s, i * 3)
+   *   }
+   *   beginHUD()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   for (let i = 0; i < 8; i++) circle(pts[i * 3], pts[i * 3 + 1], 8)
+   *   endHUD()
+   * }
    */
   p5.Renderer3D.prototype.mat4PV = function (out, { mat4Proj, mat4View } = {}) {
     mat4Mul(_rawMat4(out), _rawMat4(mat4Proj) ?? _projMat4(this), _rawMat4(mat4View) ?? _viewMat4(this));
@@ -288,6 +641,38 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {{ mat4Proj?, mat4View?, mat4PV? }} [opts]  Precomputed matrices to skip redundant work.
    * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   * @example
+   * <caption>Unproject the mouse at the depth of the origin, PV and its inverse precomputed</caption>
+   * const pv = new Float32Array(16)
+   * const ipv = new Float32Array(16)
+   * const s = new Float32Array(3)
+   * const w = new Float32Array(3)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   mat4PV(pv)
+   *   mat4PVInv(ipv, { mat4PV: pv })
+   *   // the origin's screen depth, then the mouse pushed to that depth
+   *   mapLocation({ from: p5.Tree.WORLD, to: p5.Tree.SCREEN, out: s, mat4PV: pv })
+   *   mapLocation([mouseX, mouseY, s[2]], {
+   *     from: p5.Tree.SCREEN, to: p5.Tree.WORLD,
+   *     out: w, mat4PV: pv, mat4PVInv: ipv
+   *   })
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   push()
+   *   translate(w[0], w[1], w[2])
+   *   sphere(10)
+   *   pop()
+   *   stroke('white')
+   *   line(0, 0, 0, w[0], w[1], w[2])
+   * }
    */
   p5.Renderer3D.prototype.mat4PVInv = function (out, { mat4Proj, mat4View, mat4PV } = {}) {
     const pv = _rawMat4(mat4PV) ??
@@ -303,6 +688,42 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {{ mat4Model?, mat4View? }} [opts]  Precomputed matrices to skip redundant work.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>Eye-space depth from the modelview's last column: the nearer sphere lights up</caption>
+   * const mv = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noStroke()
+   *   const t = frameCount * 0.02
+   *   const a = [80 * cos(t), 0, 80 * sin(t)]
+   *   const b = [-a[0], 0, -a[2]]
+   *   const da = depth(a), db = depth(b)
+   *   ball(a, da < db)
+   *   ball(b, db < da)
+   * }
+   *
+   * function depth(p) {
+   *   push()
+   *   translate(p[0], p[1], p[2])
+   *   mat4MV(mv)
+   *   pop()
+   *   return -mv[14]   // eye space looks down -z
+   * }
+   *
+   * function ball(p, near) {
+   *   push()
+   *   translate(p[0], p[1], p[2])
+   *   fill(near ? '#ff4fd8' : 'white')
+   *   sphere(20)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.mat4MV = function (out, { mat4Model, mat4View } = {}) {
     mat4Mul(_rawMat4(out), _rawMat4(mat4View) ?? _viewMat4(this), _rawMat4(mat4Model) ?? _modelMat4(this));
@@ -317,6 +738,44 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {{ mat4Proj?, mat4Model?, mat4View? }} [opts]  Precomputed matrices to skip redundant work.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>Your own clip transform, fed to a custom vertex shader</caption>
+   * let sh
+   * const pmv = new Float32Array(16)
+   *
+   * const vert = `#version 300 es
+   * precision highp float;
+   * in vec4 aPosition;
+   * uniform mat4 uPMV;
+   * void main() {
+   *   gl_Position = uPMV * aPosition;
+   * }`
+   *
+   * const frag = `#version 300 es
+   * precision highp float;
+   * out vec4 outColor;
+   * void main() {
+   *   outColor = vec4(1.0, 0.31, 0.85, 1.0);
+   * }`
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   sh = createShader(vert, frag)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   rotateX(frameCount * 0.007)
+   *   shader(sh)
+   *   sh.setUniform('uPMV', mat4PMV(pmv))
+   *   noStroke()
+   *   torus(50, 20)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.mat4PMV = function (out, { mat4Proj, mat4Model, mat4View } = {}) {
     mat4Mul(_wa, _rawMat4(mat4View) ?? _viewMat4(this), _rawMat4(mat4Model) ?? _modelMat4(this));
@@ -333,6 +792,52 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
    * @param {{ mat4Model?, mat4View?, mat4MV? }} [opts]  Precomputed matrices to skip redundant work.
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>Lambert shading with your own normal matrix</caption>
+   * let sh
+   * const pmv = new Float32Array(16)
+   * const n = new Float32Array(9)
+   *
+   * const vert = `#version 300 es
+   * precision highp float;
+   * in vec4 aPosition;
+   * in vec3 aNormal;
+   * uniform mat4 uPMV;
+   * uniform mat3 uN;
+   * out vec3 vN;
+   * void main() {
+   *   vN = normalize(uN * aNormal);
+   *   gl_Position = uPMV * aPosition;
+   * }`
+   *
+   * const frag = `#version 300 es
+   * precision highp float;
+   * in vec3 vN;
+   * out vec4 outColor;
+   * void main() {
+   *   float d = max(0.0, dot(vN, normalize(vec3(0.4, -0.6, 1.0))));
+   *   outColor = vec4(vec3(1.0, 0.31, 0.85) * (0.3 + 0.7 * d), 1.0);
+   * }`
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   sh = createShader(vert, frag)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   rotateX(frameCount * 0.007)
+   *   shader(sh)
+   *   sh.setUniform('uPMV', mat4PMV(pmv))
+   *   sh.setUniform('uN', mat3Normal(n))
+   *   noStroke()
+   *   torus(50, 20)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.mat3Normal = function (out, { mat4Model, mat4View, mat4MV } = {}) {
     const mv = _rawMat4(mat4MV) ??
@@ -350,6 +855,42 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} from
    * @param {Float32Array|ArrayLike|p5.Matrix} to
    * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if `to` is singular.
+   * @example
+   * <caption>Frame A's origin in frame B's coordinates: a line drawn inside B lands on A</caption>
+   * const a = new Float32Array(16)
+   * const b = new Float32Array(16)
+   * const L = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noFill()
+   *   // frame A orbits the origin
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   translate(120, 0, 0)
+   *   mat4Model(a)
+   *   stroke('#ff4fd8')
+   *   box(30)
+   *   pop()
+   *   // frame B spins in place
+   *   push()
+   *   translate(0, -60, 0)
+   *   rotateX(frameCount * 0.02)
+   *   mat4Model(b)
+   *   stroke('#ffd166')
+   *   box(30)
+   *   // A's origin in B's coordinates is the last column of L
+   *   mat4Location(L, a, b)
+   *   stroke('white')
+   *   line(0, 0, 0, L[12], L[13], L[14])
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.mat4Location = function (out, from, to) {
     return mat4Location(_rawMat4(out), _rawMat4(from), _rawMat4(to)) === null ? null : out;
@@ -364,6 +905,55 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} from
    * @param {Float32Array|ArrayLike|p5.Matrix} to
    * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if `from` is singular.
+   * @example
+   * <caption>Carry a world direction from frame A to frame B: the same coordinates in B that it has in A</caption>
+   * const a = new Float32Array(16)
+   * const b = new Float32Array(16)
+   * const D = new Float32Array(9)
+   * const d = [0.6, -0.8, 0]   // a fixed world direction
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noFill()
+   *   // frame A spins about y
+   *   push()
+   *   translate(-90, 0, 0)
+   *   rotateY(frameCount * 0.01)
+   *   mat4Model(a)
+   *   stroke('#ff4fd8')
+   *   box(30)
+   *   axes({ size: 40 })
+   *   pop()
+   *   // frame B spins about x
+   *   push()
+   *   translate(90, 0, 0)
+   *   rotateX(frameCount * 0.02)
+   *   mat4Model(b)
+   *   stroke('#ffd166')
+   *   box(30)
+   *   axes({ size: 40 })
+   *   pop()
+   *   mat3Direction(D, a, b)
+   *   const e = mul3(D, d)
+   *   stroke('white')
+   *   line(-90, 0, 0, -90 + 60 * d[0], 60 * d[1], 60 * d[2])
+   *   line(90, 0, 0, 90 + 60 * e[0], 60 * e[1], 60 * e[2])
+   * }
+   *
+   * // column-major mat3 times vec3
+   * function mul3(m, v) {
+   *   return [
+   *     m[0] * v[0] + m[3] * v[1] + m[6] * v[2],
+   *     m[1] * v[0] + m[4] * v[1] + m[7] * v[2],
+   *     m[2] * v[0] + m[5] * v[1] + m[8] * v[2]
+   *   ]
+   * }
    */
   p5.Renderer3D.prototype.mat3Direction = function (out, from, to) {
     return mat3Direction(_rawMat3(out), _rawMat4(from), _rawMat4(to)) === null ? null : out;
@@ -382,6 +972,42 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} A
    * @param {Float32Array|ArrayLike|p5.Matrix} B
    * @returns {Float32Array|ArrayLike|p5.Matrix} out
+   * @example
+   * <caption>A · B places B inside A's frame</caption>
+   * const a = new Float32Array(16)
+   * const b = new Float32Array(16)
+   * const c = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noFill()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   translate(100, 0, 0)
+   *   mat4Model(a)
+   *   stroke('#ff4fd8')
+   *   box(30)
+   *   pop()
+   *   push()
+   *   rotateZ(frameCount * 0.03)
+   *   translate(0, 50, 0)
+   *   mat4Model(b)
+   *   stroke('#ffd166')
+   *   box(30)
+   *   pop()
+   *   mat4Mul(c, a, b)
+   *   push()
+   *   applyMatrix(...c)
+   *   stroke('white')
+   *   box(30)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.mat4Mul = function (out, A, B) {
     mat4Mul(_rawMat4(out), _rawMat4(A), _rawMat4(B));
@@ -396,6 +1022,32 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} src
    * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if singular.
+   * @example
+   * <caption>M · inv(M) = I: undo the stack from inside it</caption>
+   * const m = new Float32Array(16)
+   * const inv = new Float32Array(16)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noFill()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   translate(100, 0, 0)
+   *   rotateX(frameCount * 0.02)
+   *   mat4Model(m)
+   *   stroke('#ff4fd8')
+   *   box(30)
+   *   applyMatrix(...mat4Invert(inv, m))
+   *   stroke('white')
+   *   box(30)   // back at the world origin, unrotated
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.mat4Invert = function (out, src) {
     return mat4Invert(_rawMat4(out), _rawMat4(src)) === null ? null : out;
@@ -415,6 +1067,33 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|number[]|p5.Vector} out3  3-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} m
    * @returns {Float32Array|number[]|p5.Vector} out3
+   * @example
+   * <caption>Where a nested transform stack ends up</caption>
+   * const m = new Float32Array(16)
+   * const t = new Float32Array(3)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   translate(120, 0, 0)
+   *   rotateZ(frameCount * 0.03)
+   *   translate(0, 40, 0)
+   *   mat4Model(m)
+   *   noFill()
+   *   stroke('#ff4fd8')
+   *   box(20)
+   *   pop()
+   *   mat4ToTranslation(t, m)
+   *   stroke('white')
+   *   line(0, 0, 0, t[0], t[1], t[2])
+   * }
    */
   fn.mat4ToTranslation = function (out3, m) {
     const isVec = out3 instanceof p5.Vector;
@@ -431,6 +1110,36 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|number[]|p5.Vector} out3  3-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} m
    * @returns {Float32Array|number[]|p5.Vector} out3
+   * @example
+   * <caption>Scale recovered from a transform, re-applied to a clone</caption>
+   * const m = new Float32Array(16)
+   * const s = new Float32Array(3)
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noFill()
+   *   push()
+   *   translate(-80, 0, 0)
+   *   rotateY(frameCount * 0.02)
+   *   scale(1 + 0.5 * sin(frameCount * 0.03), 1, 1 + 0.5 * cos(frameCount * 0.03))
+   *   mat4Model(m)
+   *   stroke('#ff4fd8')
+   *   box(40)
+   *   pop()
+   *   mat4ToScale(s, m)
+   *   push()
+   *   translate(80, 0, 0)
+   *   scale(s[0], s[1], s[2])
+   *   stroke('#ffd166')
+   *   box(40)
+   *   pop()
+   * }
    */
   fn.mat4ToScale = function (out3, m) {
     const isVec = out3 instanceof p5.Vector;
@@ -447,6 +1156,37 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|number[]} out4  4-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} m
    * @returns {Float32Array|number[]} out4
+   * @example
+   * <caption>Orientation recovered as a quaternion, re-applied to a clone</caption>
+   * const m = new Float32Array(16)
+   * const q = [0, 0, 0, 1]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noFill()
+   *   push()
+   *   translate(-80, 0, 0)
+   *   rotateY(frameCount * 0.02)
+   *   rotateX(frameCount * 0.013)
+   *   mat4Model(m)
+   *   stroke('#ff4fd8')
+   *   box(40)
+   *   pop()
+   *   mat4ToRotation(q, m)
+   *   push()
+   *   translate(80, 0, 0)
+   *   rotateQuat(q)
+   *   axes({ size: 40 })
+   *   stroke('#ffd166')
+   *   box(40)
+   *   pop()
+   * }
    */
   fn.mat4ToRotation = function (out4, m) {
     mat4ToRotation(out4, _rawMat4(m));
@@ -469,47 +1209,256 @@ export function installMatrix(p5, fn) {
   /** Whether the current projection is orthographic.
    * @function projIsOrtho
    * @memberof p5
-   * @returns {boolean} */
+   * @returns {boolean}
+   * @example
+   * <caption>Perspective, or orthographic while the mouse is pressed</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (mouseIsPressed) ortho()
+   *   else perspective()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text(projIsOrtho() ? 'ortho' : 'perspective', 10, 20)
+   *   endHUD()
+   * }
+   */
   fn.projIsOrtho = function () { return this._renderer.projIsOrtho(); };
   /** Near clip distance of the current projection (positive).
    * @function projNear
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Near and far read back; the mouse drives near through the box</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(PI / 3, width / height, map(mouseX, 0, width, 100, 320), 1000)
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('near ' + projNear().toFixed(0) + '   far ' + projFar().toFixed(0), 10, 20)
+   *   endHUD()
+   * }
+   */
   fn.projNear    = function () { return this._renderer.projNear();    };
   /** Far clip distance of the current projection (positive).
    * @function projFar
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Near and far read back; the mouse drives far through the box</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(PI / 3, width / height, 50, map(mouseX, 0, width, 200, 400))
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('near ' + projNear().toFixed(0) + '   far ' + projFar().toFixed(0), 10, 20)
+   *   endHUD()
+   * }
+   */
   fn.projFar     = function () { return this._renderer.projFar();     };
   /** Left extent of the current projection's near plane (camera space; negative).
    * @function projLeft
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Near-plane extents of a perspective whose fov follows the mouse</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(map(mouseX, 0, width, PI / 6, PI / 2), width / height, 50, 1000)
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('left ' + projLeft().toFixed(1) + '   right ' + projRight().toFixed(1), 10, 20)
+   *   text('bottom ' + projBottom().toFixed(1) + '   top ' + projTop().toFixed(1), 10, 40)
+   *   endHUD()
+   * }
+   */
   fn.projLeft    = function () { return this._renderer.projLeft();    };
   /** Right extent of the current projection's near plane (camera space).
    * @function projRight
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Near-plane extents of a perspective whose fov follows the mouse</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(map(mouseX, 0, width, PI / 6, PI / 2), width / height, 50, 1000)
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('left ' + projLeft().toFixed(1) + '   right ' + projRight().toFixed(1), 10, 20)
+   *   text('bottom ' + projBottom().toFixed(1) + '   top ' + projTop().toFixed(1), 10, 40)
+   *   endHUD()
+   * }
+   */
   fn.projRight   = function () { return this._renderer.projRight();   };
   /** Top extent of the current projection's near plane (camera space).
    * @function projTop
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Near-plane extents of a perspective whose fov follows the mouse</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(map(mouseX, 0, width, PI / 6, PI / 2), width / height, 50, 1000)
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('left ' + projLeft().toFixed(1) + '   right ' + projRight().toFixed(1), 10, 20)
+   *   text('bottom ' + projBottom().toFixed(1) + '   top ' + projTop().toFixed(1), 10, 40)
+   *   endHUD()
+   * }
+   */
   fn.projTop     = function () { return this._renderer.projTop();     };
   /** Bottom extent of the current projection's near plane (camera space; negative).
    * @function projBottom
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Near-plane extents of a perspective whose fov follows the mouse</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(map(mouseX, 0, width, PI / 6, PI / 2), width / height, 50, 1000)
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('left ' + projLeft().toFixed(1) + '   right ' + projRight().toFixed(1), 10, 20)
+   *   text('bottom ' + projBottom().toFixed(1) + '   top ' + projTop().toFixed(1), 10, 40)
+   *   endHUD()
+   * }
+   */
   fn.projBottom  = function () { return this._renderer.projBottom();  };
   /** Vertical field of view of the current projection, in radians.
    * @function projFov
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Vertical and horizontal fov, the vertical one driven by the mouse</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(map(mouseX, 0, width, PI / 6, PI / 2), width / height, 50, 1000)
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('fov ' + degrees(projFov()).toFixed(0) + '   hfov ' + degrees(projHfov()).toFixed(0), 10, 20)
+   *   endHUD()
+   * }
+   */
   fn.projFov     = function () { return this._renderer.projFov();     };
   /** Horizontal field of view of the current projection, in radians.
    * @function projHfov
    * @memberof p5
-   * @returns {number} */
+   * @returns {number}
+   * @example
+   * <caption>Vertical and horizontal fov, the vertical one driven by the mouse</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   perspective(map(mouseX, 0, width, PI / 6, PI / 2), width / height, 50, 1000)
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('fov ' + degrees(projFov()).toFixed(0) + '   hfov ' + degrees(projHfov()).toFixed(0), 10, 20)
+   *   endHUD()
+   * }
+   */
   fn.projHfov    = function () { return this._renderer.projHfov();    };
 
   // ── _buildBag ─────────────────────────────────────────────────────────────
@@ -559,6 +1508,75 @@ export function installMatrix(p5, fn) {
    *   mat4PVInv?: Float32Array | number[] | p5.Matrix,
    * }} [opts]
    * @returns {Float32Array|number[]|p5.Vector}  opts.out if provided, else a fresh p5.Vector.
+   * @example
+   * <caption>WORLD to SCREEN: a HUD label pinned to a 3D point</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const p = [100 * cos(frameCount * 0.02), -40, 100 * sin(frameCount * 0.02)]
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   push()
+   *   translate(p[0], p[1], p[2])
+   *   sphere(10)
+   *   pop()
+   *   const s = mapLocation(p, { from: p5.Tree.WORLD, to: p5.Tree.SCREEN })
+   *   beginHUD()
+   *   fill('white')
+   *   text('(' + p.map(v => v.toFixed(0)).join(', ') + ')', s.x + 12, s.y + 4)
+   *   endHUD()
+   * }
+   * @example
+   * <caption>SCREEN to WORLD: the mouse, pushed to the depth of the origin</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const o = mapLocation({ from: p5.Tree.WORLD, to: p5.Tree.SCREEN })
+   *   const w = mapLocation([mouseX, mouseY, o.z], { from: p5.Tree.SCREEN, to: p5.Tree.WORLD })
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   push()
+   *   translate(w.x, w.y, w.z)
+   *   sphere(10)
+   *   pop()
+   *   stroke('white')
+   *   line(0, 0, 0, w.x, w.y, w.z)
+   * }
+   * @example
+   * <caption>MODEL to WORLD: where the transform stack put the origin</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   translate(120, 0, 0)
+   *   rotateZ(frameCount * 0.03)
+   *   translate(0, 40, 0)
+   *   const w = mapLocation({ from: p5.Tree.MODEL })
+   *   noFill()
+   *   stroke('#ff4fd8')
+   *   box(20)
+   *   pop()
+   *   stroke('white')
+   *   line(0, 0, 0, w.x, w.y, w.z)
+   * }
    */
   p5.Renderer3D.prototype.mapLocation = function (...args) {
     const hasVec = _isVec(args[0]);
@@ -624,6 +1642,51 @@ export function installMatrix(p5, fn) {
    *   mat4View?: Float32Array | number[] | p5.Matrix,
    * }} [opts]
    * @returns {Float32Array|number[]|p5.Vector}  opts.out if provided, else a fresh p5.Vector.
+   * @example
+   * <caption>EYE to WORLD, the default: the camera's look direction</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   const d = mapDirection()
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('look ' + [d.x, d.y, d.z].map(v => v.toFixed(2)).join('  '), 10, 20)
+   *   endHUD()
+   * }
+   * @example
+   * <caption>MODEL to WORLD: a spinning object's local X, drawn at the world origin</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   translate(100, 0, 0)
+   *   rotateY(frameCount * 0.01)
+   *   rotateZ(frameCount * 0.02)
+   *   const x = mapDirection([1, 0, 0], { from: p5.Tree.MODEL })
+   *   noFill()
+   *   stroke('#ff4fd8')
+   *   box(30)
+   *   axes({ size: 60 })
+   *   pop()
+   *   stroke('#ffd166')
+   *   line(0, 0, 0, 60 * x.x, 60 * x.y, 60 * x.z)
+   * }
    */
   p5.Renderer3D.prototype.mapDirection = function (...args) {
     const hasVec = _isVec(args[0]);
@@ -664,6 +1727,29 @@ export function installMatrix(p5, fn) {
    * @param {Float32Array|number[]|p5.Vector} [worldPos]
    * @param {{ mat4Proj?, mat4View? }} [opts]
    * @returns {number}
+   * @example
+   * <caption>A constant screen-size dot: world radius = pixels × pixelRatio</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const p = [100, 0, 100 * sin(frameCount * 0.01)]
+   *   noStroke()
+   *   push()
+   *   translate(p[0], p[1], p[2])
+   *   fill('#ff4fd8')
+   *   sphere(8 * pixelRatio(p))   // 8 px on screen at any zoom
+   *   pop()
+   *   push()
+   *   translate(-100, 0, 0)
+   *   fill('white')
+   *   sphere(8)                   // 8 world units: shrinks and grows
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.pixelRatio = function (worldPos, { mat4Proj, mat4View } = {}) {
     const proj = _rawMat4(mat4Proj) ?? _projMat4(this);
@@ -689,6 +1775,41 @@ export function installMatrix(p5, fn) {
    * @function screenSize
    * @memberof p5
    * @returns {number[]} [w, h]
+   * @example
+   * <caption>gl_FragCoord normalised by the physical canvas size</caption>
+   * let sh
+   *
+   * const vert = `#version 300 es
+   * precision highp float;
+   * in vec4 aPosition;
+   * uniform mat4 uProjectionMatrix;
+   * uniform mat4 uModelViewMatrix;
+   * void main() {
+   *   gl_Position = uProjectionMatrix * uModelViewMatrix * aPosition;
+   * }`
+   *
+   * const frag = `#version 300 es
+   * precision highp float;
+   * uniform vec2 u_resolution;
+   * out vec4 outColor;
+   * void main() {
+   *   vec2 uv = gl_FragCoord.xy / u_resolution;
+   *   vec3 c = mix(vec3(1.0), vec3(1.0, 0.31, 0.85), uv.x) * (0.5 + 0.5 * uv.y);
+   *   outColor = vec4(c, 1.0);
+   * }`
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   sh = createShader(vert, frag)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   shader(sh)
+   *   sh.setUniform('u_resolution', screenSize())
+   *   noStroke()
+   *   plane(width / 2, height / 2)   // canvas coordinates: only the middle of the gradient shows
+   * }
    */
   p5.Renderer3D.prototype.screenSize = function () {
     const pd = this._pInst.pixelDensity();
@@ -705,6 +1826,61 @@ export function installMatrix(p5, fn) {
    * @memberof p5
    * @param {{ width:number, height:number }} img
    * @returns {number[]} [1/w, 1/h]
+   * @example
+   * <caption>Neighbour sampling in a custom shader, stepped by one texel</caption>
+   * let img, sh
+   *
+   * const vert = `#version 300 es
+   * precision highp float;
+   * in vec4 aPosition;
+   * in vec2 aTexCoord;
+   * uniform mat4 uProjectionMatrix;
+   * uniform mat4 uModelViewMatrix;
+   * out vec2 vUv;
+   * void main() {
+   *   vUv = aTexCoord;
+   *   gl_Position = uProjectionMatrix * uModelViewMatrix * aPosition;
+   * }`
+   *
+   * const frag = `#version 300 es
+   * precision highp float;
+   * uniform sampler2D uTex;
+   * uniform vec2 uTexel;
+   * uniform float uRadius;
+   * in vec2 vUv;
+   * out vec4 outColor;
+   * void main() {
+   *   vec4 sum = vec4(0.0);
+   *   for (int i = -1; i <= 1; i++) {
+   *     for (int j = -1; j <= 1; j++) {
+   *       sum += texture(uTex, vUv + vec2(i, j) * uTexel * uRadius);
+   *     }
+   *   }
+   *   outColor = sum / 9.0;
+   * }`
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   // a procedural checker
+   *   img = createImage(64, 64)
+   *   const a = color('#ff4fd8'), b = color('white')
+   *   img.loadPixels()
+   *   for (let y = 0; y < 64; y++) {
+   *     for (let x = 0; x < 64; x++) img.set(x, y, ((x >> 3) + (y >> 3)) & 1 ? a : b)
+   *   }
+   *   img.updatePixels()
+   *   sh = createShader(vert, frag)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   shader(sh)
+   *   sh.setUniform('uTex', img)
+   *   sh.setUniform('uTexel', texelSize(img))
+   *   sh.setUniform('uRadius', map(mouseX, 0, width, 0, 3))   // blur in texel steps
+   *   noStroke()
+   *   plane(240, 240)
+   * }
    */
   fn.texelSize = function (img) { return [1/img.width, 1/img.height]; };
 }

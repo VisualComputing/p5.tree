@@ -325,6 +325,39 @@ export function installHelm(p5, fn) {
    *                                    Defaults to the current camera.
    * @param {{ profile?: Object, deadzone?: number }} [opts]
    * @returns {PoseHelm}
+   * @example
+   * <caption>Fly the default camera from a probe: hold the mouse, y pushes forward and x yaws; the rig reads the lanes</caption>
+   * let helm
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createCameraHelm()   // the current camera, seeded from its lookat
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   // a probe in place of a device, on the default lane mapping: lane 1 is Tz, lane 2 is Ry
+   *   const hold = mouseIsPressed ? 1 : 0
+   *   lin[1] = hold * 500 * (0.5 - mouseY / height) * 2
+   *   ang[2] = hold * 500 * (mouseX / width - 0.5) * 2
+   *   helm.feed(lin, ang)
+   *   axes()
+   *   stroke('white')
+   *   push()
+   *   rotateX(HALF_PI)
+   *   grid({ size: 400, subdivisions: 20 })
+   *   pop()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   for (let i = 0; i < 6; i++) {
+   *     push()
+   *     translate(150 * cos(i * PI / 3), -20, 150 * sin(i * PI / 3))
+   *     box(40)
+   *     pop()
+   *   }
+   *   helmRig(helm, { x: width - 136, y: 16, size: 120 })
+   * }
    */
   fn.createCameraHelm = function (cam, opts) {
     const pInst = this;
@@ -415,6 +448,63 @@ export function installHelm(p5, fn) {
    *           from?: string | Float32Array | p5.Matrix,
    *           bind?: p5.Camera | Object }} [opts]
    * @returns {PoseHelm}
+   * @example
+   * <caption>from: EYE, the default: hold any key and steer with the mouse; the push is screen-relative whatever the orbit</caption>
+   * let helm
+   * const obj = { pos: [0, 0, 0], rot: [0, 0, 0, 1] }
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createPoseHelm().bind(obj)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   // a probe in place of a device: lane 0 is Tx, lane 2 is Ty
+   *   const hold = keyIsPressed ? 1 : 0
+   *   lin[0] = hold * 500 * (mouseX / width - 0.5) * 2
+   *   lin[2] = hold * 500 * (mouseY / height - 0.5) * 2
+   *   helm.feed(lin, ang)
+   *   axes()
+   *   push()
+   *   applyPose(obj)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(40)
+   *   pop()
+   * }
+   * @example
+   * <caption>from: SELF, body-relative: a swept forward push and yaw drive the box like a car</caption>
+   * let helm
+   * const obj = { pos: [0, 0, 0], rot: [0, 0, 0, 1] }
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createPoseHelm({ from: p5.Tree.SELF }).bind(obj)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = millis() / 1000
+   *   lin[1] = 250 * sin(t * 0.7)   // lane 1: Tz, forward and back
+   *   ang[2] = 250 * sin(t * 0.4)   // lane 2: Ry, yaw
+   *   helm.feed(lin, ang)
+   *   if (Math.hypot(obj.pos[0], obj.pos[1], obj.pos[2]) > 160) {
+   *     helm.home({ pos: [0, 0, 0], rot: [0, 0, 0, 1] })   // wandered off: back to the origin
+   *   }
+   *   axes()
+   *   push()
+   *   applyPose(obj)
+   *   axes({ size: 40 })
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
    */
   fn.createPoseHelm = function (opts) {
     const pInst = this;
@@ -450,6 +540,34 @@ export function installHelm(p5, fn) {
      * @param {p5.Camera | { get: Function, set: Function } |
      *         { applyPose: Function } | { pos: number[], rot: number[] }} target
      * @returns {PoseHelm} this
+     * @example
+     * <caption>A second camera as the target: flown in world axes from a probe, shown as its frustum</caption>
+     * let cam, helm
+     * const lin = [0, 0, 0], ang = [0, 0, 0]
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+     *   cam = createCamera()
+     *   cam.camera(0, -60, 250, 0, 0, 0, 0, 1, 0)
+     *   cam.perspective(PI / 4, width / height, 40, 300)
+     *   helm = createPoseHelm({ from: p5.Tree.WORLD }).bind(cam)   // seeded from cam's lookat
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   noFill()
+     *   box(60)
+     *   const t = millis() / 1000
+     *   lin[0] = 250 * sin(t * 0.7)   // lane 0: Tx, side to side
+     *   ang[2] = 250 * sin(t * 0.4)   // lane 2: Ry, yaw
+     *   helm.feed(lin, ang)
+     *   stroke('#ffd166')
+     *   viewFrustum({ camera: cam })
+     * }
      */
     helm.bind = function (target) {
       if (target instanceof p5.Camera) {
@@ -540,6 +658,64 @@ export function installHelm(p5, fn) {
    * @param {number} [opts.bits=TRANSLATE | ROTATE]
    * @param {boolean} [opts.identify=false]
    * @returns {p5} this
+   * @example
+   * <caption>In-scene at the driven object: dim baselines are the profile, bright overlays the live push</caption>
+   * let helm
+   * const obj = { pos: [0, 0, 0], rot: [0, 0, 0, 1] }
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+   *   helm = createPoseHelm({ from: p5.Tree.WORLD }).bind(obj)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = millis() / 1000
+   *   lin[1] = 250 * sin(t * 0.9)   // lane 1: Tz
+   *   ang[2] = 250 * sin(t * 0.9)   // lane 2: Ry
+   *   helm.feed(lin, ang)
+   *   axes()
+   *   push()
+   *   applyPose(obj)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(30)
+   *   pop()
+   *   push()
+   *   translate(obj.pos[0], obj.pos[1], obj.pos[2])   // position is ours, the rig owns the rotation
+   *   helmRig(helm, { size: 80 })
+   *   pop()
+   * }
+   * @example
+   * <caption>The HUD overload: a corner readout through its own camera; tilt: 0 aims it head-on</caption>
+   * let helm
+   * const obj = { pos: [0, 0, 0], rot: [0, 0, 0, 1] }
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createPoseHelm({ from: p5.Tree.WORLD }).bind(obj)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = millis() / 1000
+   *   lin[0] = 250 * sin(t * 0.9)   // lane 0: Tx
+   *   ang[0] = 250 * cos(t * 0.9)   // lane 0: Rp, pitch
+   *   helm.feed(lin, ang)
+   *   axes()
+   *   push()
+   *   applyPose(obj)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(30)
+   *   pop()
+   *   helmRig(helm, { x: width - 136, y: 16, size: 120, tilt: 0 })
+   * }
    */
   p5.Renderer3D.prototype.helmRig = function (helm, opts = {}) {
     const p = this._pInst;

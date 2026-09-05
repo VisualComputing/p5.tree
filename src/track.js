@@ -277,6 +277,27 @@ class TrackHandles {
    * @function update
    * @memberof TrackHandles
    * @returns {boolean} true while any keyframe handle is grabbed.
+   * @example
+   * <caption>The orbit gate: a press on a dot grabs it, one that misses orbits</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })
+   * }
    */
   update() {
     if (this._track.keyframes.length !== this._n) this._rebuild();
@@ -295,6 +316,27 @@ class TrackHandles {
    * @function grabbed
    * @memberof TrackHandles
    * @returns {boolean} true while any member is grabbed.
+   * @example
+   * <caption>The path turns magenta while any keyframe is held</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()
+   *   axes()
+   *   stroke(track.handles.grabbed() ? '#ff4fd8' : 'white')
+   *   trackPath(track, { marker: null })
+   *   fill('white')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })
+   * }
    */
   grabbed() {
     for (const m of this._members) if (m.h.grabbed()) return true;
@@ -305,6 +347,36 @@ class TrackHandles {
    * @function hovered
    * @memberof TrackHandles
    * @returns {number|null} keyframe index under the pointer (or grabbed).
+   * @example
+   * <caption>A bulls-eye on the keyframe under the pointer</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })
+   *   const i = track.handles.hovered()
+   *   if (i != null) {
+   *     const p = track.keyframes[i].pos
+   *     push()
+   *     translate(p[0], p[1], p[2])
+   *     stroke('#ffd166')
+   *     bullsEye({ size: 40 })
+   *     pop()
+   *   }
+   * }
    */
   hovered() {
     for (const m of this._members) if (m.h.hovered()) return m.index;
@@ -318,6 +390,30 @@ class TrackHandles {
    * @function sync
    * @memberof TrackHandles
    * @returns {TrackHandles} this
+   * @example
+   * <caption>An edit after update() in the same frame: sync() re-seeds the dot before it draws</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()
+   *   // keyframe 1 bobs under script control
+   *   track.keyframes[1].pos[1] = -60 + 30 * sin(frameCount * 0.05)
+   *   track.handles.sync()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })
+   * }
    */
   sync() { this._syncIdle(); return this; }
 
@@ -325,6 +421,32 @@ class TrackHandles {
    * Dispose members + router and detach from the track.
    * @function dispose
    * @memberof TrackHandles
+   * @example
+   * <caption>Any key disposes the handles: the dots go and the orbit is unconditional</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   const grabbed = track.handles ? track.handles.update() : false
+   *   if (!grabbed) orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })   // a no-op once disposed
+   * }
+   *
+   * function keyPressed() {
+   *   if (track.handles) track.handles.dispose()
+   * }
    */
   dispose() {
     this._teardownMembers();
@@ -347,6 +469,27 @@ class TrackHandles {
    * @param {number} [opts.size=grabPx]  Base dot radius in px.
    * @param {number} [opts.emphasis=1.4]  Hover / grab scale factor.
    * @returns {TrackHandles} this
+   * @example
+   * <caption>Standalone draw with a larger dot and stronger hover emphasis</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   track.handles.draw({ size: 8, emphasis: 2 })
+   * }
    */
   draw(opts = {}) {
     if (!this._enabled) return this;
@@ -516,6 +659,28 @@ export function installTrack(p5, fn) {
    * @function getCamera
    * @memberof p5
    * @returns {p5.Camera|null}
+   * @example
+   * <caption>The current camera read back: its eye, live, as you orbit</caption>
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   const cam = getCamera()
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('eye ' + [cam.eyeX, cam.eyeY, cam.eyeZ].map(v => v.toFixed(0)).join('  '), 10, 20)
+   *   endHUD()
+   * }
    */
   fn.getCamera = function () {
     return this._renderer?.states?.curCamera ?? null;
@@ -560,6 +725,92 @@ export function installTrack(p5, fn) {
    * @memberof p5
    * @param {{ handles?: boolean|Object }} [opts]
    * @returns {PoseTrack}
+   * @example
+   * <caption>Position, rotation and scale keyframes; Hermite, slerp and linear by default</caption>
+   * let track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [-120, 60, 0], rot: { axis: [0, 1, 0], angle: 0 }, scl: [1, 1, 1] })
+   *   track.add({ pos: [0, -60, 80], rot: { axis: [0, 1, 0], angle: PI / 2 }, scl: [1.5, 1.5, 1.5] })
+   *   track.add({ pos: [120, 60, 0], rot: { axis: [0, 1, 0], angle: PI }, scl: [1, 1, 1] })
+   *   track.play({ loop: true, bounce: true, duration: 60 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   push()
+   *   applyPose(track.eval(pose))
+   *   axes({ size: 40 })
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
+   * @example
+   * <caption>Interpolation modes: linear position, stepped rotation</caption>
+   * let track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [-120, 60, 0], rot: { axis: [0, 1, 0], angle: 0 } })
+   *   track.add({ pos: [0, -60, 80], rot: { axis: [0, 1, 0], angle: PI / 2 } })
+   *   track.add({ pos: [120, 60, 0], rot: { axis: [0, 1, 0], angle: PI } })
+   *   track.posInterp = 'linear'
+   *   track.rotInterp = 'step'
+   *   track.play({ loop: true, bounce: true, duration: 60 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track)
+   *   push()
+   *   applyPose(track.eval(pose))
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
+   * @example
+   * <caption>Keyframe handles: drag the dots, turn the rings about Y</caption>
+   * let track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: { rot: [0, 1, 0] } })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   *   track.play({ loop: true, bounce: true, duration: 60 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()   // a grab wins over orbit
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })
+   *   push()
+   *   applyPose(track.eval(pose))
+   *   stroke('#ffd166')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
    */
   fn.createPoseTrack = function (opts = {}) {
     const track = new PoseTrack();
@@ -629,6 +880,127 @@ export function installTrack(p5, fn) {
    *                           Use createCamera() for a dedicated camera.
    * @param {{ handles?: boolean|Object }} [opts]
    * @returns {CameraTrack}
+   * @example
+   * <caption>Fly the default camera; any key stops and restarts, and the orbit is free while stopped</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createCameraTrack()
+   *   track.add({ eye: [0, 0, 400], center: [0, 0, 0] })
+   *   track.add({ eye: [300, -150, 0], center: [0, 0, 0] })
+   *   track.add({ eye: [-200, 100, -300], center: [0, 0, 0] })
+   *   track.add({ eye: [0, 0, 400], center: [0, 0, 0] })
+   *   track.play({ loop: true, duration: 90 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   push()
+   *   rotateX(HALF_PI)
+   *   grid({ size: 200, subdivisions: 10 })
+   *   pop()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   box(60)
+   *   fill('#ffd166')
+   *   push()
+   *   translate(120, -40, -80)
+   *   sphere(30)
+   *   pop()
+   * }
+   *
+   * function keyPressed() {
+   *   track.playing ? track.stop() : track.play({ loop: true, duration: 90 })
+   * }
+   * @example
+   * <caption>A dedicated camera: the observer stays free and watches the flight</caption>
+   * let cam, track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   track = createCameraTrack(cam)
+   *   track.add({ eye: [250, -80, 0], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [0, -150, 250], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [-250, -80, 0], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.play({ loop: true, bounce: true, duration: 90 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   trackPath(track)
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: track })
+   * }
+   * @example
+   * <caption>Author by capture: a adds the current camera as a keyframe, p plays, s stops</caption>
+   * let track
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   *   track = createCameraTrack()
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('a add   p play   s stop   ' + track.keyframes.length + ' keyframe(s)', 10, 20)
+   *   endHUD()
+   * }
+   *
+   * function keyPressed() {
+   *   if (key === 'a') track.add()   // captures the bound camera: eye, center, up, fov, near, far
+   *   if (key === 'p') track.play({ loop: true, bounce: true, duration: 60 })
+   *   if (key === 's') track.stop()
+   * }
+   * @example
+   * <caption>Keyframe handles on a dedicated camera: drag eyes and centers, the frustum reflows</caption>
+   * let cam, track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   track = createCameraTrack(cam, { handles: true })
+   *   track.add({ eye: [250, -80, 0], center: [0, 0, -40], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [0, -150, 250], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [-250, -80, 0], center: [0, 0, 40], fov: PI / 4, near: 40, far: 300 })
+   *   track.play({ loop: true, bounce: true, duration: 90 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()   // picks against the observer camera
+   *   axes()
+   *   noFill()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   stroke('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.CENTER, marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES, marker: null })
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: track })
+   * }
    */
   fn.createCameraTrack = function (cam, opts = {}) {
     const pInst = this;
@@ -681,6 +1053,29 @@ export function installTrack(p5, fn) {
    * @param {{ eps?:number }} [opts]
    * @param {number} [opts.eps=1e-8]  Below this sine of the half-angle the rotation is skipped.
    * @returns {p5} this
+   * @example
+   * <caption>Accumulate a quaternion each frame and apply it</caption>
+   * const { qFromAxisAngle, qMul } = p5.Tree
+   * const q = [0, 0, 0, 1], dq = [0, 0, 0, 1]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   qFromAxisAngle(dq, 1, 1, 0, 0.02)
+   *   qMul(q, dq, q)   // alias-safe, zero-alloc
+   *   push()
+   *   rotateQuat(q)
+   *   axes({ size: 50 })
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(40)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.rotateQuat = function (q, opts) {
     const p = this._pInst, eps = opts?.eps ?? 1e-8;
@@ -698,6 +1093,30 @@ export function installTrack(p5, fn) {
    * @memberof p5
    * @param {{ pos?:ArrayLike, rot?:ArrayLike, scl?:ArrayLike }} pose
    * @returns {p5} this
+   * @example
+   * <caption>A { pos, rot, scl } pose animated by hand and applied to the stack</caption>
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const t = frameCount * 0.02
+   *   pose.pos[0] = 100 * sin(t)
+   *   p5.Tree.qFromAxisAngle(pose.rot, 0, 1, 0, t)
+   *   pose.scl[1] = 1 + 0.5 * sin(2 * t)
+   *   push()
+   *   applyPose(pose)
+   *   axes({ size: 40 })
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(40)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.applyPose = function (pose) {
     if (!pose) return this;
@@ -752,6 +1171,41 @@ export function installTrack(p5, fn) {
    * @returns {{ eye:number[], center:number[], up:number[],
    *             fov:number|null, halfHeight:number|null,
    *             near:number, far:number }}
+   * @example
+   * <caption>A second camera captured into a preallocated out: drawn as a pose spec, and read out</caption>
+   * let cam
+   * const out = {
+   *   eye: [0, 0, 0], center: [0, 0, 0], up: [0, 1, 0],
+   *   fov: null, halfHeight: null, near: 0.1, far: 1000
+   * }
+   *
+   * async function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   textFont(await loadFont('fonts/noto_sans.ttf'))
+   *   textSize(14)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.perspective(PI / 4, width / height, 50, 350)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = frameCount * 0.01
+   *   cam.camera(250 * sin(t), -80, 250 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   cam.capturePose(out)
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: out })   // the captured pose is a pose spec
+   *   beginHUD()
+   *   noStroke()
+   *   fill('white')
+   *   text('fov ' + degrees(out.fov).toFixed(0) + '   near ' + out.near.toFixed(0) + '   far ' + out.far.toFixed(0), 10, 20)
+   *   endHUD()
+   * }
    */
   p5.Camera.prototype.capturePose = function (out) {
     out = out || {
@@ -809,6 +1263,60 @@ export function installTrack(p5, fn) {
    *           near?:number, far?:number } |
    *          { pos:number[], rot:number[], scl?:number[] }} pose
    * @returns {p5.Camera} this
+   * @example
+   * <caption>A lookat pose written each frame to a second camera</caption>
+   * let cam
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   const t = frameCount * 0.01
+   *   cam.applyPose({
+   *     eye: [250 * sin(t), -80, 250 * cos(t)], center: [0, 0, 0],
+   *     fov: PI / 4, near: 50, far: 350
+   *   })
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: cam })
+   * }
+   * @example
+   * <caption>The TRS form: a PoseTrack sample drives the camera like an object</caption>
+   * let cam, track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.perspective(PI / 4, width / height, 40, 300)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [250, -80, 0], rot: { dir: [-250, 80, 0] } })
+   *   track.add({ pos: [0, -150, 250], rot: { dir: [0, 150, -250] } })
+   *   track.add({ pos: [-250, -80, 0], rot: { dir: [250, 80, 0] } })
+   *   track.play({ loop: true, bounce: true, duration: 90 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   trackPath(track, { marker: null })
+   *   cam.applyPose(track.eval(pose))   // translate + rotate; scl is ignored
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: cam })
+   * }
    */
   p5.Camera.prototype.applyPose = function (pose) {
     if (!pose) return this;

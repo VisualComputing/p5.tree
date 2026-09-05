@@ -202,6 +202,42 @@ export function installGizmos(p5, fn) {
    * @param {boolean} [opts.semantic=true]  Semantic per-axis colours.
    * @param {number} [opts.bits=LABELS | X | Y | Z]  Which half-axes and labels to draw.
    * @returns {p5} this
+   * @example
+   * <caption>Default at the origin; a sized X | Y | -Z triad on an object</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   translate(60, -40, 20)
+   *   rotateY(frameCount * 0.01)
+   *   axes({ size: 40, bits: p5.Tree.X | p5.Tree.Y | p5.Tree._Z })
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(20, 20, 30)
+   *   pop()
+   * }
+   * @example
+   * <caption>Split calls: one stroke per axis with semantic: false</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const { X, _X, Y, _Y, Z, _Z } = p5.Tree
+   *   stroke('white')
+   *   axes({ bits: X | _X, semantic: false })
+   *   stroke('#ff4fd8')
+   *   axes({ bits: Y | _Y, semantic: false })
+   *   stroke('#ffd166')
+   *   axes({ bits: Z | _Z, semantic: false })
+   * }
    */
   p5.Renderer3D.prototype.axes = function ({
     size     = 100,
@@ -255,6 +291,28 @@ export function installGizmos(p5, fn) {
    * @param {number} [opts.size=100]  Half-extent.
    * @param {number} [opts.subdivisions=10]  Cells per side.
    * @returns {p5} this
+   * @example
+   * <caption>A ground plane: the grid lives in XY, so tilt it flat</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   push()
+   *   rotateX(HALF_PI)
+   *   grid({ size: 200, subdivisions: 20 })
+   *   pop()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   push()
+   *   translate(0, -30, 0)
+   *   box(60)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.grid = function ({ size = 100, subdivisions = 10 } = {}) {
     const p = this._pInst;
@@ -319,6 +377,41 @@ export function installGizmos(p5, fn) {
    * }} [opts]
    * @param {number} [opts.size=50]
    * @returns {p5} this
+   * @example
+   * <caption>Centred on the model origin: size in world units at that depth</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   translate(100 * cos(frameCount * 0.02), 0, 100 * sin(frameCount * 0.02))
+   *   noStroke()
+   *   fill('white')
+   *   sphere(10)
+   *   stroke('#ff4fd8')
+   *   cross({ size: 40 })
+   *   pop()
+   * }
+   * @example
+   * <caption>Explicit screen coordinates: size in pixels</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ff4fd8')
+   *   cross({ x: mouseX, y: mouseY, size: 24 })
+   * }
    */
   p5.Renderer3D.prototype.cross = function ({
     mat4Model, x, y, size = 50, mat4Eye, mat4Proj, mat4View, mat4PV
@@ -364,6 +457,48 @@ export function installGizmos(p5, fn) {
    * @param {number} [opts.size=50]
    * @param {number} [opts.shape=CIRCLE]  {@link CIRCLE} or {@link SQUARE}.
    * @returns {p5} this
+   * @example
+   * <caption>Centred on two model origins: CIRCLE and SQUARE</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const t = frameCount * 0.02
+   *   noStroke()
+   *   fill('white')
+   *   push()
+   *   translate(100 * cos(t), 0, 100 * sin(t))
+   *   sphere(10)
+   *   stroke('#ff4fd8')
+   *   bullsEye({ size: 50 })
+   *   pop()
+   *   push()
+   *   translate(-100 * cos(t), 0, -100 * sin(t))
+   *   sphere(10)
+   *   stroke('#ffd166')
+   *   bullsEye({ size: 50, shape: p5.Tree.SQUARE })
+   *   pop()
+   * }
+   * @example
+   * <caption>Explicit screen coordinates: size in pixels</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ff4fd8')
+   *   bullsEye({ x: mouseX, y: mouseY, size: 40 })
+   * }
    */
   p5.Renderer3D.prototype.bullsEye = function ({
     mat4Model, x, y, size = 50, shape = p5.Tree.CIRCLE,
@@ -441,6 +576,71 @@ export function installGizmos(p5, fn) {
    * @param {number[]} p3  Corner position.
    * @param {{ texture?:*, uvs?:number[][] }} [opts]
    * @returns {p5} this
+   * @example
+   * <caption>Untextured: the ambient fill and stroke</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   pane([-80, -60, -40], [80, -60, -40], [80, 60, -40], [-80, 60, -40])
+   *   pop()
+   * }
+   * @example
+   * <caption>A p5.Graphics texture, drawn procedurally</caption>
+   * let g
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   g = createGraphics(128, 128)
+   *   g.background('white')
+   *   g.noStroke()
+   *   g.fill('#ff4fd8')
+   *   g.circle(64, 64, 90)
+   *   g.fill('#ffd166')
+   *   g.triangle(64, 30, 94, 84, 34, 84)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   noStroke()
+   *   pane([-80, -60, -40], [80, -60, -40], [80, 60, -40], [-80, 60, -40], { texture: g })
+   *   pop()
+   * }
+   * @example
+   * <caption>A framebuffer's colour attachment: V-flipped by default, so it reads right-side-up</caption>
+   * let fbo
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   fbo = createFramebuffer({ width: 160, height: 120 })
+   * }
+   *
+   * function draw() {
+   *   fbo.begin()
+   *   background('#ffd166')
+   *   rotateY(frameCount * 0.02)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(40)
+   *   fbo.end()
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   noStroke()
+   *   pane([-80, -60, -40], [80, -60, -40], [80, 60, -40], [-80, 60, -40], { texture: fbo.color })
+   * }
    */
   p5.Renderer3D.prototype.pane = function (p0, p1, p2, p3, { texture = null, uvs = null } = {}) {
     const p = this._pInst;
@@ -537,6 +737,142 @@ export function installGizmos(p5, fn) {
    * }} [opts]
    * @param {number} [opts.bits=NEAR | FAR | BODY]
    * @returns {p5} this
+   * @example
+   * <caption>A second camera's frustum</caption>
+   * let cam
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.perspective(PI / 4, width / height, 50, 350)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = frameCount * 0.01
+   *   cam.camera(250 * sin(t), -80, 250 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: cam })
+   * }
+   * @example
+   * <caption>Pose specs: a perspective (fov) and an orthographic (halfHeight) one-off</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: { eye: [200, -100, 200], fov: PI / 5, near: 60, far: 320 } })
+   *   stroke('#ff4fd8')
+   *   viewFrustum({ camera: { eye: [-200, -100, 200], halfHeight: 50, near: 60, far: 320 } })
+   * }
+   * @example
+   * <caption>bits: the cone without its near outline; viewer: your own marker at the eye</caption>
+   * let cam
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.perspective(PI / 4, width / height, 50, 350)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = frameCount * 0.01
+   *   cam.camera(250 * sin(t), -80, 250 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   stroke('#ffd166')
+   *   viewFrustum({
+   *     camera: cam,
+   *     bits: p5.Tree.FAR | p5.Tree.BODY | p5.Tree.APEX,
+   *     viewer: () => {
+   *       noStroke()
+   *       fill('#ff4fd8')
+   *       sphere(8)
+   *     }
+   *   })
+   * }
+   * @example
+   * <caption>The near plane textured with what the camera sees</caption>
+   * let cam, fbo
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   cam.perspective(PI / 4, width / height, 60, 350)
+   *   fbo = createFramebuffer({ width: 200, height: 150 })
+   * }
+   *
+   * function draw() {
+   *   const t = frameCount * 0.01
+   *   cam.camera(250 * sin(t), -80, 250 * cos(t), 0, 0, 0, 0, 1, 0)
+   *   // what cam sees: setCamera and resetMatrix are both needed inside the scope
+   *   fbo.begin()
+   *   setCamera(cam)
+   *   resetMatrix()
+   *   background('#138D75')
+   *   scene()
+   *   fbo.end()
+   *   background('#138D75')
+   *   orbitControl()
+   *   scene()
+   *   stroke('#ffd166')
+   *   tint(255, 200)
+   *   viewFrustum({ camera: cam, nearTexture: fbo.color })
+   *   noTint()
+   * }
+   *
+   * function scene() {
+   *   axes()
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(60)
+   * }
+   * @example
+   * <caption>A CameraTrack: the frustum follows playback</caption>
+   * let cam, track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   track = createCameraTrack(cam)
+   *   track.add({ eye: [250, -80, 0], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [0, -150, 250], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [-250, -80, 0], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.play({ loop: true, bounce: true, duration: 90 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   noFill()
+   *   box(60)
+   *   trackPath(track, { marker: null })
+   *   stroke('#ffd166')
+   *   viewFrustum({ camera: track })
+   * }
    */
   p5.Renderer3D.prototype.viewFrustum = function ({
     camera, mat4Eye, mat4Proj, mat4View,
@@ -692,6 +1028,26 @@ export function installGizmos(p5, fn) {
    * @param {{ samples?: number }} [opts]
    * @param {number} [opts.samples=32]  Line segments along the curve.
    * @returns {p5} this
+   * @example
+   * <caption>One segment; the outgoing and incoming tangents drawn as spokes</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const p0 = [-120, 0, 0], p1 = [120, 0, 0]
+   *   const m0 = [0, -200 * sin(frameCount * 0.02), 200 * cos(frameCount * 0.02)]
+   *   const m1 = [0, -200, 0]
+   *   stroke('white')
+   *   hermite(p0, m0, p1, m1)
+   *   stroke('#ff4fd8')
+   *   line(p0[0], p0[1], p0[2], p0[0] + m0[0], p0[1] + m0[1], p0[2] + m0[2])
+   *   stroke('#ffd166')
+   *   line(p1[0] - m1[0], p1[1] - m1[1], p1[2] - m1[2], p1[0], p1[1], p1[2])
+   * }
    */
   p5.Renderer3D.prototype.hermite = function (p0, m0, p1, m1, { samples = 32 } = {}) {
     const p = this._pInst;
@@ -782,6 +1138,146 @@ export function installGizmos(p5, fn) {
    * @param {number} [opts.samples=32]  Line segments per path segment.
    * @param {string} [opts.target='eye']
    * @returns {p5} this
+   * @example
+   * <caption>A PoseTrack: the sampled path plus the default per-keyframe axes marker</caption>
+   * let track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [-120, 60, 0], rot: { axis: [0, 1, 0], angle: 0 } })
+   *   track.add({ pos: [0, -60, 80], rot: { axis: [0, 1, 0], angle: PI / 2 } })
+   *   track.add({ pos: [120, 60, 0], rot: { axis: [0, 1, 0], angle: PI } })
+   *   track.play({ loop: true, bounce: true, duration: 60 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track)
+   *   push()
+   *   applyPose(track.eval(pose))
+   *   stroke('#ff4fd8')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
+   * @example
+   * <caption>Layers by bit, one stroke each: path, control polygon, tangents</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const { PATH, CONTROLS, TANGENTS } = p5.Tree
+   *   stroke('white')
+   *   trackPath(track, { bits: PATH, marker: null })
+   *   stroke('#ffd166')
+   *   trackPath(track, { bits: CONTROLS, marker: null })
+   *   stroke('#ff4fd8')
+   *   trackPath(track, { bits: TANGENTS, marker: null })
+   * }
+   * @example
+   * <caption>A CameraTrack: eye path with mini-camera markers, gaze rays, and the center path</caption>
+   * let cam, track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+   *   cam = createCamera()
+   *   track = createCameraTrack(cam)
+   *   track.add({ eye: [250, -80, 0], center: [0, 0, -40], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [0, -150, 250], center: [0, 0, 0], fov: PI / 4, near: 40, far: 300 })
+   *   track.add({ eye: [-250, -80, 0], center: [0, 0, 40], fov: PI / 4, near: 40, far: 300 })
+   *   track.play({ loop: true, bounce: true, duration: 90 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const { PATH, CENTER } = p5.Tree
+   *   noFill()
+   *   stroke('white')
+   *   trackPath(track)
+   *   stroke('#ffd166')
+   *   trackPath(track, { bits: PATH, target: 'center' })
+   *   stroke('#ff4fd8')
+   *   trackPath(track, { bits: CENTER, marker: null })
+   *   viewFrustum({ camera: track })
+   * }
+   * @example
+   * <caption>A custom marker: a box oriented by each keyframe's pose</caption>
+   * let track
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack()
+   *   track.add({ pos: [-120, 60, 0], rot: { axis: [0, 1, 0], angle: 0 } })
+   *   track.add({ pos: [0, -60, 80], rot: { axis: [0, 1, 0], angle: PI / 2 } })
+   *   track.add({ pos: [120, 60, 0], rot: { axis: [0, 1, 0], angle: PI } })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   stroke('#ffd166')
+   *   trackPath(track, {
+   *     bits: p5.Tree.NONE,
+   *     marker: (kf) => {
+   *       push()
+   *       translate(kf.pos[0], kf.pos[1], kf.pos[2])
+   *       rotateQuat(kf.rot)
+   *       noFill()
+   *       box(25)
+   *       pop()
+   *     }
+   *   })
+   * }
+   * @example
+   * <caption>HANDLES: drag the keyframes of a track created with the handles opt</caption>
+   * let track
+   * const pose = { pos: [0, 0, 0], rot: [0, 0, 0, 1], scl: [1, 1, 1] }
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   track = createPoseTrack({ handles: true })
+   *   track.add({ pos: [-120, 60, 0] })
+   *   track.add({ pos: [0, -60, 80] })
+   *   track.add({ pos: [120, 60, 0] })
+   *   track.play({ loop: true, bounce: true, duration: 60 })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!track.handles.update()) orbitControl()   // a grab wins over orbit
+   *   axes()
+   *   stroke('white')
+   *   trackPath(track, { marker: null })
+   *   fill('#ff4fd8')
+   *   trackPath(track, { bits: p5.Tree.HANDLES })
+   *   push()
+   *   applyPose(track.eval(pose))
+   *   stroke('#ffd166')
+   *   noFill()
+   *   box(30)
+   *   pop()
+   * }
    */
   p5.Renderer3D.prototype.trackPath = function (track, opts = {}) {
     const p = this._pInst;

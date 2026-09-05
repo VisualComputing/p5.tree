@@ -486,6 +486,23 @@ export function installHandle(p5, fn) {
      * @function update
      * @memberof Handle
      * @returns {boolean} grabbed
+     * @example
+     * <caption>The orbit gate: a press on the dot grabs, a miss orbits</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw()
+     * }
      */
     update() {
       if (!this._enabled) {
@@ -589,6 +606,26 @@ export function installHandle(p5, fn) {
      * @function cancel
      * @memberof Handle
      * @returns {Handle} this
+     * @example
+     * <caption>A leash: the drag reverts once it strays 120 units from the origin (Esc cancels too)</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   if (h.grabbed() && h.value().mag() > 120) h.cancel()
+     *   axes()
+     *   noFill()
+     *   stroke('white')
+     *   circle(0, 0, 240)
+     *   fill('#ff4fd8')
+     *   h.draw({ bits: p5.Tree.HANDLE | p5.Tree.AIM })
+     * }
      */
     cancel() {
       if (this._grabbed) this._cancelNow();
@@ -810,6 +847,58 @@ export function installHandle(p5, fn) {
      *           out?: Float32Array | number[] | p5.Vector,
      *           mat4Eye?: *, mat4Proj?: *, mat4View?: *, mat4PV?: * }} [opts]
      * @returns {Float32Array | number[] | p5.Vector}
+     * @example
+     * <caption>to: SCREEN, a HUD label pinned to the handle; the default read is world</caption>
+     * let h
+     *
+     * async function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   textFont(await loadFont('fonts/noto_sans.ttf'))
+     *   textSize(14)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw()
+     *   const w = h.value()
+     *   const s = h.value({ to: p5.Tree.SCREEN })
+     *   beginHUD()
+     *   noStroke()
+     *   fill('white')
+     *   text('(' + [w.x, w.y, w.z].map(v => v.toFixed(0)).join(', ') + ')', s.x + 12, s.y + 4)
+     *   endHUD()
+     * }
+     * @example
+     * <caption>to: EYE, the same heading read in the camera's frame; out reuses a buffer</caption>
+     * let h
+     * const d = new Float32Array(3)
+     *
+     * async function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   textFont(await loadFont('fonts/noto_sans.ttf'))
+     *   textSize(14)
+     *   h = createHandle({ constraint: p5.Tree.SPHERE, radius: 80, report: p5.Tree.DIRECTION })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw()
+     *   h.value({ to: p5.Tree.EYE, out: d })
+     *   beginHUD()
+     *   noStroke()
+     *   fill('white')
+     *   text('eye-space heading ' + [d[0], d[1], d[2]].map(v => v.toFixed(2)).join('  '), 10, 20)
+     *   endHUD()
+     * }
      */
     value(opts = {}) {
       const c = this._constraint;
@@ -862,6 +951,55 @@ export function installHandle(p5, fn) {
      * @param {p5.Vector | p5.Camera | { get: Function, set: Function }} target
      * @param {string} [field]  Camera lookat field: 'eye' | 'center' | 'up'.
      * @returns {Handle} this
+     * @example
+     * <caption>A p5.Vector mutated in place: the sphere sits at the handle's value</caption>
+     * let h, pos
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   pos = createVector(60, -40, 0)
+     *   h = createHandle({ constraint: p5.Tree.VIEW }).bind(pos)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   noStroke()
+     *   fill('#ffd166')
+     *   push()
+     *   translate(pos)
+     *   sphere(20)
+     *   pop()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw({ bits: p5.Tree.HANDLE })
+     * }
+     * @example
+     * <caption>A camera lookat field: drag a second camera's eye, its frustum follows</caption>
+     * let cam, h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(300, -200, 500, 0, 0, 0, 0, 1, 0)
+     *   cam = createCamera()
+     *   cam.camera(0, -80, 250, 0, 0, 0, 0, 1, 0)
+     *   cam.perspective(PI / 4, width / height, 50, 350)
+     *   h = createHandle({ constraint: p5.Tree.VIEW }).bind(cam, 'eye')
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   noFill()
+     *   box(60)
+     *   stroke('#ffd166')
+     *   viewFrustum({ camera: cam })
+     *   fill('#ff4fd8')
+     *   h.draw({ bits: p5.Tree.HANDLE })
+     * }
      */
     bind(target, field) {
       let binder = null;
@@ -900,6 +1038,34 @@ export function installHandle(p5, fn) {
      * @function sync
      * @memberof Handle
      * @returns {Handle} this
+     * @example
+     * <caption>The bound vector moves under script control between grabs; sync() keeps the handle on it</caption>
+     * let h, pos
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   pos = createVector(0, 0, 0)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] }).bind(pos)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   if (!h.grabbed()) {
+     *     pos.x = 100 * sin(frameCount * 0.02)
+     *     h.sync()
+     *   }
+     *   axes()
+     *   noStroke()
+     *   fill('#ffd166')
+     *   push()
+     *   translate(pos)
+     *   sphere(15)
+     *   pop()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw({ bits: p5.Tree.HANDLE | p5.Tree.AIM })
+     * }
      */
     sync() {
       if (this._binder) this._seedFromBinding();
@@ -970,6 +1136,27 @@ export function installHandle(p5, fn) {
      * @memberof Handle
      * @param {{ bits?: number, size?: number, marker?: null }} [opts]
      * @returns {Handle} this
+     * @example
+     * <caption>Bits and colours: locus and ring from the ambient stroke, the dot from the fill</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   h = createHandle({ constraint: p5.Tree.SPHERE, radius: 80 })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   const { HANDLE, AIM, LOCUS, RING } = p5.Tree
+     *   stroke('white')
+     *   h.draw({ bits: LOCUS })
+     *   stroke('#ffd166')
+     *   h.draw({ bits: RING | AIM })
+     *   fill('#ff4fd8')
+     *   h.draw({ bits: HANDLE, size: 8 })
+     * }
      */
     draw(opts = {}) {
       if ('marker' in opts && opts.marker === null) return this;
@@ -1135,6 +1322,30 @@ export function installHandle(p5, fn) {
      * @function scalar
      * @memberof Handle
      * @returns {number}
+     * @example
+     * <caption>A DIAL's accumulated angle turns the box; keep dragging past a full turn</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   h = createHandle({ constraint: p5.Tree.DIAL, axis: [0, 1, 0], radius: 80 })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw()
+     *   push()
+     *   rotateY(h.scalar())
+     *   stroke('#ffd166')
+     *   noFill()
+     *   box(40)
+     *   pop()
+     * }
      */
     scalar() { return typeof this._constraint.scalar === 'function' ? this._constraint.scalar() : NaN; }
 
@@ -1145,6 +1356,31 @@ export function installHandle(p5, fn) {
      * @memberof Handle
      * @param {number[]} [out2]
      * @returns {number[]} [az, el]
+     * @example
+     * <caption>Azimuth and elevation of a SPHERE handle, read out</caption>
+     * let h
+     *
+     * async function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   textFont(await loadFont('fonts/noto_sans.ttf'))
+     *   textSize(14)
+     *   h = createHandle({ constraint: p5.Tree.SPHERE, radius: 80 })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw()
+     *   const [az, el] = h.azEl()
+     *   beginHUD()
+     *   noStroke()
+     *   fill('white')
+     *   text('az ' + degrees(az).toFixed(0) + '   el ' + degrees(el).toFixed(0), 10, 20)
+     *   endHUD()
+     * }
      */
     azEl(out2) {
       return typeof this._constraint.azEl === 'function'
@@ -1157,6 +1393,23 @@ export function installHandle(p5, fn) {
      * @function grabbed
      * @memberof Handle
      * @returns {boolean}
+     * @example
+     * <caption>The dot turns magenta while held</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill(h.grabbed() ? '#ff4fd8' : 'white')
+     *   h.draw()
+     * }
      */
     grabbed() { return this._grabbed; }
 
@@ -1167,6 +1420,23 @@ export function installHandle(p5, fn) {
      * @function hovered
      * @memberof Handle
      * @returns {boolean}
+     * @example
+     * <caption>hover: true on a lone handle: the dot lights up under the pointer</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1], hover: true })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   axes()
+     *   stroke('white')
+     *   fill(h.hovered() ? '#ff4fd8' : 'white')
+     *   h.draw()
+     * }
      */
     hovered() { return this._hovered; }
 
@@ -1180,6 +1450,33 @@ export function installHandle(p5, fn) {
      * @memberof Handle
      * @param {p5.Vector|number[]} v
      * @returns {Handle} this
+     * @example
+     * <caption>The anchor follows an orbiting object; the ring rides along</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   h = createHandle({ constraint: p5.Tree.DIAL, axis: [0, 1, 0], radius: 60 })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!h.update()) orbitControl()
+     *   const t = frameCount * 0.01
+     *   h.anchor([120 * cos(t), 0, 120 * sin(t)])
+     *   axes()
+     *   stroke('white')
+     *   fill('#ff4fd8')
+     *   h.draw()
+     *   push()
+     *   translate(120 * cos(t), 0, 120 * sin(t))
+     *   rotateY(h.scalar())
+     *   stroke('#ffd166')
+     *   noFill()
+     *   box(30)
+     *   pop()
+     * }
      */
     anchor(v) {
       const c = this._constraint;
@@ -1224,6 +1521,33 @@ export function installHandle(p5, fn) {
      * Remove pointer + key listeners and unregister.
      * @function dispose
      * @memberof Handle
+     * @example
+     * <caption>Any key disposes the handle: its listeners go and the orbit is unconditional</caption>
+     * let h
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   h = createHandle({ constraint: p5.Tree.PLANE, normal: [0, 0, 1] })
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   const grabbed = h ? h.update() : false
+     *   if (!grabbed) orbitControl()
+     *   axes()
+     *   if (h) {
+     *     stroke('white')
+     *     fill('#ff4fd8')
+     *     h.draw()
+     *   }
+     * }
+     *
+     * function keyPressed() {
+     *   if (h) {
+     *     h.dispose()
+     *     h = null
+     *   }
+     * }
      */
     dispose() {
       const c = this._canvas;
@@ -1317,6 +1641,38 @@ export function installHandle(p5, fn) {
      * @memberof PointerRouter
      * @param {Handle} h
      * @returns {PointerRouter} this
+     * @example
+     * <caption>Any key toggles the Z rail in and out of the router; out, it self-picks and updates on its own</caption>
+     * let hx, hy, hz, r
+     * let routed = true
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   const { AXIS } = p5.Tree
+     *   hx = createHandle({ constraint: AXIS, axis: [1, 0, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hy = createHandle({ constraint: AXIS, axis: [0, 1, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hz = createHandle({ constraint: AXIS, axis: [0, 0, 1], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   r = createPointerRouter(hx, hy, hz)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   let grabbed = r.update()
+     *   if (!routed) grabbed = hz.update() || grabbed
+     *   if (!grabbed) orbitControl()
+     *   axes()
+     *   for (const h of [hx, hy, hz]) {
+     *     stroke(h === hz && !routed ? '#ffd166' : 'white')
+     *     fill(h.grabbed() ? '#ff4fd8' : 'white')
+     *     h.draw()
+     *   }
+     * }
+     *
+     * function keyPressed() {
+     *   routed ? r.remove(hz) : r.add(hz)
+     *   routed = !routed
+     * }
      */
     add(h) {
       if (!h || typeof h._renderProxy !== 'function') {
@@ -1338,6 +1694,38 @@ export function installHandle(p5, fn) {
      * @memberof PointerRouter
      * @param {Handle} h
      * @returns {PointerRouter} this
+     * @example
+     * <caption>Any key toggles the Z rail in and out of the router; out, it self-picks and updates on its own</caption>
+     * let hx, hy, hz, r
+     * let routed = true
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   const { AXIS } = p5.Tree
+     *   hx = createHandle({ constraint: AXIS, axis: [1, 0, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hy = createHandle({ constraint: AXIS, axis: [0, 1, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hz = createHandle({ constraint: AXIS, axis: [0, 0, 1], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   r = createPointerRouter(hx, hy, hz)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   let grabbed = r.update()
+     *   if (!routed) grabbed = hz.update() || grabbed
+     *   if (!grabbed) orbitControl()
+     *   axes()
+     *   for (const h of [hx, hy, hz]) {
+     *     stroke(h === hz && !routed ? '#ffd166' : 'white')
+     *     fill(h.grabbed() ? '#ff4fd8' : 'white')
+     *     h.draw()
+     *   }
+     * }
+     *
+     * function keyPressed() {
+     *   routed ? r.remove(hz) : r.add(hz)
+     *   routed = !routed
+     * }
      */
     remove(h) {
       const i = this._handles.indexOf(h);
@@ -1362,6 +1750,30 @@ export function installHandle(p5, fn) {
      * @function update
      * @memberof PointerRouter
      * @returns {boolean} true if any member is grabbed.
+     * @example
+     * <caption>One gate for the cluster: three rails share an anchor, the nearest proxy wins the press</caption>
+     * let hx, hy, hz, r
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   const { AXIS } = p5.Tree
+     *   hx = createHandle({ constraint: AXIS, axis: [1, 0, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hy = createHandle({ constraint: AXIS, axis: [0, 1, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hz = createHandle({ constraint: AXIS, axis: [0, 0, 1], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   r = createPointerRouter(hx, hy, hz)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!r.update()) orbitControl()
+     *   axes()
+     *   for (const h of [hx, hy, hz]) {
+     *     stroke('white')
+     *     fill(h.grabbed() ? '#ff4fd8' : 'white')
+     *     h.draw()
+     *   }
+     * }
      */
     update() {
       const hs = this._handles;
@@ -1418,6 +1830,31 @@ export function installHandle(p5, fn) {
      * @function hovered
      * @memberof PointerRouter
      * @returns {Handle|null}
+     * @example
+     * <caption>Shared hover: the member under the pointer draws in yellow</caption>
+     * let hx, hy, hz, r
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   const { AXIS } = p5.Tree
+     *   hx = createHandle({ constraint: AXIS, axis: [1, 0, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hy = createHandle({ constraint: AXIS, axis: [0, 1, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   hz = createHandle({ constraint: AXIS, axis: [0, 0, 1], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   r = createPointerRouter(hx, hy, hz)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   if (!r.update()) orbitControl()
+     *   axes()
+     *   const hot = r.hovered()
+     *   for (const h of [hx, hy, hz]) {
+     *     stroke(h === hot ? '#ffd166' : 'white')
+     *     fill(h.grabbed() ? '#ff4fd8' : 'white')
+     *     h.draw()
+     *   }
+     * }
      */
     hovered() { return this._hoveredH; }
 
@@ -1425,6 +1862,42 @@ export function installHandle(p5, fn) {
      * Remove listeners, un-route every member, and unregister.
      * @function dispose
      * @memberof PointerRouter
+     * @example
+     * <caption>Any key disposes the router: the members self-pick again, updated in a plain loop</caption>
+     * let hs, r
+     *
+     * function setup() {
+     *   createCanvas(400, 300, WEBGL)
+     *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+     *   const { AXIS } = p5.Tree
+     *   hs = [
+     *     createHandle({ constraint: AXIS, axis: [1, 0, 0], anchor: [60, -40, 0], extent: [-120, 120] }),
+     *     createHandle({ constraint: AXIS, axis: [0, 1, 0], anchor: [60, -40, 0], extent: [-120, 120] }),
+     *     createHandle({ constraint: AXIS, axis: [0, 0, 1], anchor: [60, -40, 0], extent: [-120, 120] })
+     *   ]
+     *   r = createPointerRouter(...hs)
+     * }
+     *
+     * function draw() {
+     *   background('#138D75')
+     *   let grabbed = false
+     *   if (r) grabbed = r.update()
+     *   else for (const h of hs) grabbed = h.update() || grabbed   // un-routed: one finger each
+     *   if (!grabbed) orbitControl()
+     *   axes()
+     *   for (const h of hs) {
+     *     stroke(r ? 'white' : '#ffd166')
+     *     fill(h.grabbed() ? '#ff4fd8' : 'white')
+     *     h.draw()
+     *   }
+     * }
+     *
+     * function keyPressed() {
+     *   if (r) {
+     *     r.dispose()
+     *     r = null
+     *   }
+     * }
      */
     dispose() {
       const c = this._canvas;
@@ -1488,6 +1961,71 @@ export function installHandle(p5, fn) {
    *   onCancel?:  Function,
    * }} opts
    * @returns {Handle|null} The controller, or null on an invalid constraint.
+   * @example
+   * <caption>A SPHERE handle reporting a DIRECTION: drag it to aim the light</caption>
+   * let h
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   h = createHandle({ constraint: p5.Tree.SPHERE, radius: 80, report: p5.Tree.DIRECTION })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!h.update()) orbitControl()   // a grab wins over orbit
+   *   axes()
+   *   const d = h.value()               // unit direction, world
+   *   ambientLight(60)
+   *   directionalLight(255, 255, 255, -d.x, -d.y, -d.z)   // the light comes from the handle
+   *   noStroke()
+   *   fill('#ffd166')
+   *   sphere(40)
+   *   noLights()
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   h.draw()
+   * }
+   * @example
+   * <caption>from: EYE, a screen-horizontal rail whatever the orbit</caption>
+   * let h
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   h = createHandle({ constraint: p5.Tree.AXIS, axis: [1, 0, 0], extent: [-120, 120], from: p5.Tree.EYE })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!h.update()) orbitControl()
+   *   axes()
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   h.draw()
+   * }
+   * @example
+   * <caption>snap, hover and the hooks: a 25-unit grid, a lit hover, a fill that tracks the gesture</caption>
+   * let h
+   * let tone = 'white'
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   h = createHandle({
+   *     constraint: p5.Tree.PLANE, normal: [0, 0, 1],
+   *     snap: 25, hover: true,
+   *     onGrab: () => { tone = '#ff4fd8' },
+   *     onRelease: () => { tone = '#ffd166' },
+   *     onCancel: () => { tone = 'white' }   // Esc while held
+   *   })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!h.update()) orbitControl()
+   *   axes()
+   *   stroke(h.hovered() ? '#ffd166' : 'white')
+   *   fill(tone)
+   *   h.draw()
+   * }
    */
   fn.createHandle = function (opts = {}) {
     const kind = opts.constraint;
@@ -1518,6 +2056,30 @@ export function installHandle(p5, fn) {
    * @param {...(Handle | { hover?: boolean })} args  Handles, then an optional
    *        options object last.
    * @returns {PointerRouter}
+   * @example
+   * <caption>A translate cluster: three rails on one anchor, routed so exactly one grabs</caption>
+   * let hx, hy, hz, r
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+   *   const { AXIS } = p5.Tree
+   *   hx = createHandle({ constraint: AXIS, axis: [1, 0, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+   *   hy = createHandle({ constraint: AXIS, axis: [0, 1, 0], anchor: [60, -40, 0], extent: [-120, 120] })
+   *   hz = createHandle({ constraint: AXIS, axis: [0, 0, 1], anchor: [60, -40, 0], extent: [-120, 120] })
+   *   r = createPointerRouter(hx, hy, hz)   // hover shared, on by default
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   if (!r.update()) orbitControl()   // in place of the members' own updates
+   *   axes()
+   *   for (const h of [hx, hy, hz]) {
+   *     stroke(h.hovered() ? '#ffd166' : 'white')
+   *     fill(h.grabbed() ? '#ff4fd8' : 'white')
+   *     h.draw()
+   *   }
+   * }
    */
   fn.createPointerRouter = function (...args) {
     let opts = {};

@@ -35,6 +35,74 @@ export function installPipe(p5, fn) {
    * @param {function} [opt.clearDisplayFn] Clear strategy for display stage. Defaults to opt.clearFn.
    * @param {function} [opt.draw] Draw strategy used to place the current texture on the current render target. Defaults to full-canvas blit.
    * @returns {p5.Framebuffer|null} The final framebuffer used (ping or pong) when ping/pong are available; otherwise null.
+   * @example
+   * <caption>One pass: a pixelate filter, its level driven by the mouse</caption>
+   * let layer, pixelate
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   layer = createFramebuffer()
+   *   pixelate = baseFilterShader().modify(() => {
+   *     const level = uniformFloat(() => map(mouseX, 0, width, 8, 120))
+   *     getColor((inputs, canvasContent) => {
+   *       const c = getTexture(canvasContent, floor(inputs.texCoord * level) / level)
+   *       return [c.rgb, 1]
+   *     })
+   *   })
+   * }
+   *
+   * function draw() {
+   *   layer.begin()
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   rotateY(frameCount * 0.01)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(60)
+   *   layer.end()
+   *   pipe(layer, pixelate)
+   * }
+   * @example
+   * <caption>A chain kept off-screen: the returned framebuffer textures a pane</caption>
+   * let layer, pixelate, vignette
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   layer = createFramebuffer()
+   *   pixelate = baseFilterShader().modify(() => {
+   *     getColor((inputs, canvasContent) => {
+   *       const c = getTexture(canvasContent, floor(inputs.texCoord * 24) / 24)
+   *       return [c.rgb, 1]
+   *     })
+   *   })
+   *   vignette = baseFilterShader().modify(() => {
+   *     getColor((inputs, canvasContent) => {
+   *       const c = getTexture(canvasContent, inputs.texCoord)
+   *       const d = length(inputs.texCoord - [0.5, 0.5])
+   *       return [c.rgb * (1 - d), 1]
+   *     })
+   *   })
+   * }
+   *
+   * function draw() {
+   *   layer.begin()
+   *   background('#ffd166')
+   *   rotateY(frameCount * 0.02)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(60)
+   *   layer.end()
+   *   const out = pipe(layer, [pixelate, vignette], { display: false })
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   push()
+   *   rotateY(frameCount * 0.01)
+   *   noStroke()
+   *   pane([-80, -60, -40], [80, -60, -40], [80, 60, -40], [-80, 60, -40], { texture: out.color })
+   *   pop()
+   * }
    */
   fn.pipe = function (...args) {
     const p = this;
@@ -147,6 +215,38 @@ export function installPipe(p5, fn) {
    * @param {string|boolean} [key] If omitted, releases the default key ('default').
    *                              If a string, releases only that key.
    *                              If true, releases all keys.
+   * @example
+   * <caption>Free a keyed pipeline's buffers when its effect is switched off</caption>
+   * let layer, pixelate
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   layer = createFramebuffer()
+   *   pixelate = baseFilterShader().modify(() => {
+   *     getColor((inputs, canvasContent) => {
+   *       const c = getTexture(canvasContent, floor(inputs.texCoord * 24) / 24)
+   *       return [c.rgb, 1]
+   *     })
+   *   })
+   * }
+   *
+   * function draw() {
+   *   layer.begin()
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   rotateY(frameCount * 0.01)
+   *   stroke('white')
+   *   fill('#ff4fd8')
+   *   box(60)
+   *   layer.end()
+   *   if (mouseIsPressed) pipe(layer, pixelate, { key: 'fx' })   // allocates the fx ping/pong on first use
+   *   else pipe(layer)                                            // no passes: a plain blit
+   * }
+   *
+   * function mouseReleased() {
+   *   releasePipe('fx')   // reallocated on the next press
+   * }
    */
   fn.releasePipe = function (key) {
     const p = this;
