@@ -54,15 +54,18 @@ function trimBlank(code) {
   return lines.join('\n');
 }
 
-/** An @example: optional `<caption>` on the tag line, code on the rest. */
+/**
+ * An @example: optional `<caption>` as its first line (on the tag line or
+ * the line after), code on the rest.
+ */
 function exampleOf(tag) {
-  const k = tag.source[0].tokens;
-  const head = (k.name + k.postName + k.type + k.postType + k.description).trim();
-  const cap  = CAPTION_RE.exec(head);
-  const body = continuation(tag);
+  const k     = tag.source[0].tokens;
+  const head  = (k.name + k.postName + k.type + k.postType + k.description).trim();
+  const lines = (head ? [head] : []).concat(continuation(tag).split('\n'));
+  const cap   = CAPTION_RE.exec(lines[0].trim());
   return {
     caption: cap ? cap[1].trim() : null,
-    code:    trimBlank(cap || !head ? body : head + '\n' + body),
+    code:    trimBlank((cap ? lines.slice(1) : lines).join('\n')),
   };
 }
 
