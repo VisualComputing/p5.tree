@@ -3,7 +3,9 @@
  * @module p5.tree/track
  * @license AGPL-3.0-only
  *
- * ── What lives here ──────────────────────────────────────────────────────────
+ * ### What lives here
+ *
+ *  ```
  *  Player registry
  *    registerPlayer / unregisterPlayer / tickPlayers / clearPlayers
  *
@@ -20,11 +22,16 @@
  *
  *  p5.Camera.capturePose  read live camera → { eye, center, up, fov, halfHeight, near, far }
  *  p5.Camera.applyPose    write { eye, center, up, fov, halfHeight, near, far } → cam.camera() + projection
+ *  ```
  *
- * ── { camera } spec support ───────────────────────────────────────────────────
+ * ### { camera } spec support
  *  CameraTrack.add() returned by createCameraTrack() accepts a { camera } spec:
+ *
+ *    ```
  *    track.add({ camera: cam })        — capture live pose from a p5.Camera
  *    track.add({ camera: getCamera() })
+ *    ```
+ *
  *  Interception is in the bridge (here), not in deps/tree — eyeX/centerX/upX
  *  are p5-specific property names; the numeric core stays renderer-agnostic.
  */

@@ -3,20 +3,20 @@
  * @module p5.tree/matrix
  * @license AGPL-3.0-only
  *
- * ── Two distinct contracts ─────────────────────────────────────────────────
+ * ### Two distinct contracts
  *
  * Matrix-fill methods (mat4Proj, mat4View, mat4PV, …):
- *   out-first, mandatory, zero-allocation.
- *   `out` is a caller-owned buffer (Float32Array | ArrayLike | p5.Matrix).
- *   The function writes into it and returns it.
+ * - out-first, mandatory, zero-allocation.
+ * - `out` is a caller-owned buffer (Float32Array | ArrayLike | p5.Matrix).
+ * - The function writes into it and returns it.
  *
  * Space-query methods (mapLocation, mapDirection):
- *   point/dir is positional; everything else is in opts.
- *   opts.out is optional — if absent a fresh p5.Vector is allocated.
- *   Return type matches opts.out: Float32Array, ArrayLike, or p5.Vector.
- *   Hot paths pass opts.out = buf (zero-alloc); non-hot paths omit it.
+ * - point/dir is positional; everything else is in opts.
+ * - opts.out is optional — if absent a fresh p5.Vector is allocated.
+ * - Return type matches opts.out: Float32Array, ArrayLike, or p5.Vector.
+ * - Hot paths pass opts.out = buf (zero-alloc); non-hot paths omit it.
  *
- * ── Viewport convention ───────────────────────────────────────────────────
+ * ### Viewport convention
  * The bridge always builds vp = [0, canvasH, canvasW, −canvasH].
  * Negative h encodes DOM/p5 screen-y-down. See query.js for full details.
  */

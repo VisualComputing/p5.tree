@@ -5,7 +5,7 @@
  *
  * Delegates all math to @nakednous/tree. Zero allocations in hot paths.
  *
- * ── Usage pattern ─────────────────────────────────────────────────────────
+ * ### Usage pattern
  *
  * ```js
  * // setup
@@ -18,7 +18,7 @@
  * m.visibility = p.visibility({ corner1: m._c1, corner2: m._c2 })
  * ```
  *
- * ── Sign contract ─────────────────────────────────────────────────────────
+ * ### Sign contract
  *
  * Frustum extents are near-plane coordinates in camera space (y-up, z into
  * screen):

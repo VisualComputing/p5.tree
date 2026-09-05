@@ -3,7 +3,7 @@
  * @module p5.tree/picking
  * @license AGPL-3.0-only
  *
- * ── GPU color-ID picking ──────────────────────────────────────────────────
+ * ### GPU color-ID picking
  *
  * Technique: render the scene into a 1×1 FBO with a pick-matrix projection
  * aligned to the query pixel, read back RGBA via gl.readPixels, decode the
@@ -12,16 +12,18 @@
  * id 0 is reserved for background / miss.
  * Valid user ids: 1 – 16 777 215 (2²⁴ − 1).
  *
+ * ```
  * Encoding: tag(id) → '#rrggbb'   e.g. tag(1) === '#010000'
  * Decoding: R | (G << 8) | (B << 16)
+ * ```
  *
- * ── CPU proximity picking ─────────────────────────────────────────────────
+ * ### CPU proximity picking
  *
  * Tests whether a pointer position falls within a radius of the projected
  * screen-space origin of the current model matrix. Zero GPU round-trip.
  * Call inside push()/pop() for each pickable object.
  *
- * ── API symmetry ──────────────────────────────────────────────────────────
+ * ### API symmetry
  *
  * ```js
  * colorPick(x, y, drawFn)   // GPU — base form

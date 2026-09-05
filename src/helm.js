@@ -11,18 +11,20 @@
  * a track (`createCameraHelm` / `createPoseHelm` → stateful controller); the
  * gizmo (`helmRig`) is consumed like every other gizmo.
  *
- * ── Family placement ─────────────────────────────────────────────────────────
+ * ### Family placement
  * `PoseHelm : CameraHelm :: PoseTrack : CameraTrack` — ONE core class, TWO
  * bridge factories. As with the track factories, neither factory is a wrapper
  * class: each builds a core `PoseHelm`, registers a draw-loop player (the same
  * registry `createCameraTrack` uses — players tick in predraw, torn down by the
  * remove lifecycle), and attaches the bridge-only `bind` / `dispose` seams.
  *
+ *    ```
  *   createCameraHelm([cam][, opts])  fly `cam` from the stream (body-relative).
  *   createPoseHelm([opts]) + bind()  produce a pose, drive any target with it
  *                                     (screen-relative manipulation).
+ *    ```
  *
- * ── Layering ─────────────────────────────────────────────────────────────────
+ * ### Layering
  * The numeric core integrates a rate into a `{ pos, rot }` pose in ONE frame
  * and never learns about a camera. This bridge supplies the per-step `basis`
  * (an eye→world mat4): a camera helm's own driven-camera frame (body-fly), or a
@@ -31,10 +33,11 @@
  * the quaternion algebra, or matrix math — it only moves numbers across the
  * boundary.
  *
- * ── `from` → basis resolution (the one camera-aware step) ────────────────────
+ * ### `from` → basis resolution (the one camera-aware step)
  * The two factories resolve the integration basis differently — and that IS the
  * difference between the two manipulation conventions:
  *
+ *    ```
  *   createCameraHelm — ALWAYS body-fly, no `from`. The basis is the DRIVEN
  *                      camera's own eye matrix, which equals the pose this helm
  *                      wrote last frame (zero staleness; the lookAt round-trip
@@ -58,8 +61,9 @@
  *                      with a rotation basis (SCREEN / NDC / MODEL rejected) and
  *                      never a p5.Camera value — a specific camera enters as
  *                      `cam.mat4Eye(buf)`.
+ *    ```
  *
- * ── Seeding ──────────────────────────────────────────────────────────────────
+ * ### Seeding
  * Driving a live camera (or binding one as a target) seeds the integrated pose
  * from the camera's current lookAt so frame 0 doesn't jump: `pos ← eye`,
  * `rot ← qFromLookDir(center − eye, up)`. With EYE, the seeded `rot` then equals

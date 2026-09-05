@@ -9,31 +9,33 @@
  * `update()` lifecycle. Constructed like a track (`createHandle` → stateful
  * controller); consumed like a gizmo.
  *
- * ── Layering ────────────────────────────────────────────────────────────────
+ * ### Layering
  * The numeric core (`Constraint`) solves a ray→value mapping in ONE working
  * space and never learns world vs eye. This bridge converts the world pointer
  * ray into the working frame before `solve()`, and converts the value back out
  * through `mapDirection` / `mapLocation`. Nothing here re-implements geometry,
  * visibility, or matrix math — it only feeds numbers across the boundary.
  *
- * ── update() ordering contract ───────────────────────────────────────────────
+ * ### update() ordering contract
  * `update()` is host-driven (NOT a predraw hook) because the orbit gate depends
  * on the grab resolving before `orbitControl()`:
  *
- *   function draw() {
- *     background(10)
- *     if (!h.update()) orbitControl()   // update() returns grabbed; grab wins
- *     // ... scene ...
- *     const v = h.value()               // pull the current value (fresh p5.Vector)
- *   }
+ * ```js
+ * function draw() {
+ *   background(10)
+ *   if (!h.update()) orbitControl()   // update() returns grabbed; grab wins
+ *   // ... scene ...
+ *   const v = h.value()               // pull the current value (fresh p5.Vector)
+ * }
+ * ```
  *
- * ── Pick ray ─────────────────────────────────────────────────────────────────
+ * ### Pick ray
  * The pick ray is built in WORLD via two `mapLocation` unprojections at the
  * near (screen depth 0) and far (screen depth 1) planes — the normalized depth
  * carries the NDC-z convention through the core, so nothing is hardcoded.
  * `solve()` runs in WORLD; `value()` converts the result to the requested space.
  *
- * ── Constraint kinds ─────────────────────────────────────────────────────────
+ * ### Constraint kinds
  * Core SPHERE / PLANE / AXIS / DIAL pass straight through. DIAL is the
  * rotation handle: a 1-DOF accumulated angle on a circle; its pick proxy is a
  * TORUS along the ring (grab anywhere on the ring, like every DCC rotate
@@ -51,7 +53,7 @@
  * conversion, bind, hooks, and pick for it; without a `drawLocus` it draws only
  * dot + aim and warns once.
  *
- * ── Snap / hover / cancel ────────────────────────────────────────────────────
+ * ### Snap / hover / cancel
  * `snap` quantizes at the solve seam (bridge, post-solve, pre-`set()`): an
  * angular step for SPHERE (az/el) and DIAL (θ), a world grid for PLANE / AXIS /
  * VIEW (PLANE re-projects the snapped point, so off-plane grids land on the
@@ -63,11 +65,11 @@
  * `h.cancel()` programmatically; the binding is restored and `onCancel` fires
  * (release does NOT fire). Mirrors three's `reset()` / Blender's modal cancel.
  *
- * ── Deferred constraint frame (`from`) ──────────────────────────────────────
+ * ### Deferred constraint frame (`from`)
  * The basis opts (`axis` / `normal` / `zero`) are symbolic — "Y, but whose
  * Y?". `from` names the space they resolve FROM into WORLD: it is literally
- * `mapDirection`'s `from`, deferred. Resolution (one mapDirection per vector
- * + a core `aim()`) re-runs each idle frame — so the locus and pick proxy
+ * `mapDirection`'s `from`, deferred. Resolution (one mapDirection per vector +
+ * a core `aim()`) re-runs each idle frame — so the locus and pick proxy
  * track a turning frame live — and is implicitly frozen at grab: the basis
  * never changes mid-drag (snapshot-at-press, well-posed under camera motion).
  * Directions only; the anchor stays a world location (anchor() moves it when
@@ -77,7 +79,7 @@
  * freezes the plane at press); both reject `from`. A custom kind participates
  * iff it exposes aim() (an optional contract member).
  *
- * ── Multitouch: per-pointer capture (A) and the router (B) ──────────────────
+ * ### Multitouch: per-pointer capture (A) and the router (B)
  * The whole gesture keys to one pointerId (see update()), and the pick + solve
  * read that pointer's own coords — so on a shared surface each handle tracks
  * its own finger and ignores the rest. Independent, non-overlapping handles

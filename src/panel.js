@@ -3,24 +3,30 @@
  * @module p5.tree/panel
  * @license AGPL-3.0-only
  *
- * ── What lives here ──────────────────────────────────────────────────────────
+ * ### What lives here
+ *
+ *  ```
  *  fn.createPanel(trackOrSchema, opt)
  *    Unified factory — type-discriminated by first argument:
  *      track (has .play)  → transport panel (PoseTrack or CameraTrack)
  *      schema (plain obj) → parameter panel (shader uniforms, scene params)
+ *  ```
  *
- * ── Bridge responsibilities ───────────────────────────────────────────────────
+ * ### Bridge responsibilities
  *  1. Resolve opt.parent   → canvas parent element (default) or explicit mount
  *  2. Resolve opt.target   → wrap p5 shader's setUniform as plain (name,val)=>...
  *  3. Resolve opt.camera   → curCamera default for PoseTrack + button
  *  4. Wrap track           → build duck-typed wrapper for deps/ui (via _wrapTrack)
  *  5. Register player      → auto-tick via predraw loop
  *
- * ── Camera resolution for + button ───────────────────────────────────────────
+ * ### Camera resolution for + button
+ *
+ *  ```
  *  CameraTrack              → track.camera (set by createCameraTrack)
  *  PoseTrack + opt.camera   → use that camera explicitly
  *  PoseTrack, omitted       → curCamera (covers ~90% of use cases)
  *  Either  + null           → + button suppressed
+ *  ```
  */
 
 'use strict';
