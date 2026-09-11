@@ -30,10 +30,11 @@
  * ```
  *
  * ### Pick ray
- * The pick ray is built in WORLD via two `mapLocation` unprojections at the
- * near (screen depth 0) and far (screen depth 1) planes — the normalized depth
- * carries the NDC-z convention through the core, so nothing is hardcoded.
- * `solve()` runs in WORLD; `value()` converts the result to the requested space.
+ * The pick ray is the core's `unproject` in WORLD — origin on the near plane,
+ * unit direction toward the far plane — fed the live P·V bag and the signed
+ * viewport matrix.js keeps, with the NDC-z convention from `getNdcZ()`, so
+ * nothing is hardcoded. `solve()` runs in WORLD; `value()` converts the
+ * result to the requested space.
  *
  * ### Constraint kinds
  * Core SPHERE / PLANE / AXIS / DIAL pass straight through. DIAL is the
@@ -99,11 +100,12 @@
 'use strict';
 
 import {
-  createConstraint, dirFromAzEl,
+  createConstraint, dirFromAzEl, unproject,
   SPHERE, PLANE, AXIS, DIAL,
   POINT, DIRECTION,
-  WORLD, SCREEN,
+  WORLD,
 } from '@nakednous/tree';
+import { pvBag, viewport, getNdcZ } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level scratch — synchronous, single-threaded, never returned
@@ -115,9 +117,8 @@ import {
 // PROXY position/radius are per-instance (`_proxyPos`/`_proxyRad`), NOT module
 // scratch, because the router renders every member's proxy in one shared pass.
 
-const _sIn  = new Float32Array(3);   // screen-space pick input (mx, my, depth)
-const _near = new Float32Array(3);   // unprojected near point (ray origin)
-const _far  = new Float32Array(3);   // unprojected far point
+const _rayO = new Float32Array(3);   // pick ray origin (near plane), WORLD
+const _rayD = new Float32Array(3);   // pick ray unit direction, WORLD
 const _v3   = new Float32Array(3);   // value() extraction scratch
 const _q2   = [0, 0];                // az/el snap scratch
 
@@ -741,26 +742,18 @@ export function installHandle(p5, fn) {
     // ── Pixel → ray → working frame → solve ─────────────────────────────────
 
     _solveFromPointer(mx, my) {
-      const p = this._p;
+      const r = this._p._renderer;
 
-      // WORLD pick ray. Two unprojections at the near (depth 0) and far
-      // (depth 1) planes — the normalized screen depth carries the NDC-z
-      // convention through mapLocation, so no near-z constant is hardcoded.
-      _sIn[0] = mx; _sIn[1] = my; _sIn[2] = 0;
-      p.mapLocation(_sIn, { from: SCREEN, to: WORLD, out: _near });
-      _sIn[2] = 1;
-      p.mapLocation(_sIn, { from: SCREEN, to: WORLD, out: _far });
-
-      let ox = _near[0], oy = _near[1], oz = _near[2];
-      let dx = _far[0] - ox, dy = _far[1] - oy, dz = _far[2] - oz;
+      // WORLD pick ray from the core: origin on the near plane, unit direction
+      // toward the far plane, on the live P·V bag. A singular bag yields no
+      // ray, and the solve is skipped.
+      if (!unproject(_rayO, _rayD, mx, my, pvBag(r, null, true), viewport(r), getNdcZ())) return;
 
       // VIEW: re-aim the PLANE at the camera (through the current point) so the
       // drag tracks a screen-parallel plane at the point's depth.
       if (this._view) this._viewUpdatePlane();
 
-      // solve() assumes a unit direction.
-      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-      this._constraint.solve(ox, oy, oz, dx / len, dy / len, dz / len);
+      this._constraint.solve(_rayO[0], _rayO[1], _rayO[2], _rayD[0], _rayD[1], _rayD[2]);
     }
 
     // VIEW: re-aim the core PLANE at the camera through the current point. The
