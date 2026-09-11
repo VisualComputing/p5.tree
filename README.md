@@ -1154,7 +1154,7 @@ function draw() {
 
 A fixed `PLANE` is well-conditioned only while it faces the camera — edge-on, a screen pixel maps to a huge step on the plane. `VIEW` sidesteps that by re-aiming every frame; `DIAL` solves it with a tangent fallback.
 
-A **custom** constraint — any object with the core contract (`kind`, `solve`, `value`, `seed`, optional `scalar`/`azEl`) — passes straight in as `constraint:`; supply `drawLocus(h, opts)` (and optionally `pickProxy(h, pos, rad)`) so it has a surface and a grab shape. The controller drives everything else — lifecycle, ray, spaces, bind, hooks, pick, router membership.
+A **custom** constraint — any object with the core contract (`kind`, `solve`, `value`, `seed`, optional `scalar`/`azEl`/`proxy`) — passes straight in as `constraint:`; supply `drawLocus(h, opts)` so it has a surface. Its grab shape is the contract's `proxy(ox,oy,oz, dx,dy,dz, radius) → t | Infinity`, tested against the pointer's ray; without one it gets a sphere at its point, or — with a `pickProxy(h, pos, rad)` draw — the rasterized tagged pass. The controller drives everything else — lifecycle, ray, spaces, bind, hooks, pick, router membership.
 
 ## Core math on p5.Tree
 
@@ -1193,12 +1193,13 @@ Returns a stateful controller (like `createCameraTrack`), not a draw call. Creat
 | `zero` | derived | `DIAL` θ=0 reference direction (projected onto the plane). |
 | `from` | `WORLD` | Space the symbolic `axis` / `normal` / `zero` resolve from — `WORLD` \| `EYE` \| a mat4 frame. See [Constraint frame — from](#constraint-frame--from). |
 | `extent` | — / unbounded | `AXIS` clamp `[min, max]`; `DIAL` θ clamp in radians. |
-| `grabPx` | `12` | Pick-proxy radius in pixels (the grab hit area; the `DIAL` torus tube). |
+| `grabPx` | `12` | Pick-proxy radius in pixels (the grab hit area; the `DIAL` ring's tube). |
+| `analytic` | `true` | Pick path: the constraint's `proxy` against the pointer's ray (no render pass, free hover); `false` keeps the rasterized tagged pass. |
 | `snap` | `null` | Quantize step — see [Snap / hover / cancel](#snap--hover--cancel). Settable live. |
 | `hover` | `false` | Lone-handle pick-on-move; the router provides hover shared. |
 | `enabled` | `true` | Gate grab/solve without disposing. |
 | `bind` | — | A `p5.Vector` or `{ get, set }` (a camera needs the chained form — see [bind](#bind)). |
-| `drawLocus` / `pickProxy` | — | Custom-kind seams: locus draw / tagged grab geometry. |
+| `drawLocus` / `pickProxy` | — | Custom-kind seams: locus draw / tagged grab geometry for the rasterized pass (a `proxy` on the constraint is preferred). |
 | `onGrab` / `onChange` / `onRelease` / `onCancel` | — | Interaction hooks. |
 
 `enabled` and the hooks are also settable on the controller after construction.
@@ -1276,7 +1277,7 @@ const h = createHandle({
 // draw(): rotateY(h.scalar())   — the accumulated angle, in radians
 ```
 
-A `DIAL` is a 1-DOF angle on a circle — the rotate-gizmo ring. Grab **anywhere on the ring** (the pick proxy is a torus along it, tube = `grabPx`), drag around it, and `scalar()` reports the **accumulated** θ: keep going past a full turn and it counts 360°, 720°, … (clamp with `extent`, in radians — unbounded by default). `value()` is the point on the circle (`POINT`, the default — so binding a vector tracks the ring point, handy for aim targets) or the radial unit (`DIRECTION`).
+A `DIAL` is a 1-DOF angle on a circle — the rotate-gizmo ring. Grab **anywhere on the ring** (the pick proxy is the ring itself, tube = `grabPx`), drag around it, and `scalar()` reports the **accumulated** θ: keep going past a full turn and it counts 360°, 720°, … (clamp with `extent`, in radians — unbounded by default). `value()` is the point on the circle (`POINT`, the default — so binding a vector tracks the ring point, handy for aim targets) or the radial unit (`DIRECTION`).
 
 Viewed edge-on — the ring seen as a line, where naive rotate gizmos teleport — the solve switches to the circle's tangent line, so the drag stays bounded and monotone at any incidence.
 
@@ -1328,7 +1329,7 @@ dial.snap = keyIsDown(CONTROL) ? PI / 12 : null  // 15°
 
 ## Overlapping handles — createPointerRouter
 
-Independent, separated handles need no coordination — a plain loop runs them, one finger each. **Overlapping** handles (a clustered TRS gizmo: axes + a dial + a `VIEW` stacked at one origin) break per-handle picking — two proxies under one press each see only themselves and both grab. The router replaces N self-picks with **one depth-resolved pick** across all member proxies: every proxy renders with its own id, the nearest wins, exactly one handle grabs.
+Independent, separated handles need no coordination — a plain loop runs them, one finger each. **Overlapping** handles (a clustered TRS gizmo: axes + a dial + a `VIEW` stacked at one origin) break per-handle picking — two proxies under one press each see only themselves and both grab. The router replaces N self-picks with **one shared pick** across all member proxies: the pointer's ray is tested against every proxy and the nearest hit wins (by ray parameter; `{ analytic: false }` keeps the tagged pass, nearest by depth), so exactly one handle grabs.
 
 ```js
 const r = createPointerRouter(hx, hy, hz, dial, view)   // hover on by default
