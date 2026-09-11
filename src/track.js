@@ -20,8 +20,10 @@
  *  p5.Renderer3D.applyPose    apply TRS { pos, rot, scl } to the transform stack
  *  fn.rotateQuat / fn.applyPose   forwarders to the renderer
  *
- *  p5.Camera.capturePose  read live camera → { eye, center, up, fov, halfHeight, near, far }
- *  p5.Camera.applyPose    write { eye, center, up, fov, halfHeight, near, far } → cam.camera() + projection
+ *  p5.Camera.capturePose  the core's cameraFromMat4 over the camera's eye and projection
+ *                         matrices → { eye, center, up, fov, halfHeight, near, far }
+ *  p5.Camera.applyPose    write { eye, center, up, fov, halfHeight, near, far } → cam.camera() + projection;
+ *                         a TRS { pos, rot } lands through the core's cameraFromPose
  *  ```
  *
  * ### { camera } spec support
@@ -39,11 +41,17 @@
 'use strict';
 
 import {
-  PoseTrack, CameraTrack, qToMat4, qFromAxisAngle,
-  projFov, projTop, projIsOrtho,
-  projNear, projFar,
+  PoseTrack, CameraTrack, qFromAxisAngle,
+  createCamera, cameraFromMat4, cameraFromPose,
 } from '@nakednous/tree';
 import { getNdcZ } from './matrix.js';
+
+// Camera-state scratch for the p5.Camera seams: applyPose's TRS branch
+// decomposes into _cam, capturePose reads the eye matrix through _E. Both
+// are seeded from the camera's own lookat first, so the core's decomposers
+// keep its gaze distance.
+const _cam = createCamera();
+const _E   = new Float32Array(16);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Player registry
@@ -1141,27 +1149,25 @@ export function installTrack(p5, fn) {
   // ── p5.Camera — capturePose / applyPose ────────────────────────────────────
 
   /**
-   * Read the live camera state into a { eye, center, up, fov, halfHeight,
-   * near, far } object.
+   * Read the camera into a { eye, center, up, fov, halfHeight, near, far }
+   * state — the core's `cameraFromMat4` over the camera's own eye matrix
+   * (the inverse of its `cameraMatrix`) and its `projMatrix`, populated by
+   * `cam.perspective()`, `cam.ortho()`, or `cam.frustum()`. Nothing is read
+   * from the renderer, so `otherCam.capturePose()` reports otherCam whether
+   * or not it is live.
    *
-   * - `eye`    ← [eyeX, eyeY, eyeZ]
-   * - `center` ← [centerX, centerY, centerZ]
-   * - `up`     ← [upX, upY, upZ]  (the hint p5 stores, not the orthogonalised up)
+   * - `eye`    ← the eye matrix's translation
+   * - `center` ← eye + forward · d, with d the camera's own gaze distance
+   *              |center − eye|, seeded from its lookat scalars before the read
+   * - `up`     ← the eye matrix's up column (orthonormal; applies back to
+   *              the same view)
+   * - `fov` / `halfHeight` — vertical fov (radians) under perspective, the
+   *   world-unit half-height under ortho; the other null
+   * - `near`, `far` — clip plane distances (positive) under the renderer's
+   *   NDC-z convention
    *
-   * Reads cam.upX/Y/Z directly — always the real hint, correct for both
-   * upright cameras (up=[0,1,0]) and pole-flipped cameras (up=[0,-1,0]).
-   *
-   * Also captures the camera's projection (read from `this.projMatrix` —
-   * the camera's own projection matrix, populated by `cam.perspective()`,
-   * `cam.ortho()`, or `cam.frustum()`. Does NOT depend on the camera
-   * being active on the renderer, so `otherCam.capturePose()` returns
-   * otherCam's actual projection regardless of what's live):
-   *
-   * - `fov` — vertical fov (radians) for perspective cameras; null for ortho.
-   * - `halfHeight` — world-unit half-height of an ortho frustum; null for perspective.
-   * - `near`, `far` — clip plane distances (positive), extracted from the
-   *   projection matrix regardless of projection type; (0.1, 1000) when no
-   *   projection matrix is populated yet (pre-setup()).
+   * Before setup(), with no projection populated yet, the lookat comes from
+   * the camera's scalars and the lens is null with near 0.1, far 1000.
    *
    * Pass a pre-allocated out to avoid allocation per frame:
    * ```js
@@ -1215,42 +1221,25 @@ export function installTrack(p5, fn) {
    * }
    */
   p5.Camera.prototype.capturePose = function (out) {
-    out = out || {
-      eye:[0,0,0], center:[0,0,0], up:[0,1,0],
-      fov:null, halfHeight:null,
-      near:0.1, far:1000,
-    };
+    out = out || createCamera();
+    // Seed the lookat from the camera's scalars: the decomposer keeps this
+    // gaze distance, so center lands where the camera looks.
     out.eye[0]    = this.eyeX;    out.eye[1]    = this.eyeY;    out.eye[2]    = this.eyeZ;
     out.center[0] = this.centerX; out.center[1] = this.centerY; out.center[2] = this.centerZ;
-    out.up[0]     = this.upX !== undefined ? this.upX : 0;
-    out.up[1]     = this.upY !== undefined ? this.upY : 1;
-    out.up[2]     = this.upZ !== undefined ? this.upZ : 0;
-    // Read the camera's own projection — not the renderer's live state.
-    // this.projMatrix is populated by cam.perspective / ortho / frustum,
-    // and by the default camera setup during createCamera().
-    const pMat = this.projMatrix?.mat4;
-    if (pMat) {
-      const ndcZ = getNdcZ();
-      if (projIsOrtho(pMat)) {
-        out.fov        = null;
-        out.halfHeight = projTop(pMat, ndcZ);
-      } else {
-        out.fov        = projFov(pMat);
-        out.halfHeight = null;
-      }
-      out.near = projNear(pMat, ndcZ);
-      out.far  = projFar(pMat);
-    } else {
-      out.fov = null; out.halfHeight = null;
-      out.near = 0.1; out.far = 1000;
-    }
+    const P = this.projMatrix?.mat4;
+    const E = this.cameraMatrix ? this.mat4Eye(_E) : null;
+    if (E && P) return cameraFromMat4(out, E, P, getNdcZ());
+    // Pre-setup: no matrices yet — the scalar lookat and an unset lens.
+    out.up[0] = this.upX ?? 0; out.up[1] = this.upY ?? 1; out.up[2] = this.upZ ?? 0;
+    out.fov = null; out.halfHeight = null;
+    out.near = 0.1; out.far = 1000;
     return out;
   };
 
   /**
    * Apply a { eye, center, up, fov?, halfHeight?, near?, far? } pose to this
    * camera. Calls cam.camera(eye, center, up) directly — no matrix
-   * reconstruction, no up_ortho drift, exact roundtrip from capturePose().
+   * reconstruction, so a captured pose applies back to the same view.
    *
    * The projection is applied when fov or halfHeight is non-null:
    *
@@ -1261,7 +1250,9 @@ export function installTrack(p5, fn) {
    * (0.1, 1000).
    *
    * Also accepts a { pos, rot, scl } TRS pose (a PoseTrack sample) for
-   * object-on-camera effects — translate / rotate only; scl is ignored.
+   * object-on-camera effects — the core's cameraFromPose at the camera's
+   * current gaze distance: eye ← pos, up and forward from rot; scl is ignored
+   * and the lens untouched.
    *
    * @function applyPose
    * @memberof p5.Camera
@@ -1349,19 +1340,16 @@ export function installTrack(p5, fn) {
       return this;
     }
 
-    // { pos, rot } — TRS form (translates + rotates the view)
-    // Useful for animating the camera like an object (shake, bob, etc.)
+    // { pos, rot } — TRS form: animate the camera like an object (shake, bob).
+    // Seed the gaze distance from the camera, then let the core place the lookat.
     if (pose.pos && pose.rot) {
-      const rm = new Float32Array(16);
-      qToMat4(rm, pose.rot);
-      const upX=rm[4], upY=rm[5], upZ=rm[6];
-      const fwdX=-rm[8], fwdY=-rm[9], fwdZ=-rm[10];
-      const dx=this.centerX-this.eyeX, dy=this.centerY-this.eyeY, dz=this.centerZ-this.eyeZ;
-      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      _cam.eye[0]    = this.eyeX;    _cam.eye[1]    = this.eyeY;    _cam.eye[2]    = this.eyeZ;
+      _cam.center[0] = this.centerX; _cam.center[1] = this.centerY; _cam.center[2] = this.centerZ;
+      cameraFromPose(_cam, pose);
       this.camera(
-        pose.pos[0], pose.pos[1], pose.pos[2],
-        pose.pos[0]+fwdX*dist, pose.pos[1]+fwdY*dist, pose.pos[2]+fwdZ*dist,
-        upX, upY, upZ
+        _cam.eye[0],    _cam.eye[1],    _cam.eye[2],
+        _cam.center[0], _cam.center[1], _cam.center[2],
+        _cam.up[0],     _cam.up[1],     _cam.up[2]
       );
     }
     return this;
