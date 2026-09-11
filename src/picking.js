@@ -7,21 +7,23 @@
  *
  * Technique: render the scene into a 1×1 FBO with a pick-matrix projection
  * aligned to the query pixel, read back RGBA via gl.readPixels, decode the
- * 24-bit integer id from RGB (R = LSB).
+ * 24-bit integer id from RGB with the core's id codec (R the low byte).
  *
  * id 0 is reserved for background / miss.
  * Valid user ids: 1 – 16 777 215 (2²⁴ − 1).
  *
  * ```
- * Encoding: tag(id) → '#rrggbb'   e.g. tag(1) === '#010000'
- * Decoding: R | (G << 8) | (B << 16)
+ * Encoding: tag(id) → '#rrggbb'   idToRgba as the CSS hex fill() wants; tag(1) === '#010000'
+ * Decoding: rgbaToId(r, g, b)     on the readback bytes
  * ```
  *
  * ### CPU proximity picking
  *
- * Tests whether a pointer position falls within a radius of the projected
- * screen-space origin of the current model matrix. Zero GPU round-trip.
- * Call inside push()/pop() for each pickable object.
+ * The core's pointerHit: is the pointer within a radius of the projected
+ * screen-space origin of the current model matrix? Zero GPU round-trip.
+ * Call inside push()/pop() for each pickable object. The shape option is
+ * p5.Tree.CIRCLE / SQUARE, mapped to the core's constants at the seam (p5
+ * owns the SQUARE global).
  *
  * ### API symmetry
  *
@@ -36,7 +38,11 @@
 
 'use strict';
 
-import { mat4Pick } from '@nakednous/tree';
+import {
+  mat4Pick, mat4ToTranslation, idToRgba, rgbaToId,
+  pointerHit as corePointerHit, CIRCLE, SQUARE,
+} from '@nakednous/tree';
+import { pvBag, viewport, getNdcZ } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level zero-alloc buffers
@@ -46,7 +52,7 @@ const _pickBuf      = new Uint8Array(4);      // gl.readPixels target
 const _pickProjSave = new Float32Array(16);   // saved projection before fbo.begin()
 const _pickViewSave = new Float32Array(16);   // saved view before fbo.begin()
 const _pickVp       = new Float32Array(4);    // viewport [0, h, w, −h] for mat4Pick
-const _sl           = new Float32Array(3);    // screen location scratch for pointerHit
+const _rgba         = [0, 0, 0, 0];           // idToRgba scratch for tag
 const _wl           = new Float32Array(3);    // world location scratch for pointerHit
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -55,6 +61,7 @@ const _wl           = new Float32Array(3);    // world location scratch for poin
 
 const _rawMat4   = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
 const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
+const _hex       = (v) => Math.round(v * 255).toString(16).padStart(2, '0');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Install
@@ -96,12 +103,8 @@ export function installPicking(p5, fn) {
    * }
    */
   fn.tag = function (id) {
-    const r= id        & 0xff;
-    const g=(id >>  8) & 0xff;
-    const b=(id >> 16) & 0xff;
-    return '#' + r.toString(16).padStart(2,'0')
-               + g.toString(16).padStart(2,'0')
-               + b.toString(16).padStart(2,'0');
+    idToRgba(_rgba, id);
+    return '#' + _hex(_rgba[0]) + _hex(_rgba[1]) + _hex(_rgba[2]);
   };
 
   // ── colorPick ─────────────────────────────────────────────────────────────
@@ -196,7 +199,7 @@ export function installPicking(p5, fn) {
         renderer.drawingContext.UNSIGNED_BYTE,
         _pickBuf,
       );
-      hit = _pickBuf[0] | (_pickBuf[1] << 8) | (_pickBuf[2] << 16);
+      hit = rgbaToId(_pickBuf[0], _pickBuf[1], _pickBuf[2]);
     } finally {
       fbo.end();
     }
@@ -252,7 +255,10 @@ export function installPicking(p5, fn) {
   /**
    * Test whether a pointer position falls within a radius of the current
    * model's screen-space origin. CPU — zero GPU round-trip.
-   * Call inside `push()`/`pop()` for each pickable object.
+   * Call inside `push()`/`pop()` for each pickable object. `size` is the hit
+   * diameter in world units at the origin's depth; a point behind the camera
+   * or outside the clip range never hits, and the boundary hits. With
+   * explicit `x`, `y` the test is a screen-space one and `size` is in px.
    *
    * @function pointerHit
    * @memberof p5
@@ -307,20 +313,22 @@ export function installPicking(p5, fn) {
     if (pointerX == null) pointerX = p ? p.mouseX : this.width  / 2;
     if (pointerY == null) pointerY = p ? p.mouseY : this.height / 2;
 
-    let { mat4Model, x, y, size=50, shape=p5.Tree.CIRCLE,
-          mat4Eye, mat4Proj, mat4View, mat4PV } = config;
-    const mm = _rawMat4(mat4Model) ?? _modelMat4(this);
+    const { mat4Model, x, y, size = 50, shape = p5.Tree.CIRCLE, mat4Proj, mat4View } = config;
+    // The seam: p5.Tree's shape constants → the core's (p5 owns the SQUARE global).
+    const kind = shape === p5.Tree.SQUARE ? SQUARE : CIRCLE;
 
-    if (x == null || y == null) {
-      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.SCREEN, out: _sl, mat4Proj, mat4View, mat4PV });
-      x = _sl[0]; y = _sl[1];
-      this.mapLocation(p5.Tree.ORIGIN, { from: mm, to: p5.Tree.WORLD, out: _wl, mat4Eye });
-      size = size / this.pixelRatio(_wl);
+    if (x != null && y != null) {
+      // An explicit screen point carries no world depth: a px-sized test.
+      const r = size / 2, dx = x - pointerX, dy = y - pointerY;
+      return kind === SQUARE
+        ? Math.abs(dx) <= r && Math.abs(dy) <= r
+        : dx*dx + dy*dy <= r*r;
     }
-    const r=size/2, dx=x-pointerX, dy=y-pointerY;
-    return shape === p5.Tree.CIRCLE
-      ? Math.sqrt(dx*dx+dy*dy) < r
-      : (Math.abs(dx) < r && Math.abs(dy) < r);
+    // The model origin in WORLD; the hit radius from world units to px at its depth.
+    mat4ToTranslation(_wl, _rawMat4(mat4Model) ?? _modelMat4(this));
+    const radius = size / (2 * this.pixelRatio(_wl, { mat4Proj, mat4View }));
+    return corePointerHit(pointerX, pointerY, _wl[0], _wl[1], _wl[2], radius,
+                          pvBag(this, config, false), viewport(this), getNdcZ(), kind);
   };
 
   // ── mouseHit ──────────────────────────────────────────────────────────────
