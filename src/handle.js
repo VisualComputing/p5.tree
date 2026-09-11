@@ -36,6 +36,17 @@
  * nothing is hardcoded. `solve()` runs in WORLD; `value()` converts the
  * result to the requested space.
  *
+ * ### Pick proxy
+ * A press grabs iff the pointer's ray meets the grab proxy. The default path
+ * is analytic: the same unprojected ray, the grab size converted from
+ * `grabPx` to world units through `pixelRatio` at the proxy's depth, and the
+ * constraint's `proxy(ray, radius) → t` (built-in kinds: a sphere at the
+ * reported point, the DIAL's ring at its anchor; a custom kind without one
+ * gets the sphere). No render pass, so hover costs nothing. `analytic: false`
+ * keeps the rasterized path — the tagged proxy rendered into colorPick's 1×1
+ * buffer and read back — for parity experiments, and it is what a custom
+ * kind supplying `pickProxy` without `proxy` picks with.
+ *
  * ### Constraint kinds
  * Core SPHERE / PLANE / AXIS / DIAL pass straight through. DIAL is the
  * rotation handle: a 1-DOF accumulated angle on a circle; its pick proxy is a
@@ -88,9 +99,11 @@
  * TRS gizmo; a track's keyframe handles — TrackHandles, track.js) break
  * per-handle self-picking — two proxies under one finger each
  * see only themselves and double-grab — so they share a `createPointerRouter`:
- * ONE depth-resolved pick across all member proxies (one pass, distinct ids,
- * winner-by-id, nearest wins by z), an id→handle map, and a claimed-pointer
- * set; unclaimed pointers fall through to the camera gesture. Routed handles
+ * ONE shared pick across all member proxies (the nearest analytic hit by ray
+ * parameter t, ties to the first member; or one tagged pass, distinct ids,
+ * nearest by depth, under `analytic: false`), an id→handle map, and a
+ * claimed-pointer set; unclaimed pointers fall through to the camera gesture.
+ * Routed handles
  * skip their own pointerdown adoption (`_routed`) and are grabbed via an
  * injected `_adopt` — from the first move on, the per-pointer machinery runs
  * verbatim. The router also amortizes hover (one shared pick per moved frame)
@@ -100,7 +113,7 @@
 'use strict';
 
 import {
-  createConstraint, dirFromAzEl, unproject,
+  createConstraint, dirFromAzEl, unproject, rayHitSphere,
   SPHERE, PLANE, AXIS, DIAL,
   POINT, DIRECTION,
   WORLD,
@@ -336,14 +349,19 @@ export function installHandle(p5, fn) {
       // constant screen size regardless of depth (see _proxyPrep).
       this._grabPx = Number.isFinite(opts.grabPx) ? opts.grabPx : 12;
 
+      // Pick path: analytic (the constraint's proxy against the pointer's
+      // ray) by default; false keeps the rasterized tagged pass.
+      this._analytic = opts.analytic !== false;
+
       // Snap step — quantizes at the solve seam (null = off). Angular step
       // (radians) for SPHERE az/el and DIAL θ; world grid (number | [x,y,z])
       // for PLANE / AXIS / VIEW. Settable live.
       this._snap = opts.snap ?? null;
 
       // Hover (lone-handle opt-in; the router provides it shared): pick-on-move
-      // while idle, read out via hovered(). Costs one 1×1 readback per frame
-      // with pointer motion — prefer the router when handles cluster.
+      // while idle, read out via hovered(). One proxy test per frame with
+      // pointer motion (a 1×1 readback under analytic: false) — prefer the
+      // router when handles cluster.
       this._hover        = opts.hover === true;
       this._hovered      = false;
       this._hoverPending = false;
@@ -479,7 +497,7 @@ export function installHandle(p5, fn) {
      * (`if (!h.update()) orbitControl()`). A disabled handle is an immediate
      * no-op returning `false`.
      *
-     * A fresh press color-ID picks the tagged proxy (`_pickAt`); only a hit
+     * A fresh press tests the pointer's ray against the proxy (`_pickAt`); only a hit
      * grabs, so a miss leaves `grabbed` false and the press falls through to
      * `orbitControl()`. `onGrab` fires on a successful grab, `onChange` on each
      * solve while held (after `snap`), `onRelease` on the matching release, and
@@ -519,7 +537,7 @@ export function installHandle(p5, fn) {
       // pick track the FROM space live; a grab freezes it for the gesture
       // (snapshot-at-press — the drag solves a stationary constraint).
       if (this._from && !this._grabbed) this._resolveFrame();
-      // Fresh press → color-ID hit-test at OUR pointer's pixel; grab only on a
+      // Fresh press → proxy hit-test at OUR pointer's pixel; grab only on a
       // hit. A miss frees _pid, so the next press — or, on a multitouch surface,
       // another finger — can be adopted. (Routed handles never get here; the
       // router's shared pick calls _adopt instead.)
@@ -562,7 +580,7 @@ export function installHandle(p5, fn) {
       }
 
       // Hover (lone-handle opt-in; routed handles get it from the router's
-      // shared pick): one readback per frame with pointer motion while idle.
+      // shared pick): one proxy test per frame with pointer motion while idle.
       if (this._grabbed) {
         this._hovered = true;
       } else if (this._hover && !this._routed && this._hoverPending) {
@@ -661,7 +679,7 @@ export function installHandle(p5, fn) {
       this._onCancel && this._onCancel(this);
     }
 
-    // ── Grab (color-ID pick) ────────────────────────────────────────────────
+    // ── Grab (the proxy pick) ───────────────────────────────────────────────
 
     // Resolve the symbolic FROM-space basis into WORLD and re-aim the core
     // constraint — one mapDirection per vector. Refreshed at every idle
@@ -680,10 +698,11 @@ export function installHandle(p5, fn) {
     }
 
     // Prep the pick proxy against the LIVE projection: world position + the
-    // world radius of a constant `grabPx` screen size. Must run BEFORE
-    // colorPick, which installs a narrowed 1×1 pick projection (pixelRatio
-    // sampled inside the pick pass would be wrong). Per-instance outputs so the
-    // router can prep every member, then render them all in one pass.
+    // world radius of a constant `grabPx` screen size — the analytic test's
+    // inputs. On the rasterized path it must run BEFORE colorPick, which
+    // installs a narrowed 1×1 pick projection (pixelRatio sampled inside the
+    // pick pass would be wrong). Per-instance outputs so the router can prep
+    // every member, then test or render them all.
     _proxyPrep() {
       const p = this._p;
       const c = this._constraint;
@@ -727,16 +746,45 @@ export function installHandle(p5, fn) {
       p.pop();
     }
 
+    /** Pick path — true for the analytic proxy test, false for the rasterized pass. Settable live. */
+    get analytic()  { return this._analytic; }
+    set analytic(v) { this._analytic = v !== false; }
+
+    // Whether this handle can be picked analytically: the constraint has a
+    // proxy, or it takes the core default (a sphere at the point). A custom
+    // kind that supplies pickProxy without proxy is picked by its pass.
+    _analyticOk() {
+      return typeof this._constraint.proxy === 'function' || !this._proxyFn;
+    }
+
     /**
-     * Color-ID hit-test this handle's proxy at a canvas pixel. Preps the proxy
-     * against the live projection, renders it tagged into colorPick's 1×1 pick
-     * buffer, and returns whether the decoded id matches.
+     * Hit-test this handle's proxy at a canvas pixel: the pointer's ray
+     * against the constraint's proxy (analytic), or the proxy rendered tagged
+     * into colorPick's 1×1 buffer and read back (rasterized).
      * @returns {boolean} true if the proxy was hit.
      */
     _pickAt(x, y) {
+      if (this._analytic && this._analyticOk()) {
+        const r = this._p._renderer;
+        if (!unproject(_rayO, _rayD, x, y, pvBag(r, null, true), viewport(r), getNdcZ())) return false;
+        return this._proxyT(_rayO, _rayD) < Infinity;
+      }
       this._proxyPrep();
       const id = this._p.colorPick(x, y, () => this._renderProxy(PROXY_ID));
       return id === PROXY_ID;
+    }
+
+    // The analytic pick: prep the proxy (position + working-unit radius),
+    // then the constraint's proxy(ray, radius) — or the core default, a
+    // sphere of that radius at the prepped point — as t, or Infinity.
+    _proxyT(o, d) {
+      this._proxyPrep();
+      const c = this._constraint;
+      if (typeof c.proxy === 'function') {
+        return c.proxy(o[0], o[1], o[2], d[0], d[1], d[2], this._proxyRad);
+      }
+      const p = this._proxyPos;
+      return rayHitSphere(o[0], o[1], o[2], d[0], d[1], d[2], p[0], p[1], p[2], this._proxyRad);
     }
 
     // ── Pixel → ray → working frame → solve ─────────────────────────────────
@@ -1563,12 +1611,14 @@ export function installHandle(p5, fn) {
   // ═════════════════════════════════════════════════════════════════════════
 
   /**
-   * Coordinates a set of (potentially overlapping) handles: one depth-resolved
-   * color-ID pick across all member proxies per press (and per moved frame,
-   * for hover), an id→handle map, and a claimed-pointer set. Per-handle
-   * self-picking double-grabs on overlap — two proxies under one finger each
-   * render only themselves and both hit; the shared pass renders every proxy
-   * with a distinct id and lets the depth buffer pick the winner.
+   * Coordinates a set of (potentially overlapping) handles: one shared pick
+   * across all member proxies per press (and per moved frame, for hover), an
+   * id→handle map, and a claimed-pointer set. Per-handle self-picking
+   * double-grabs on overlap — two proxies under one finger each test only
+   * themselves and both hit; the shared pick tests every proxy against the
+   * one ray and the nearest hit wins (by ray parameter t on the analytic
+   * path; by depth in the tagged pass under `analytic: false`, or whenever a
+   * member can only be picked by its `pickProxy` pass).
    *
    * Members keep their own move/up/cancel machinery (per-pointer multitouch,
    * verbatim); the router replaces only the DOWN step. Presses are
@@ -1581,16 +1631,18 @@ export function installHandle(p5, fn) {
     /**
      * @param {p5}       p
      * @param {Handle[]} handles
-     * @param {{ hover?: boolean }} [opts]  hover defaults to TRUE — one shared
-     *        pick per frame with pointer motion sets at most one hovered member
-     *        (the reason to colocate handles on a router); pass false to skip
-     *        the per-move readback.
+     * @param {{ hover?: boolean, analytic?: boolean }} [opts]  hover defaults
+     *        to TRUE — one shared pick per frame with pointer motion sets at
+     *        most one hovered member (the reason to colocate handles on a
+     *        router); pass false to skip the per-move pick. analytic defaults
+     *        to TRUE; false keeps the tagged pass.
      */
     constructor(p, handles, opts = {}) {
       this._p = p;
       this._handles = [];
       this._claimed = new Map();          // pointerId → handle
       this._downs   = [];                 // queued presses: { pid, x, y }
+      this._analytic   = opts.analytic !== false;
       this._hover      = opts.hover !== false;
       this._hoverMoved = false;
       this._hxy        = new Float32Array(2);
@@ -1798,12 +1850,30 @@ export function installHandle(p5, fn) {
       return g;
     }
 
-    // One pass: prep every enabled member against the live projection, render
-    // all proxies tagged id = index + 1 into the pick buffer (depth resolves
-    // overlap — the nearest proxy wins), decode the winner.
+    /** Pick path — true for the analytic nearest-t pick, false for the tagged pass. Settable live. */
+    get analytic()  { return this._analytic; }
+    set analytic(v) { this._analytic = v !== false; }
+
+    // One shared pick. Analytic: the pointer's ray once, every enabled
+    // member's proxy tested, the nearest t wins (a tie keeps the earlier
+    // member, as draw order did). Otherwise one pass: prep every enabled
+    // member against the live projection, render all proxies tagged
+    // id = index + 1 into the pick buffer (depth resolves overlap), decode
+    // the winner.
     _sharedPick(x, y) {
       const hs = this._handles;
       if (!hs.length) return null;
+      if (this._analytic && hs.every(h => !h.enabled || h._analyticOk())) {
+        const r = this._p._renderer;
+        if (!unproject(_rayO, _rayD, x, y, pvBag(r, null, true), viewport(r), getNdcZ())) return null;
+        let win = null, best = Infinity;
+        for (const h of hs) {
+          if (!h.enabled) continue;
+          const t = h._proxyT(_rayO, _rayD);
+          if (t < best) { best = t; win = h; }
+        }
+        return win;
+      }
       for (const h of hs) { if (h.enabled) h._proxyPrep(); }
       const id = this._p.colorPick(x, y, () => {
         for (let i = 0; i < hs.length; i++) {
@@ -1944,6 +2014,7 @@ export function installHandle(p5, fn) {
    *   from?:      *,
    *   extent?:    number[],
    *   grabPx?:    number,
+   *   analytic?:  boolean,
    *   snap?:      number | number[],
    *   hover?:     boolean,
    *   enabled?:   boolean,
@@ -2037,19 +2108,20 @@ export function installHandle(p5, fn) {
 
   /**
    * Create a pointer router over a set of (potentially overlapping) handles —
-   * one shared depth-resolved pick, an id→handle map, a claimed-pointer set,
+   * one shared nearest-hit pick, an id→handle map, a claimed-pointer set,
    * and shared hover. Options last:
    *
    * ```js
-   * const r = createPointerRouter(hx, hy, hz, dial)            // hover on
+   * const r = createPointerRouter(hx, hy, hz, dial)            // hover on, analytic pick
    * const r = createPointerRouter(hx, hy, hz, { hover: false })
+   * const r = createPointerRouter(hx, hy, hz, { analytic: false })   // the tagged pass
    * // draw(): if (!r.update()) orbitControl(); hs.forEach(h => h.draw())
    * ```
    *
    * @function createPointerRouter
    * @memberof p5
-   * @param {...(Handle | { hover?: boolean })} args  Handles, then an optional
-   *        options object last.
+   * @param {...(Handle | { hover?: boolean, analytic?: boolean })} args  Handles,
+   *        then an optional options object last.
    * @returns {PointerRouter}
    * @example
    * <caption>A translate cluster: three rails on one anchor, routed so exactly one grabs</caption>
