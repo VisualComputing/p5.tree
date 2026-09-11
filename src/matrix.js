@@ -83,6 +83,40 @@ const _viewMat4  = (r) => r.states.curCamera.cameraMatrix.mat4;
 const _modelMat4 = (r) => r.states.uModelMatrix.mat4;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Screen-ray bag — lib-space, for the core's unproject / pointerHit
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The matrices bag those endpoints read (mat4Proj, mat4View, mat4PV and, on
+// request, mat4PVInv) plus the bridge viewport [0, h, w, −h]. One module-level
+// bag, refilled per call; never returned to a sketch.
+
+const _rayBag = { mat4Proj: null, mat4View: null, mat4PV: null, mat4PVInv: null };
+const _rayPV  = new Float32Array(16);
+const _rayIPV = new Float32Array(16);
+const _rayVp  = new Float32Array(4);
+
+// Fill the bag from the renderer, honouring the mat4Proj / mat4View / mat4PV /
+// mat4PVInv overrides a sketch may pass. `inv` requests the inverse; a
+// singular P · V leaves mat4PVInv null, which the core reports as no ray.
+export function pvBag(renderer, opts, inv) {
+  const o = opts || {};
+  _rayBag.mat4Proj = _rawMat4(o.mat4Proj) ?? _projMat4(renderer);
+  _rayBag.mat4View = _rawMat4(o.mat4View) ?? _viewMat4(renderer);
+  _rayBag.mat4PV   = _rawMat4(o.mat4PV) ??
+    (mat4Mul(_rayPV, _rayBag.mat4Proj, _rayBag.mat4View), _rayPV);
+  _rayBag.mat4PVInv = inv
+    ? (_rawMat4(o.mat4PVInv) ?? (mat4Invert(_rayIPV, _rayBag.mat4PV) && _rayIPV))
+    : null;
+  return _rayBag;
+}
+
+// The signed viewport the bridge hands the core: negative h is p5's screen y-down.
+export function viewport(renderer) {
+  _rayVp[0] = 0; _rayVp[1] = renderer.height; _rayVp[2] = renderer.width; _rayVp[3] = -renderer.height;
+  return _rayVp;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Install
 // ═══════════════════════════════════════════════════════════════════════════
 
