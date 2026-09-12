@@ -55,6 +55,7 @@ Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera inte
     -   [Transport --- feed](#transport--feed)
     -   [Bind a target](#bind-a-target)
     -   [helmRig](#helmrig)
+-   [The host — treeHost](#the-host--treehost)
 -   [Releases](#releases)
 -   [Usage](#usage)
     -   [CDN](#cdn)
@@ -1435,7 +1436,7 @@ For a noisy or absolute source, set `helm.filter = oneEuro(...)` — an input co
 The transport is the seam that makes a helm source-agnostic: anything that calls `helm.feed(translation, rotation)` drives it. The two halves may arrive on separate frames (a device reports them separately) and persist until the next feed — so a transport feeds zeros when motion should stop.
 
 ```js
-// WebHID SpaceNavigator (sketch-level — device drivers ship as examples)
+// any source you read yourself:
 helm.feed([tx, ty, tz], [rx, ry, rz])   // raw lane rates; the profile's sens scales them
 
 // a tracked hand differenced frame-to-frame is a 6-DOF rate — the SAME helm:
@@ -1444,7 +1445,16 @@ if (h.present) helm.feed(h.linVel, h.angVel)
 else           helm.feed([0, 0, 0], [0, 0, 0])
 ```
 
-The library wiring is identical across transports — only the source of the rates differs.
+Two transports ship as streams that feed a bound helm every frame:
+
+```js
+const hid = createHid({ bind: helm })        // a SpaceMouse over WebHID
+function mousePressed() { if (hid.available && !hid.connected) hid.connect() }   // a gesture is required
+
+const pad = createGamepad({ bind: helm })    // the Gamepad API, polled each frame; sticks are ±1
+```
+
+`createHid` decodes the SpaceNavigator's reports by default (`filters` / `decode` take another device), reattaches a device the page was already granted, and is `available` only in a top-level Chromium page over https or localhost. `createGamepad` maps the standard layout (left stick → slide / lift, right stick → yaw / pitch, triggers → push; `map` overrides) and reports a pad once the page has seen a button on it. Both expose `lin` / `ang`, `connected`, `unbind()` and `dispose()`. The library wiring is identical across transports — only the source of the rates differs.
 
 ## Bind a target
 
@@ -1474,7 +1484,7 @@ helmRig(helm, { x, y, size, tilt })       // FBO-backed HUD overload (camera fly
 |------------|-----------------------|-----------------------------------------------------------------|
 | `size`     | `120`                 | Rig extent (world units in-scene; pixels in the HUD overload).  |
 | `bits`     | `TRANSLATE \| ROTATE` | Clusters to draw — `p5.Tree.TRANSLATE`, `p5.Tree.ROTATE`.       |
-| `identify` | `false`               | Label each arrow / ring with its input lane (`L0` …). Needs a font. |
+| `identify` | `false`               | Label each arrow / ring with its input lane (`L0` …) — DOM text on the host's label layer, no font needed. |
 
 **HUD overload** — when `x` and `y` are given, the rig renders into a small framebuffer through its own camera and composites as a screen quad at `(x, y)` of `size` pixels. Because it lands as a texture, ambient `tint()` modulates it (handy to fade the HUD until a device connects). Intended for camera fly — the body DOFs in a corner.
 
@@ -1485,6 +1495,27 @@ helmRig(helm, { x: width - 136, y: 16, size: 120 })            // corner HUD, is
 helmRig(helm, { x: width - 136, y: 16, size: 120, tilt: 0 })   // head-on
 helmRig(helm, { size: 120 })                                   // in-scene at the model transform
 ```
+
+---
+
+# The host — treeHost
+
+Every handle, track, helm and stream above is a construct of one `@nakednous/host` context on the sketch canvas, which p5.tree creates on first need and drives from its lifecycle (predraw ticks the players and fills the view bag from the renderer; postdraw projects the label layer and ends the pointer frame; `remove()` disposes it). `treeHost()` returns it, for the two host constructs p5.tree has no verb of its own for:
+
+```js
+const labels = treeHost().labels                               // DOM text over the canvas, no font
+labels.set('tag', 'origin', 0, 0, 0, { dy: -14 })              // a world anchor, projected each frame
+labels.setScreen('hud', 'fps ' + frameRate().toFixed(0), 10, 16, { anchor: 'left' })
+labels.remove('tag')                                           // or { frame: true } for a one-frame label
+
+const cam = getCamera().capturePose()                          // a camera state
+const orbit = treeHost().orbit(cam)                            // one pointer orbits, two pan and dolly, the wheel dollies
+function draw() {
+  if (orbit.update()) getCamera().applyPose(cam)               // the gesture writes the state; the sketch applies it
+}
+```
+
+The label layer is a sibling `<div>` of the canvas (class `host-labels`, each label `host-label`; `pointer-events: none`), created on first access; its parent is set to `position: relative` when it was static. `orbit` replaces `orbitControl` on a camera state, with the two-finger gesture computed from the pointers' own coordinates so it reads the same on every platform; it consumes only pointers no handle claimed, so `if (!h.update() && orbit.update())` is the gate.
 
 ---
 
