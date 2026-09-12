@@ -1180,7 +1180,7 @@ applyMatrix(...qToMat4(m, q))
 const h = createHandle({ constraint: p5.Tree.SPHERE, report: p5.Tree.DIRECTION })
 ```
 
-Returns a stateful controller (like `createCameraTrack`), not a draw call. Create it after `createCanvas` — it attaches pointer listeners to the canvas.
+Returns a stateful controller (like `createCameraTrack`), not a draw call. Create it after `createCanvas` — it reads the sketch's pointer source, which lives on the canvas.
 
 | Option | Default | Description |
 |---|---|---|
@@ -1217,7 +1217,7 @@ function draw() {
 }
 ```
 
-A press color-ID picks a proxy at the handle's screen position (via `mousePick`), so only a hit grabs — the dot for most kinds, a torus along the ring for a `DIAL`. `onGrab` fires on the grab, `onChange` on each solve while held (post-snap), `onRelease` on release — and `onCancel` *instead of* `onRelease` when the drag is reverted (firing order mirrors `Track`: your hook, then the lib-space `_on*`). `h.dispose()` removes the listeners; it runs automatically on sketch teardown.
+A press tests the pointer's ray against the handle's proxy, so only a hit grabs — a sphere at the dot for most kinds, the ring itself for a `DIAL`. `onGrab` fires on the grab, `onChange` on each solve while held (post-snap), `onRelease` on release — and `onCancel` *instead of* `onRelease` when the drag is reverted (firing order mirrors `Track`: your hook, then the lib-space `_on*`). `h.dispose()` releases its pointer claim; it runs automatically on sketch teardown.
 
 ```js
 h.grabbed()          // true between grab and release
