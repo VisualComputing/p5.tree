@@ -13,9 +13,9 @@ export function installPipe(p5, fn) {
   /**
    * Run a source texture through one or more filter shaders in sequence and draw
    * the result on the canvas, or keep it off-screen and use the returned
-   * framebuffer with display set to false (see the off-screen example). Buffers
-   * are managed for you; `key` separates independent pipelines, and ping/pong let
-   * you supply your own. Needs a WEBGL canvas, a source, and filter shaders.
+   * framebuffer with `display` set to false (see the off-screen example). Buffers
+   * are managed for you; `key` separates independent pipelines, and `ping`/`pong` let
+   * you supply your own. Needs a `p5.WEBGL` canvas, a source, and filter shaders.
    *
    * @details
    * Pipes a source through one or more post-processing passes (filters), optionally displaying
@@ -28,7 +28,7 @@ export function installPipe(p5, fn) {
    *
    * @function pipe
    * @memberof p5
-   * @param {p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics} source  Input texture; a p5.Framebuffer contributes its `.color`.
+   * @param {p5.Framebuffer|p5.Texture|p5.Image|p5.Graphics} source  Input texture; a `p5.Framebuffer` contributes its `.color`.
    * @param {p5.Shader|p5.Shader[]} passes  A pass or array of passes (e.g. `baseFilterShader().modify(...)`); falsy entries ignored.
    * @param {Object} [opt]  Options.
    * @param {boolean} [opt.display=true] If true, draw the final output to the main canvas.
@@ -214,7 +214,7 @@ export function installPipe(p5, fn) {
   };
   
   /**
-   * Free the framebuffers pipe() cached for a pipeline: the default one, a named
+   * Free the framebuffers `pipe()` cached for a pipeline: the default one, a named
    * `key`, or every pipeline with true (see the example). Framebuffers you
    * supplied yourself are left alone.
    *
