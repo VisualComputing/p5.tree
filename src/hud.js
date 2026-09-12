@@ -24,7 +24,7 @@ export function installHud(p5, fn) {
   /**
    * Start drawing in screen space over the 3D scene: pixel coordinates with the
    * origin at the top-left corner of the canvas, as in 2D mode. Pair every call
-   * with `endHUD()` (see the frame-rate example). Needs a WEBGL canvas; text
+   * with `endHUD()` (see the frame-rate example). Needs a `p5.WEBGL` canvas; text
    * needs a loaded font.
    *
    * @details
