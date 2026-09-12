@@ -10,6 +10,11 @@
  *     `@constant {T} NAME`, or `@typedef {T} Name`.
  * Every other block is internal and ignored. `@memberof` defaults to the
  * module. Dotted `@param` / `@property` names group under their parent.
+ *
+ * Audience rule. The rendered description is the block's prose before its
+ * first tag, written for a p5 user: what it does, the key options, what it
+ * needs. Technical prose stays in the source under `@details`, a tag the
+ * parser accepts and never renders.
  */
 
 import { readdirSync, readFileSync } from 'node:fs';

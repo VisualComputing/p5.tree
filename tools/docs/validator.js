@@ -13,6 +13,7 @@ const VOCABULARY = new Set([
   'constant',
   'typedef', 'property',
   'example',
+  'details',
 ]);
 
 const LINK_RE  = /\{@link\s+([^}\s]+)\s*\}/g;
