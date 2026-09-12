@@ -278,9 +278,10 @@ class TrackHandles {
 
   /**
    * Drive the keyframe handles for this frame and report whether one is being
-   * dragged. Call it first in draw() and orbit only when it returns false, so a
-   * press on a dot grabs it while one that misses orbits (see the orbit gate
-   * example). Needs a WEBGL canvas and a track created with handles.
+   * dragged. Call it first in `p5.draw()` and orbit only when it returns false,
+   * so a press on a dot grabs it while one that misses orbits (see the orbit
+   * gate example). Needs a `p5.WEBGL` canvas and a track created with
+   * `handles`.
    *
    * @details
    * Rebuild-if-needed, idle-sync, then route. Call FIRST in draw(), after
@@ -491,9 +492,9 @@ class TrackHandles {
 
   /**
    * Draw the keyframe handle dots with the sketch's current fill and stroke; a
-   * hovered or grabbed dot grows. Pass `size` for the dot radius and emphasis
-   * for the hover growth (see the standalone draw example). Normally trackPath
-   * with the HANDLES bit draws them for you.
+   * hovered or grabbed dot grows. Pass `size` for the dot radius and `emphasis`
+   * for the hover growth (see the standalone draw example). Normally
+   * `trackPath` with the `HANDLES` bit draws them for you.
    *
    * @details
    * Render every member at the ambient p5 state: fill() colours the dots,
@@ -693,7 +694,7 @@ export function installTrack(p5, fn) {
   /**
    * Return the current p5 camera (curCamera).
    *
-   * Returns null if called before createCanvas().
+   * Returns null if called before `p5.createCanvas()`.
    *
    * @function getCamera
    * @memberof p5
@@ -732,7 +733,7 @@ export function installTrack(p5, fn) {
    * interpolated pose each frame with eval to place whatever you draw.
    * Position, rotation and scale each have their own interpolation mode, and
    * `{ handles: true }` adds draggable keyframe dots with an optional rotation
-   * ring (see the keyframe handles example). Needs a WEBGL canvas.
+   * ring (see the keyframe handles example). Needs a `p5.WEBGL` canvas.
    *
    * @details
    * Create a PoseTrack wired to the p5 draw loop.
@@ -871,11 +872,11 @@ export function installTrack(p5, fn) {
 
   /**
    * Animate the camera along keyframes: add lookats, play, and the camera
-   * follows with nothing to do in draw(). Pass a camera to fly a second one
-   * while the default stays free to orbit, and add `{ handles: true }` to drag
-   * keyframe eyes and centers (see the keyframe handles example). Needs a WEBGL
-   * canvas; keyframe handles need a second camera to fly, viewed from the
-   * default one.
+   * follows with nothing to do in `p5.draw()`. Pass a camera to fly a second
+   * one while the default stays free to orbit, and add `{ handles: true }` to
+   * drag keyframe eyes and centers (see the keyframe handles example). Needs a
+   * `p5.WEBGL` canvas; keyframe handles need a second camera to fly, viewed
+   * from the default one.
    *
    * @details
    * Create a CameraTrack bound to a p5.Camera.
@@ -931,7 +932,7 @@ export function installTrack(p5, fn) {
    * @function createCameraTrack
    * @memberof p5
    * @param {p5.Camera} [cam]  Camera to drive. Defaults to the current camera.
-   *                           Use createCamera() for a dedicated camera.
+   *                           Use `p5.createCamera()` for a dedicated camera.
    * @param {{ handles?: boolean|Object }} [opts]
    * @returns {CameraTrack}
    * @example
@@ -1190,7 +1191,7 @@ export function installTrack(p5, fn) {
   /**
    * Read this camera's eye, center, up and lens into a pose you can add to a
    * camera track or draw as a frustum. Pass a preallocated `out` to reuse it
-   * every frame (see the second camera example). Works on any p5.Camera,
+   * every frame (see the second camera example). Works on any `p5.Camera`,
    * live or not.
    *
    * @details
