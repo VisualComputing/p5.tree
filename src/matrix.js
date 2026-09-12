@@ -1429,7 +1429,7 @@ export function installMatrix(p5, fn) {
    *
    * function draw() {
    *   background('#138D75')
-   *   perspective(PI / 3, width / height, map(mouseX, 0, width, 100, 320), 1000)
+   *   perspective(PI / 3, width / height, map(mouseX, 0, width, 500, 1000), 2000)   // the box sits 800 from the eye
    *   axes()
    *   stroke('white')
    *   noFill()
@@ -1456,7 +1456,7 @@ export function installMatrix(p5, fn) {
    *
    * function draw() {
    *   background('#138D75')
-   *   perspective(PI / 3, width / height, 50, map(mouseX, 0, width, 200, 400))
+   *   perspective(PI / 3, width / height, 50, map(mouseX, 0, width, 600, 1200))   // the box sits 800 from the eye
    *   axes()
    *   stroke('white')
    *   noFill()
