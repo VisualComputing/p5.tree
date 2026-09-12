@@ -11,6 +11,13 @@
 // Install pipe() and releasePipe() on fn.
 export function installPipe(p5, fn) {
   /**
+   * Run a source texture through one or more filter shaders in sequence and draw
+   * the result on the canvas, or keep it off-screen and use the returned
+   * framebuffer with display set to false (see the off-screen example). Buffers
+   * are managed for you; `key` separates independent pipelines, and ping/pong let
+   * you supply your own. Needs a WEBGL canvas, a source, and filter shaders.
+   *
+   * @details
    * Pipes a source through one or more post-processing passes (filters), optionally displaying
    * the final output on the main canvas.
    *
@@ -207,6 +214,11 @@ export function installPipe(p5, fn) {
   };
   
   /**
+   * Free the framebuffers pipe() cached for a pipeline: the default one, a named
+   * `key`, or every pipeline with true (see the example). Framebuffers you
+   * supplied yourself are left alone.
+   *
+   * @details
    * Release internal cached pipe framebuffers created by pipe() when opt.allocate is true.
    * Does NOT remove user-provided ping/pong passed via opt.ping/opt.pong.
    *
