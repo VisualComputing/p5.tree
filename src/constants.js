@@ -1,8 +1,23 @@
 /**
- * @file Constants and core math re-exports on `p5.Tree`.
+ * @file The constants and the math helpers p5.tree exposes on `p5.Tree`.
  * @module p5.tree/constants
  * @license AGPL-3.0-only
  *
+ * Everything here lives on `p5.Tree`: the space names `WORLD`, `EYE`, `NDC`,
+ * `SCREEN` and `MODEL` that `mapLocation` and `mapDirection` accept, the
+ * results of `visibility`, the basis vectors, the `createHandle` constraint
+ * kinds, and the bit sets that tell `axes`, `viewFrustum`, `trackPath`,
+ * `helmRig` and the `Handle` drawers what to draw. Bit sets belong to one
+ * gizmo each: the same number means different things to different gizmos, so
+ * never mix them. Reach for this page whenever a call asks for a space, a
+ * shape or a bit set.
+ *
+ * It also carries the quaternion helpers (`qMul`, `qSlerp`, `qFromAxisAngle`,
+ * `qToMat4`, …), the ray intersections a custom `Handle` constraint builds on,
+ * and the input helpers `oneEuro` and `poseDelta` for a `PoseHelm` or
+ * `CameraHelm`.
+ *
+ * @details
  * Bit namespaces are gizmo-local: the same numeric value carries different
  * meanings to different gizmos. Pass each gizmo its own bit set and never mix
  * them across gizmos.
@@ -43,8 +58,8 @@ export function installConstants(p5) {
      * @constant {string} EYE
      * @memberof p5.Tree */
     EYE:    CONST(C.EYE),
-    /** A pose helm's own current pose — body-relative integration. A `from` of
-     * {@link createPoseHelm} only; not a mapping space.
+    /** A `PoseHelm`'s own current pose, so motion applies relative to the body.
+     * A `from` of {@link createPoseHelm} only; not a mapping space.
      * @constant {string} SELF
      * @memberof p5.Tree */
     SELF:   CONST(C.SELF),
@@ -66,11 +81,17 @@ export function installConstants(p5) {
      * @memberof p5.Tree */
     OBJECT: CONST(C.MODEL),
 
-    /** NDC z-minimum of the WebGL backend: −1, z ∈ [−1, 1].
+    /** The depth range of a `WEBGL` canvas: z ∈ [−1, 1]. Pass as the depth-range
+     * argument of {@link mat4Persp} / {@link mat4Ortho}.
+     * @details
+     * The value is the NDC z-minimum, −1; the sketch canvas selects it once.
      * @constant {number} WEBGL
      * @memberof p5.Tree */
     WEBGL:  CONST(C.WEBGL),
-    /** NDC z-minimum of the WebGPU backend: 0, z ∈ [0, 1].
+    /** The depth range of a `WEBGPU` canvas: z ∈ [0, 1]. Pass as the depth-range
+     * argument of {@link mat4Persp} / {@link mat4Ortho}.
+     * @details
+     * The value is the NDC z-minimum, 0; the sketch canvas selects it once.
      * @constant {number} WEBGPU
      * @memberof p5.Tree */
     WEBGPU: CONST(C.WEBGPU),
@@ -202,7 +223,7 @@ export function installConstants(p5) {
      * @constant {number} PATH
      * @memberof p5.Tree */
     PATH:         CONST(1 << 0),
-    /** {@link trackPath} bit, CameraTrack only: the gaze line from each
+    /** {@link trackPath} bit, `CameraTrack` only: the gaze line from each
      * keyframe's eye to its center, with a dot at the center.
      * @constant {number} CENTER
      * @memberof p5.Tree */
@@ -223,8 +244,8 @@ export function installConstants(p5) {
      * @constant {number} TANGENTS
      * @memberof p5.Tree */
     TANGENTS:     CONST((1 << 3) | (1 << 4)),
-    /** {@link trackPath} bit: the keyframe manipulator dots of a track created
-     * with the `handles` opt (`track.handles`); a no-op otherwise.
+    /** {@link trackPath} bit: the keyframe dots of a track created with the
+     * `handles` option (its `TrackHandles`, `track.handles`); draws nothing otherwise.
      * @constant {number} HANDLES
      * @memberof p5.Tree */
     HANDLES:      CONST(1 << 5),
@@ -272,20 +293,20 @@ export function installConstants(p5) {
     DIRECTION: CONST(C.DIRECTION),
 
     // ── handle draw bits ────────────────────────────────────────────────────
-    /** Handle draw bit: the draggable dot.
+    /** `Handle` draw bit: the draggable dot.
      * @constant {number} HANDLE
      * @memberof p5.Tree */
     HANDLE: CONST(1 << 0),
-    /** Handle draw bit: the anchor → point line (a DIAL's spoke).
+    /** `Handle` draw bit: the anchor → point line (a DIAL's spoke).
      * @constant {number} AIM
      * @memberof p5.Tree */
     AIM:    CONST(1 << 1),
-    /** Handle draw bit: the constraint surface — sphere wire, plane quad, axis
+    /** `Handle` draw bit: the constraint surface — sphere wire, plane quad, axis
      * segment, dial ring, or view square.
      * @constant {number} LOCUS
      * @memberof p5.Tree */
     LOCUS:  CONST(1 << 2),
-    /** Handle draw bit: the SPHERE view-facing limb / the PLANE border.
+    /** `Handle` draw bit: the SPHERE view-facing limb / the PLANE border.
      * @constant {number} RING
      * @memberof p5.Tree */
     RING:   CONST(1 << 3),
@@ -348,11 +369,16 @@ export function installConstants(p5) {
      * @constant {Function} qFromRotMat3x3
      * @memberof p5.Tree */
     qFromRotMat3x3:   CONST(C.qFromRotMat3x3),
-    /** `qFromMat4(out, m)` — from the upper-left 3×3 of a column-major mat4.
+    /** `qFromMat4(out, m)` — from the rotation part (the upper-left 3×3) of a
+     * mat4 such as {@link mat4Model} gives.
+     * @details
+     * Column-major, as every mat4 here.
      * @constant {Function} qFromMat4
      * @memberof p5.Tree */
     qFromMat4:        CONST(C.qFromMat4),
-    /** `qToMat4(out, q)` — a column-major rotation mat4, feeds `applyMatrix(...)`.
+    /** `qToMat4(out, q)` — a rotation mat4 ready for `p5.applyMatrix`.
+     * @details
+     * Column-major, as every mat4 here.
      * @constant {Function} qToMat4
      * @memberof p5.Tree */
     qToMat4:          CONST(C.qToMat4),
@@ -362,16 +388,16 @@ export function installConstants(p5) {
     qToAxisAngle:     CONST(C.qToAxisAngle),
 
     // ── Core re-exports: ray primitives + angular utilities ─────────────────
-    /** Ray–sphere intersection — a building block of a custom constraint's `solve()`.
+    /** Ray–sphere intersection — a building block of a custom `Handle` constraint's `solve()`.
      * @constant {Function} raySphere
      * @memberof p5.Tree */
     raySphere:              CONST(C.raySphere),
-    /** Ray–plane intersection — a building block of a custom constraint's `solve()`.
+    /** Ray–plane intersection — a building block of a custom `Handle` constraint's `solve()`.
      * @constant {Function} rayPlane
      * @memberof p5.Tree */
     rayPlane:               CONST(C.rayPlane),
     /** Closest point on an axis to a ray — a building block of a custom
-     * constraint's `solve()`.
+     * `Handle` constraint's `solve()`.
      * @constant {Function} rayClosestPointOnAxis
      * @memberof p5.Tree */
     rayClosestPointOnAxis:  CONST(C.rayClosestPointOnAxis),
@@ -386,12 +412,12 @@ export function installConstants(p5) {
 
     // ── Core re-exports: input conditioning ─────────────────────────────────
     /** `oneEuro([opts])` — a stateful 1€ filter `f(out, raw, dt)` / `f(raw, dt)`;
-     * assign to `helm.filter`.
+     * assign it to the `filter` of a `PoseHelm` or `CameraHelm`.
      * @constant {Function} oneEuro
      * @memberof p5.Tree */
     oneEuro:   CONST(C.oneEuro),
-    /** Absolute pose stream → the rate stream a helm's `feed()` wants, with the
-     * quaternion double-cover guard.
+    /** Turns an absolute pose stream into the rate stream a `PoseHelm` or
+     * `CameraHelm`'s `feed()` wants, guarding against quaternion double cover.
      * @constant {Function} poseDelta
      * @memberof p5.Tree */
     poseDelta: CONST(C.poseDelta),
