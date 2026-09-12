@@ -371,7 +371,7 @@ mat4MV(out,    [{ mat4Model, mat4View }])
 mat4PMV(out,   [{ mat4Proj, mat4Model, mat4View }])
 mat3Normal(out,[{ mat4Model, mat4View, mat4MV }])  // 9-element out
 mat4Location(out, from, to)   // location transform: inv(to) · from
-mat3Direction(out, from, to)  // direction transform: to₃ · inv(from₃), 9-element out
+mat3Direction(out, from, to)  // direction transform: inv(to₃) · from₃, 9-element out
 ```
 
 **Raw matrix math** — forwarded from `@nakednous/tree`, same out-first contract:
