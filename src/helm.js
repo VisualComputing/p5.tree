@@ -61,9 +61,9 @@
 
 'use strict';
 
-import { PoseHelm, createCamera, cameraToPose, qFromMat4 } from '@nakednous/tree';
+import { PoseHelm, createCamera, cameraToPose, qFromMat4, mat4MulPoint } from '@nakednous/tree';
 import { helmBasis } from '@nakednous/host';
-import { ensureHost, syncHostView } from './matrix.js';
+import { ensureHost, hostOf, syncHostView } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level scratch — synchronous, single-threaded, never returned
@@ -74,6 +74,9 @@ const _cp    = createCamera();                          // capturePose() scratch
 const _em    = new Float32Array(16);                    // resolved basis (rig orient)
 const _act   = [0, 0, 0, 0, 0, 0];                      // helm.activity() readout (gizmo)
 const _rigQ  = [0, 0, 0, 1];                            // resolved-`from` rotation (rig orient)
+const _lp    = [0, 0, 0];                               // a rig label's anchor, rig frame
+const _lw    = [0, 0, 0];                               // the same anchor in world
+let _rigSeq = 0;                                        // rig ids, for the label layer
 
 // Semantic per-axis colours — X / Y / Z, matching gizmos.js _AXIS_COLORS
 // (Red / Lime / DodgerBlue). RGB triples so the idle state can dim via alpha.
@@ -157,6 +160,17 @@ function _drawArc(p, axis, r, sweep, detail) {
   }
 }
 
+// An `identify` label through the host's label layer: the anchor, given in
+// the rig's frame, goes to world through the current model matrix; the label
+// is transient, so a rig that stops drawing takes its labels with it.
+function _rigLabel(p, helm, key, text) {
+  const host = hostOf(p);
+  if (!host) return;
+  const id = helm._rigId || (helm._rigId = ++_rigSeq);
+  mat4MulPoint(_lw, p._renderer.states.uModelMatrix.mat4, _lp[0], _lp[1], _lp[2]);
+  host.labels.set('helmRig' + id + ':' + key, text, _lw[0], _lw[1], _lw[2], { frame: true, class: 'helm-rig' });
+}
+
 // Draw the rig at the current model transform: three translation arrows and
 // three rotation rings, each a DIM baseline (the sign/sens geometry) plus, for
 // the channel driven this frame, a BRIGHT signed overlay growing in the live
@@ -189,8 +203,8 @@ function _drawRig(p, helm, size, doT, doR, identify) {
         _drawArrow(p, ax, Lo, head);
       }
       if (identify) {
-        const lp = [0, 0, 0]; lp[ax] = L + ch.sign * head * 1.5;
-        p.text('L' + ch.lane, lp[0], lp[1], lp[2]);
+        _lp[0] = _lp[1] = _lp[2] = 0; _lp[ax] = L + ch.sign * head * 1.5;
+        _rigLabel(p, helm, 'T' + ax, 'L' + ch.lane);
       }
     }
   }
@@ -209,9 +223,8 @@ function _drawRig(p, helm, size, doT, doR, identify) {
         _drawArc(p, ax, r, Math.sign(a) * f * ARC_FULL, 24);
       }
       if (identify) {
-        const aa = (ax + 1) % 3;
-        const lp = [0, 0, 0]; lp[aa] = r;
-        p.text('L' + ch.lane, lp[0], lp[1], lp[2]);
+        _lp[0] = _lp[1] = _lp[2] = 0; _lp[(ax + 1) % 3] = r;
+        _rigLabel(p, helm, 'R' + ax, 'L' + ch.lane);
       }
     }
   }
@@ -519,6 +532,128 @@ export function installHelm(p5, fn) {
     return helm;
   };
 
+  // ── fn.createHid ───────────────────────────────────────────────────────────
+
+  /**
+   * A SpaceMouse over WebHID: a stream of raw 6-DOF rates that feeds a helm
+   * every frame once bound. Call `connect()` from a click or a key press to
+   * choose the device; a device this page was already granted reattaches on
+   * its own. Chromium-family browsers only, in a top-level page over https or
+   * localhost — `available` says whether this page can ask at all,
+   * `connected` whether a device is reporting. Needs a `p5.WEBGL` canvas.
+   *
+   * @details
+   * The host's hid stream: `requestDevice` under the 3Dconnexion vendor
+   * filters, reports decoded out of band into `lin` / `ang` (the
+   * SpaceNavigator's two int16 little-endian reports, or one six-lane report),
+   * the latest fed to the bound helm each predraw. `opts.filters` and
+   * `opts.decode(report, reportId, lin, ang)` take another device. Inside an
+   * iframe without `allow="hid"` the stream is unavailable and never prompts.
+   * Disposed with the sketch.
+   *
+   * @function createHid
+   * @memberof p5
+   * @param {{ bind?: PoseHelm, filters?: Object[], decode?: Function, resume?: boolean }} [opts]
+   * @returns {Object} The stream: `{ available, connected, lin, ang, connect(), bind(helm), unbind(), dispose() }`.
+   * @example
+   * <caption>Fly the camera from a SpaceMouse: click the canvas to connect; the rig shows the live lanes</caption>
+   * let helm, hid
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createCameraHelm()
+   *   hid = createHid({ bind: helm })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   axes()
+   *   stroke('white')
+   *   push()
+   *   rotateX(HALF_PI)
+   *   grid({ size: 400, subdivisions: 20 })
+   *   pop()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   for (let i = 0; i < 6; i++) {
+   *     push()
+   *     translate(150 * cos(i * PI / 3), -20, 150 * sin(i * PI / 3))
+   *     box(40)
+   *     pop()
+   *   }
+   *   helmRig(helm, { x: width - 136, y: 16, size: 120 })
+   *   const status = !hid.available ? 'WebHID unavailable here (top-level Chromium page)'
+   *     : hid.connected ? 'connected: push the puck' : 'click to connect a SpaceMouse'
+   *   treeHost().labels.setScreen('status', status, 10, 16, { anchor: 'left' })
+   * }
+   *
+   * function mousePressed() {
+   *   if (hid.available && !hid.connected) hid.connect()
+   * }
+   */
+  fn.createHid = function (opts) {
+    const host = _hostOrWarn(this, 'createHid');
+    return host ? host.hid(opts) : null;
+  };
+
+  // ── fn.createGamepad ───────────────────────────────────────────────────────
+
+  /**
+   * A gamepad as a 6-DOF rate source: polled every frame, feeding a helm once
+   * bound. The standard layout maps the left stick to slide and lift, the
+   * right stick to yaw and pitch, the triggers to push; pass `map` for
+   * another. A pad appears once the page has seen a button press on it.
+   * Needs a `p5.WEBGL` canvas.
+   *
+   * @details
+   * The host's gamepad stream over `navigator.getGamepads()`: `index` picks a
+   * pad (default the first connected), `map` is `{ lin, ang }` with three lane
+   * specs each — an axis index, `{ buttons: [neg, pos] }` or null. Axes are
+   * ±1, so a helm profile tuned for a ±500 puck wants `sens` scaled and
+   * `fullScale` set to 1 for honest rig meters. Disposed with the sketch.
+   *
+   * @function createGamepad
+   * @memberof p5
+   * @param {{ bind?: PoseHelm, index?: number, map?: Object }} [opts]
+   * @returns {Object} The stream: `{ available, connected, index, lin, ang, bind(helm), unbind(), dispose() }`.
+   * @example
+   * <caption>Fly the camera from a gamepad: press any button on it first; the rig meters read the ±1 sticks</caption>
+   * let helm, pad
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   helm = createCameraHelm({ fullScale: 1 })
+   *   for (const k of ['Tx', 'Ty', 'Tz']) helm.profile[k].sens *= 500
+   *   for (const k of ['Rp', 'Ry', 'Rr']) helm.profile[k].sens *= 500
+   *   pad = createGamepad({ bind: helm })
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   axes()
+   *   stroke('white')
+   *   push()
+   *   rotateX(HALF_PI)
+   *   grid({ size: 400, subdivisions: 20 })
+   *   pop()
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   for (let i = 0; i < 6; i++) {
+   *     push()
+   *     translate(150 * cos(i * PI / 3), -20, 150 * sin(i * PI / 3))
+   *     box(40)
+   *     pop()
+   *   }
+   *   helmRig(helm, { x: width - 136, y: 16, size: 120 })
+   *   const status = !pad.available ? 'no Gamepad API here' : pad.connected ? 'gamepad connected' : 'press a gamepad button'
+   *   treeHost().labels.setScreen('status', status, 10, 16, { anchor: 'left' })
+   * }
+   */
+  fn.createGamepad = function (opts) {
+    const host = _hostOrWarn(this, 'createGamepad');
+    return host ? host.gamepad(opts) : null;
+  };
+
   // ── helmRig (gizmo) ─────────────────────────────────────────────────────────
 
   fn.helmRig = function (helm, opts) { this._renderer.helmRig(helm, opts); return this; };
@@ -527,8 +662,8 @@ export function installHelm(p5, fn) {
    * Draw a control rig showing a helm's six degrees of freedom: translation
    * arrows and rotation rings, with the channel being driven lit up in the
    * direction of the push. Give `x` and `y` for a corner HUD, or draw it in the
-   * scene at the driven object; add `identify` to label each input channel, which
-   * needs a loaded font (see the probe example). Needs a `p5.WEBGL` canvas.
+   * scene at the driven object; add `identify` to label each input channel with
+   * DOM text over the canvas, no font needed. Needs a `p5.WEBGL` canvas.
    *
    * @details
    * Visualise a PoseHelm's DOF profile and live activity as a control rig —
@@ -572,7 +707,9 @@ export function installHelm(p5, fn) {
    *
    * `identify: true` (in-scene) labels each arrow / ring with its input lane
    * index ('L0' …) — the fed channel that drives that DOF — for wiring up a new
-   * transport. Requires a font (textFont(...)); p5 draws no text without one.
+   * transport. The labels are DOM text on the host's label layer (`treeHost().labels`,
+   * class `helm-rig` for CSS), projected each frame at the arrow tips and ring
+   * rims; they live only while the rig draws.
    *
    * @function helmRig
    * @memberof p5
@@ -612,6 +749,31 @@ export function installHelm(p5, fn) {
    *   push()
    *   translate(obj.pos[0], obj.pos[1], obj.pos[2])   // position is ours, the rig owns the rotation
    *   helmRig(helm, { size: 80 })
+   *   pop()
+   * }
+   * @example
+   * <caption>identify: each arrow and ring names its input lane in DOM text; lanes 1 and 2 are the ones fed</caption>
+   * let helm
+   * const obj = { pos: [0, 0, 0], rot: [0, 0, 0, 1] }
+   * const lin = [0, 0, 0], ang = [0, 0, 0]
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+   *   helm = createPoseHelm({ from: p5.Tree.WORLD }).bind(obj)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   const t = millis() / 1000
+   *   lin[1] = 250 * sin(t * 0.9)   // lane 1: Tz
+   *   ang[2] = 250 * cos(t * 0.9)   // lane 2: Ry
+   *   helm.feed(lin, ang)
+   *   axes()
+   *   push()
+   *   translate(obj.pos[0], obj.pos[1], obj.pos[2])
+   *   helmRig(helm, { size: 80, identify: true })
    *   pop()
    * }
    * @example
