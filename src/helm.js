@@ -292,9 +292,9 @@ export function installHelm(p5, fn) {
    * Fly the camera from a 6-DOF device: feed it translation and rotation rates
    * each frame and the camera moves body-relative, a forward push flying
    * forward. Pass a camera to fly a second one, or opts for `deadzone` and a
-   * profile that maps device lanes to axes (see the probe example). Needs a
-   * WEBGL canvas and a rate source such as a SpaceMouse, a gamepad or a touch
-   * gesture.
+   * `profile` that maps device lanes to axes (see the probe example). Needs a
+   * `p5.WEBGL` canvas and a rate source such as a SpaceMouse, a gamepad or a
+   * touch gesture.
    *
    * @details
    * Create a CameraHelm: fly a p5.Camera from a live 6-DOF rate stream.
@@ -418,7 +418,7 @@ export function installHelm(p5, fn) {
    * rates each frame and the bound target's position and rotation follow.
    * Bind a plain pose, a camera or any pose sink, and choose with `from`
    * whether pushes are screen-relative, world-relative or body-relative (see
-   * the SELF example). Needs a WEBGL canvas and a rate source such as a
+   * the `SELF` example). Needs a `p5.WEBGL` canvas and a rate source such as a
    * SpaceMouse, a gamepad or a touch gesture.
    *
    * @details
@@ -549,7 +549,7 @@ export function installHelm(p5, fn) {
     registerPlayer(pInst, player);
 
     /**
-     * Choose what the helm drives: a plain pose object, a p5.Camera, a pose
+     * Choose what the helm drives: a plain pose object, a `p5.Camera`, a pose
      * sink or a get/set accessor. The target's current value seeds the helm so
      * there is no jump on the first frame (see the second camera example).
      * Chainable.
@@ -634,9 +634,9 @@ export function installHelm(p5, fn) {
   /**
    * Draw a control rig showing a helm's six degrees of freedom: translation
    * arrows and rotation rings, with the channel being driven lit up in the
-   * direction of the push. Give `x` and y for a corner HUD, or draw it in the
-   * scene at the driven object; add identify to label each input lane, which
-   * needs a loaded font (see the probe example). Needs a WEBGL canvas.
+   * direction of the push. Give `x` and `y` for a corner HUD, or draw it in the
+   * scene at the driven object; add `identify` to label each input lane, which
+   * needs a loaded font (see the probe example). Needs a `p5.WEBGL` canvas.
    *
    * @details
    * Visualise a PoseHelm's DOF profile and live activity as a control rig —
