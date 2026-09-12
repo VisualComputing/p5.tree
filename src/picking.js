@@ -1,8 +1,19 @@
 /**
- * @file Picking — GPU color-ID picking and CPU proximity tests.
+ * @file Finding what is under the pointer.
  * @module p5.tree/picking
  * @license AGPL-3.0-only
  *
+ * Two ways to ask which object sits under a canvas pixel. `colorPick()` and
+ * `mousePick()` draw the scene once more off-screen with every object filled
+ * by its `tag()` colour, then return the id found under that pixel — exact for
+ * any shape. `pointerHit()` and `mouseHit()` are cheaper: they test whether the
+ * pointer is within a zone around the current object's origin, with no extra
+ * drawing.
+ *
+ * Reach for the colour pick when shapes must be hit precisely, and for the hit
+ * tests when a hover zone per object is enough.
+ *
+ * @details
  * ### GPU color-ID picking
  *
  * Technique: render the scene into a 1×1 FBO with a pick-matrix projection
@@ -260,8 +271,8 @@ export function installPicking(p5, fn) {
 
   /**
    * Test whether the pointer is over the current model's origin, within a hit
-   * zone `size` wide in world units at that depth — a cheap proximity test with
-   * no GPU readback (see the hover example). With explicit `x`, `y` in the options
+   * zone `size` wide in world units at that depth — a cheap proximity test that
+   * needs no extra drawing (see the hover example). With explicit `x`, `y` in the options
    * the test is made in screen space and the size is in pixels (see the
    * sweeping-point example). Needs a `p5.WEBGL` canvas; call it inside `p5.push()`/`p5.pop()` for
    * each pickable object.
