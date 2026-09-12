@@ -311,9 +311,11 @@ export function installTrack(p5, fn) {
      * function draw() {
      *   background('#138D75')
      *   if (!track.handles.update()) orbitControl()
-     *   // keyframe 1 bobs under script control
-     *   track.keyframes[1].pos[1] = -60 + 30 * sin(frameCount * 0.05)
-     *   track.handles.sync()
+     *   // keyframe 1 bobs under script control between grabs
+     *   if (!track.handles.grabbed()) {
+     *     track.keyframes[1].pos[1] = -60 + 30 * sin(frameCount * 0.05)
+     *     track.handles.sync()
+     *   }
      *   axes()
      *   stroke('white')
      *   trackPath(track, { marker: null })
