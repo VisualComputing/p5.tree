@@ -188,6 +188,12 @@ export function installGizmos(p5, fn) {
   fn.axes = function (opts) { this._renderer.axes(opts); return this; };
 
   /**
+   * Draw a 3D coordinate frame — the X, Y and Z axes with their labels — at the
+   * current model origin. Choose the half-axes and labels with `bits`, the length
+   * with size, and per-axis colours or the ambient stroke with semantic (see the
+   * split-calls example). Needs a WEBGL canvas.
+   *
+   * @details
    * Draw a 3D coordinate frame at the current model origin.
    *
    * Colouring: `semantic: true` (default) — X red, Y lime, Z blue, labels
@@ -360,6 +366,12 @@ export function installGizmos(p5, fn) {
 
   /**
    * Draw a screen-space crosshair centred on the current model origin, or at
+   * explicit screen coordinates x, y. Set its extent with `size` — world units at
+   * the origin's depth, or pixels when screen coordinates are given (see both
+   * examples). Needs a WEBGL canvas.
+   *
+   * @details
+   * Draw a screen-space crosshair centred on the current model origin, or at
    * explicit screen coordinates. Drawn in HUD space at the ambient stroke.
    * Centred on the model origin, `size` is in world units at that depth
    * (the cross shrinks with distance); with `x`, `y` given, `size` is pixels.
@@ -437,6 +449,13 @@ export function installGizmos(p5, fn) {
   fn.bullsEye = function (opts) { this._renderer.bullsEye(opts); return this; };
 
   /**
+   * Draw a screen-space bulls-eye — a circle or a cornered square plus a central
+   * cross — centred on the current model origin, or at explicit screen
+   * coordinates x, y. Pick the outline with `shape` (CIRCLE or SQUARE) and its
+   * extent with size: world units at the origin's depth, or pixels when screen
+   * coordinates are given (see both examples). Needs a WEBGL canvas.
+   *
+   * @details
    * Draw a screen-space bulls-eye — a circle or a cornered square plus a
    * central cross — centred on the current model origin, or at explicit screen
    * coordinates. Drawn in HUD space at the ambient stroke. Centred on the model
@@ -547,6 +566,12 @@ export function installGizmos(p5, fn) {
   };
 
   /**
+   * Draw a quad from four 3D corner points, filled with the ambient fill or
+   * textured with `texture` — an image, a graphics buffer, or a framebuffer's
+   * colour attachment (see the three examples). Custom texture coordinates go in
+   * `uvs`. Needs a WEBGL canvas.
+   *
+   * @details
    * Draw a textured or untextured quad from four 3D corner points.
    *
    * Corners are consumed in the order given — counter-clockwise when
@@ -682,6 +707,14 @@ export function installGizmos(p5, fn) {
   fn.viewFrustum = function (opts) { this._renderer.viewFrustum(opts); return this; };
 
   /**
+   * Draw a second camera's frustum in the scene: its near and far planes, the
+   * body, and optionally the apex lines, selected with `bits`. The camera can be
+   * a p5.Camera, a CameraTrack that follows playback, or a plain pose spec (see
+   * the pose-specs example), and textures can be mapped on the near and far
+   * planes (see the textured example). Needs a WEBGL canvas and a second camera
+   * or pose.
+   *
+   * @details
    * Draw the view frustum of a secondary camera into this renderer.
    *
    * `camera` accepts three forms:
@@ -1012,6 +1045,11 @@ export function installGizmos(p5, fn) {
   };
 
   /**
+   * Draw one cubic Hermite curve segment between two endpoints with explicit
+   * tangents, as a polyline of `samples` segments at the ambient stroke. Needs a
+   * WEBGL canvas.
+   *
+   * @details
    * Draw one cubic Hermite segment between two endpoints with explicit tangents.
    *
    * ```js
@@ -1069,6 +1107,14 @@ export function installGizmos(p5, fn) {
   };
 
   /**
+   * Visualise a PoseTrack or CameraTrack in the scene: the sampled path, its
+   * control polygon, tangent arrows, a marker at each keyframe, and for camera
+   * tracks the gaze rays from eye to center. Select the layers with `bits`, the
+   * eye or center path with target, and the per-keyframe drawing with marker or
+   * your own callback (see the custom-marker and HANDLES examples). Needs a WEBGL
+   * canvas and a track.
+   *
+   * @details
    * Visualise a PoseTrack or CameraTrack: sampled path polyline, control
    * polygon, tangent arrows, per-keyframe marker, and (CameraTrack only)
    * gaze rays from each eye keyframe to its center.
