@@ -191,7 +191,11 @@ export function installMatrix(p5, fn) {
   //   out: Float32Array | ArrayLike | p5.Matrix — 16-element destination.
 
   /**
+   * The current projection matrix, copied into your buffer. Reads the live renderer, so it follows `perspective()` and `ortho()`; needs a WEBGL canvas.
+   *
+   * @details
    * Projection matrix (eye → clip) — reads live renderer state (perspective or ortho).
+   *
    * @function mat4Proj
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -238,6 +242,9 @@ export function installMatrix(p5, fn) {
   fn.mat4Proj = function (out) { return this._renderer.mat4Proj(out); };
 
   /**
+   * A second camera's own projection matrix, copied into your buffer. It follows whatever perspective, ortho or frustum call that camera received; needs a WEBGL canvas and a camera made with `createCamera()`.
+   *
+   * @details
    * Projection matrix (eye → clip) of a specific p5.Camera.
    *
    * Reads from the camera's own `projMatrix` field, populated when
@@ -281,9 +288,13 @@ export function installMatrix(p5, fn) {
   };
 
   /**
+   * Builds a perspective projection matrix from six frustum bounds, without touching the camera. Pair it with `mat4Eye` to draw or use a virtual camera, as the example does; the optional depth-range arguments default to the current renderer.
+   *
+   * @details
    * Perspective projection matrix (standalone constructor, general frustum).
    * Symmetric: `left = -right`, `bottom = -top` — derive from fov + aspect in
    * user space. `ndcZMin` defaults to the renderer's backend convention.
+   *
    * @function mat4Persp
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -328,8 +339,12 @@ export function installMatrix(p5, fn) {
   };
 
   /**
+   * Builds an orthographic projection matrix from six box bounds, without touching the camera. Pair it with `mat4Eye` for a virtual camera, as the example does; the optional depth-range arguments default to the current renderer.
+   *
+   * @details
    * Orthographic projection matrix (standalone constructor). `ndcZMin`
    * defaults to the renderer's backend convention.
+   *
    * @function mat4Ortho
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -372,7 +387,11 @@ export function installMatrix(p5, fn) {
   };
 
   /**
+   * The current transform stack as a matrix, copied into your buffer. Call it between push and pop to capture where translate, rotate and scale have put you; needs a WEBGL canvas.
+   *
+   * @details
    * Model matrix (local → world) — the current transform stack.
+   *
    * @function mat4Model
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -422,7 +441,11 @@ export function installMatrix(p5, fn) {
   fn.mat4Model = function (out) { return this._renderer.mat4Model(out); };
 
   /**
+   * A second camera's view matrix, copied into your buffer. Hand it to `mapLocation` to measure points as that camera sees them, as the example does; needs a WEBGL canvas and a second camera.
+   *
+   * @details
    * View matrix (world → eye) of a specific p5.Camera.
+   *
    * @function mat4View
    * @memberof p5.Camera
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -476,6 +499,9 @@ export function installMatrix(p5, fn) {
   };
   p5.Renderer3D.prototype.mat4View = function (out) { return this.states.curCamera.mat4View(out); };
   /**
+   * The current camera's view matrix, copied into your buffer. Pass nine numbers after the buffer (eye, center, up) to build a standalone lookat instead, without touching the camera; needs a WEBGL canvas.
+   *
+   * @details
    * View matrix (world → eye) — the current camera's, or a standalone lookat
    * built from nine scalars with no camera state involved.
    *
@@ -566,7 +592,11 @@ export function installMatrix(p5, fn) {
   };
 
   /**
+   * A second camera's placement in the world as a matrix, copied into your buffer. Apply it with `applyMatrix` to draw something at that camera, as the example does; needs a WEBGL canvas and a second camera.
+   *
+   * @details
    * Eye matrix (eye → world, the inverse view) of a specific p5.Camera.
+   *
    * @function mat4Eye
    * @memberof p5.Camera
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -605,6 +635,9 @@ export function installMatrix(p5, fn) {
   };
   p5.Renderer3D.prototype.mat4Eye = function (out) { return this.states.curCamera.mat4Eye(out); };
   /**
+   * The current camera's placement in the world as a matrix, copied into your buffer; its last column is the camera position. Pass nine numbers after the buffer (eye, center, up) to build a standalone lookat instead, without touching the camera; needs a WEBGL canvas.
+   *
+   * @details
    * Eye matrix (eye → world, the inverse view) — the current camera's, or a
    * standalone lookat built from nine scalars with no camera state involved.
    *
@@ -677,7 +710,11 @@ export function installMatrix(p5, fn) {
   //   opts may supply precomputed matrices to skip redundant multiplications.
 
   /**
+   * The projection and view matrices combined, copied into your buffer. Compute it once per frame and pass it as `mat4PV` to mapLocation to project many points cheaply, as the example does; needs a WEBGL canvas.
+   *
+   * @details
    * Projection-view matrix: P · V.
+   *
    * @function mat4PV
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -720,8 +757,12 @@ export function installMatrix(p5, fn) {
   fn.mat4PV = function (out, opts) { return this._renderer.mat4PV(out, opts); };
 
   /**
+   * The inverse of the combined projection and view matrices, copied into your buffer; returns null when it cannot be inverted. Pass a precomputed `mat4PV` in the options to skip that multiplication, then hand both to mapLocation for screen-to-world work, as the example does; needs a WEBGL canvas.
+   *
+   * @details
    * Inverse projection-view matrix: inv(P · V).
    * Pass mat4PV to skip recomputing P · V.
+   *
    * @function mat4PVInv
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -768,7 +809,11 @@ export function installMatrix(p5, fn) {
   fn.mat4PVInv = function (out, opts) { return this._renderer.mat4PVInv(out, opts); };
 
   /**
+   * The transform stack as seen from the current camera, copied into your buffer. Its last column gives the eye-space position of the local origin, which the example uses as a depth; needs a WEBGL canvas.
+   *
+   * @details
    * Model-view matrix: V · M.
+   *
    * @function mat4MV
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -818,7 +863,11 @@ export function installMatrix(p5, fn) {
   fn.mat4MV = function (out, opts) { return this._renderer.mat4MV(out, opts); };
 
   /**
+   * The full clip-space transform for what you are about to draw, copied into your buffer. Feed it to a custom vertex shader as a uniform, as the example does; needs a WEBGL canvas.
+   *
+   * @details
    * Projection-model-view matrix: P · V · M.
+   *
    * @function mat4PMV
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -871,8 +920,12 @@ export function installMatrix(p5, fn) {
   fn.mat4PMV = function (out, opts) { return this._renderer.mat4PMV(out, opts); };
 
   /**
+   * The 3×3 matrix that carries surface normals into eye space for lighting, copied into your buffer. Pass a precomputed `mat4MV` in the options to skip redundant work, and feed the result to a custom shader as the example does; needs a WEBGL canvas.
+   *
+   * @details
    * Normal matrix: inverseTranspose(upper 3×3 of V · M).
    * Pass mat4MV to skip recomputing V · M.
+   *
    * @function mat3Normal
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
@@ -934,7 +987,11 @@ export function installMatrix(p5, fn) {
   fn.mat3Normal = function (out, opts) { return this._renderer.mat3Normal(out, opts); };
 
   /**
+   * The matrix that takes points expressed in one frame into another frame's coordinates, copied into your buffer. Both frames are model matrices such as those captured with `mat4Model`; returns null when the target frame cannot be inverted.
+   *
+   * @details
    * Location transform between frames: out = inv(to) · from.
+   *
    * @function mat4Location
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -984,7 +1041,11 @@ export function installMatrix(p5, fn) {
   fn.mat4Location = function (out, from, to) { return this._renderer.mat4Location(out, from, to); };
 
   /**
+   * The 3×3 matrix that carries a direction expressed in one frame into another, ignoring translation, copied into your buffer. Both frames are model matrices such as those captured with `mat4Model`; returns null when the source frame cannot be inverted.
+   *
+   * @details
    * Direction transform between frames: out = to₃ · inv(from₃).
+   *
    * @function mat3Direction
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
@@ -1051,7 +1112,11 @@ export function installMatrix(p5, fn) {
   //   shadow mapping) without importing @nakednous/tree directly.
 
   /**
+   * Multiplies two matrices into your buffer. Applying the product places the second matrix's frame inside the first one's, as the example shows.
+   *
+   * @details
    * Matrix product: out = A · B (column-major).
+   *
    * @function mat4Mul
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -1102,7 +1167,11 @@ export function installMatrix(p5, fn) {
   fn.mat4Mul = function (out, A, B) { return this._renderer.mat4Mul(out, A, B); };
 
   /**
+   * Inverts a matrix into your buffer, or returns null when it cannot be inverted. Applying a transform and then its inverse lands you back where you started, as the example shows.
+   *
+   * @details
    * Matrix inverse: out = inv(src).
+   *
    * @function mat4Invert
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  16-element destination.
@@ -1147,7 +1216,11 @@ export function installMatrix(p5, fn) {
   //   out4: Float32Array | number[] only — quaternion is 4-component, no p5.Vector.
 
   /**
+   * Reads the position part of a matrix into a 3-element buffer or `p5.Vector`. Handy for finding where a nested transform stack ended up, as the example shows.
+   *
+   * @details
    * Extract the translation (column 3) of a mat4.
+   *
    * @function mat4ToTranslation
    * @memberof p5
    * @param {Float32Array|number[]|p5.Vector} out3  3-element destination.
@@ -1190,7 +1263,11 @@ export function installMatrix(p5, fn) {
   };
 
   /**
+   * Reads the scale part of a matrix into a 3-element buffer or `p5.Vector`. Works for transforms built from translate, rotate and scale, as in the example.
+   *
+   * @details
    * Extract the scale (column vector lengths) of a mat4. Assumes no shear.
+   *
    * @function mat4ToScale
    * @memberof p5
    * @param {Float32Array|number[]|p5.Vector} out3  3-element destination.
@@ -1236,7 +1313,11 @@ export function installMatrix(p5, fn) {
   };
 
   /**
+   * Reads the rotation part of a matrix into a 4-element quaternion buffer. Re-apply it with `rotateQuat` to give another object the same orientation, as the example does.
+   *
+   * @details
    * Extract the rotation of a mat4 as a unit quaternion [x,y,z,w]. Assumes no shear.
+   *
    * @function mat4ToRotation
    * @memberof p5
    * @param {Float32Array|number[]} out4  4-element destination.
@@ -1575,6 +1656,9 @@ export function installMatrix(p5, fn) {
   fn.mapLocation = function (...args) { return this._renderer.mapLocation(...args); };
 
   /**
+   * Converts a point from one coordinate space to another: world, screen, eye, NDC, the model transform stack, or any matrix frame. Pick the spaces with the `from` and `to` options (eye to world by default); pass an out buffer to avoid allocating, or omit it to get a fresh p5.Vector back. Needs a WEBGL canvas.
+   *
+   * @details
    * Map a point between coordinate spaces.
    *
    * Hot path (zero-alloc):  pass `opts.out` as a caller-owned buffer.
@@ -1711,6 +1795,9 @@ export function installMatrix(p5, fn) {
   fn.mapDirection = function (...args) { return this._renderer.mapDirection(...args); };
 
   /**
+   * Converts a direction from one coordinate space to another, ignoring translation. Pick the spaces with the `from` and `to` options (eye to world by default, so with no arguments it returns the camera's look direction); pass an out buffer to avoid allocating, or omit it to get a fresh p5.Vector back. Needs a WEBGL canvas.
+   *
+   * @details
    * Map a direction between coordinate spaces.
    *
    * Hot path (zero-alloc):  pass `opts.out` as a caller-owned buffer.
@@ -1807,7 +1894,11 @@ export function installMatrix(p5, fn) {
   // ── pixelRatio ────────────────────────────────────────────────────────────
 
   /**
-   * World-units-per-pixel at a world position (defaults to camera position).
+   * How many world units one screen pixel covers at a given world position, so you can draw things at a constant on-screen size, as the example does. The position is optional; needs a WEBGL canvas.
+   *
+   * @details
+   * World-units-per-pixel at a world position (the world origin when omitted).
+   *
    * @function pixelRatio
    * @memberof p5
    * @param {Float32Array|number[]|p5.Vector} [worldPos]
@@ -1856,8 +1947,12 @@ export function installMatrix(p5, fn) {
   // ── screenSize ────────────────────────────────────────────────────────────
 
   /**
+   * The canvas size in physical pixels, accounting for pixel density. Pass it to a shader as its resolution uniform, as the example does; needs a WEBGL canvas.
+   *
+   * @details
    * Physical canvas size in pixels: [pixelDensity×width, pixelDensity×height].
    * Use as `u_resolution` for shaders that use `gl_FragCoord.xy`.
+   *
    * @function screenSize
    * @memberof p5
    * @returns {number[]} [w, h]
@@ -1906,8 +2001,12 @@ export function installMatrix(p5, fn) {
   // ── texelSize ─────────────────────────────────────────────────────────────
 
   /**
+   * The size of one texel of an image, framebuffer or graphics, as a fraction of its width and height. Pass it to a shader to step between neighbouring pixels, as the example does.
+   *
+   * @details
    * Texel size of an image-like object: [1/width, 1/height].
    * Accepts p5.Image, p5.Framebuffer, p5.Graphics, or any `{ width, height }`.
+   *
    * @function texelSize
    * @memberof p5
    * @param {{ width:number, height:number }} img
