@@ -1498,8 +1498,8 @@ Latest:
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.53/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.53/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.53/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.53/dist/p5.tree.esm.js)
 
 ---
 
