@@ -1,8 +1,19 @@
 /**
- * @file Gizmos — scene-space diagnostic helpers.
+ * @file Drawing axes, grids, frustums and paths.
  * @module p5.tree/gizmos
  * @license AGPL-3.0-only
  *
+ * Helpers that draw the scaffolding of a 3D scene at the current drawing
+ * position: `axes()` and `grid()` for a coordinate frame and a ground plane;
+ * `cross()` and `bullsEye()` for screen-space markers that keep their size as
+ * the camera moves; `pane()` for a textured quad; `viewFrustum()` to show what
+ * another camera sees; `hermite()` for a single curve segment; and
+ * `trackPath()` to draw a `PoseTrack` or `CameraTrack` with its keyframes.
+ *
+ * Reach for them while building or debugging a scene, teaching camera
+ * geometry, or showing an animation path.
+ *
+ * @details
  * - {@link axes} — coordinate frame (X/Y/Z, optional labels), semantic colouring
  * - {@link grid} — ground plane
  * - {@link cross} — screen-space crosshair centred on the current model origin
@@ -709,7 +720,7 @@ export function installGizmos(p5, fn) {
   /**
    * Draw a second camera's frustum in the scene: its near and far planes, the
    * body, and optionally the apex lines, selected with `bits`. The camera can be
-   * a `p5.Camera`, a CameraTrack that follows playback, or a plain pose spec (see
+   * a `p5.Camera`, a `CameraTrack` that follows playback, or a plain pose spec (see
    * the pose-specs example), and textures can be mapped on the near and far
    * planes (see the textured example). Needs a `p5.WEBGL` canvas and a second camera
    * or pose.
@@ -1107,7 +1118,7 @@ export function installGizmos(p5, fn) {
   };
 
   /**
-   * Visualise a PoseTrack or CameraTrack in the scene: the sampled path, its
+   * Visualise a `PoseTrack` or `CameraTrack` in the scene: the sampled path, its
    * control polygon, tangent arrows, a marker at each keyframe, and for camera
    * tracks the gaze rays from eye to center. Select the layers with `bits`, the
    * eye or center path with `target`, and the per-keyframe drawing with `marker` or
