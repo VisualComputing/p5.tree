@@ -1,8 +1,20 @@
 /**
- * @file Matrix queries, space transforms, and frustum scalar queries.
+ * @file Reading the camera's matrices, and mapping points and directions between world, eye and screen.
  * @module p5.tree/matrix
  * @license AGPL-3.0-only
  *
+ * Read the current camera's matrices with `mat4Proj`, `mat4View`, `mat4Eye`
+ * and `mat4Model`, or their products `mat4PV`, `mat4MV` and `mat4PMV`; each is
+ * written into the buffer you pass. Reach for them when a custom shader needs
+ * a uniform, when you draw from a second `p5.Camera`, or when you want to know
+ * where `p5.translate`, `p5.rotate` and `p5.scale` have put you. `projNear`,
+ * `projFar` and `projFov` read the current projection's numbers directly.
+ *
+ * `mapLocation` and `mapDirection` carry a point or a direction between world,
+ * eye, screen and the model transform stack. `pixelRatio`, `screenSize` and
+ * `texelSize` answer the pixel-level questions that usually follow.
+ *
+ * @details
  * ### Two distinct contracts
  *
  * Matrix-fill methods (mat4Proj, mat4View, mat4PV, …):
@@ -191,7 +203,7 @@ export function installMatrix(p5, fn) {
   //   out: Float32Array | ArrayLike | p5.Matrix — 16-element destination.
 
   /**
-   * The current projection matrix, copied into your buffer. Reads the live renderer, so it follows `p5.perspective()` and `p5.ortho()`; needs a `p5.WEBGL` canvas.
+   * The current projection matrix, copied into your buffer. It follows the latest `p5.perspective()` or `p5.ortho()` call; needs a `p5.WEBGL` canvas.
    *
    * @details
    * Projection matrix (eye → clip) — reads live renderer state (perspective or ortho).
@@ -288,7 +300,7 @@ export function installMatrix(p5, fn) {
   };
 
   /**
-   * Builds a perspective projection matrix from six frustum bounds, without touching the camera. Pair it with `mat4Eye` to draw or use a virtual camera, as the example does; the optional depth-range arguments default to the current renderer.
+   * Builds a perspective projection matrix from six frustum bounds, without touching the camera. Pair it with `mat4Eye` to draw or use a virtual camera, as the example does; the optional depth-range arguments default to those of the current canvas.
    *
    * @details
    * Perspective projection matrix (standalone constructor, general frustum).
@@ -339,7 +351,7 @@ export function installMatrix(p5, fn) {
   };
 
   /**
-   * Builds an orthographic projection matrix from six box bounds, without touching the camera. Pair it with `mat4Eye` for a virtual camera, as the example does; the optional depth-range arguments default to the current renderer.
+   * Builds an orthographic projection matrix from six box bounds, without touching the camera. Pair it with `mat4Eye` for a virtual camera, as the example does; the optional depth-range arguments default to those of the current canvas.
    *
    * @details
    * Orthographic projection matrix (standalone constructor). `ndcZMin`
@@ -1656,7 +1668,7 @@ export function installMatrix(p5, fn) {
   fn.mapLocation = function (...args) { return this._renderer.mapLocation(...args); };
 
   /**
-   * Converts a point from one coordinate space to another: world, screen, eye, NDC, the model transform stack, or any matrix frame. Pick the spaces with the `from` and `to` options (eye to world by default); pass an `out` buffer to avoid allocating, or omit it to get a fresh `p5.Vector` back. Needs a `p5.WEBGL` canvas.
+   * Converts a point from one coordinate space to another: world, screen, eye, NDC, the model transform stack, or any matrix frame. Pick the spaces with the `from` and `to` options (eye to world by default); pass an `out` buffer to reuse it frame after frame, or omit it to get a fresh `p5.Vector` back. Needs a `p5.WEBGL` canvas.
    *
    * @details
    * Map a point between coordinate spaces.
@@ -1795,7 +1807,7 @@ export function installMatrix(p5, fn) {
   fn.mapDirection = function (...args) { return this._renderer.mapDirection(...args); };
 
   /**
-   * Converts a direction from one coordinate space to another, ignoring translation. Pick the spaces with the `from` and `to` options (eye to world by default, so with no arguments it returns the camera's look direction); pass an `out` buffer to avoid allocating, or omit it to get a fresh `p5.Vector` back. Needs a `p5.WEBGL` canvas.
+   * Converts a direction from one coordinate space to another, ignoring translation. Pick the spaces with the `from` and `to` options (eye to world by default, so with no arguments it returns the camera's look direction); pass an `out` buffer to reuse it frame after frame, or omit it to get a fresh `p5.Vector` back. Needs a `p5.WEBGL` canvas.
    *
    * @details
    * Map a direction between coordinate spaces.
