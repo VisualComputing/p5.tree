@@ -40,6 +40,7 @@ import {
   mat4ToScale,
   mat4ToRotation,
 } from '@nakednous/tree';
+import { createHost } from '@nakednous/host';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level working buffers — internal intermediates, never returned
@@ -73,6 +74,57 @@ export function detectNDC(renderer) {
 }
 
 export const getNdcZ = () => _ndcZ;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The host — one per p5 instance, external-tick mode on the sketch canvas
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Created on first need (a handle or a track built inside setup() asks for
+// it) rather than at postsetup, with ndcZMin read off the renderer once.
+// predraw fills its view bag from renderer state and ticks its players;
+// postdraw flushes its pointer source; remove disposes it.
+
+const _canvasOf = (r) => (r && (r.canvas || (r.drawingContext && r.drawingContext.canvas))) || null;
+
+// The p5 instance's host, created on the sketch canvas if absent. Null
+// before createCanvas().
+export function ensureHost(pInst) {
+  const t = (pInst._tree ||= {});
+  if (t.host) return t.host;
+  const canvas = _canvasOf(pInst._renderer);
+  if (!canvas) return null;
+  detectNDC(pInst._renderer);
+  t.host = createHost(canvas, { ndcZMin: _ndcZ });
+  return t.host;
+}
+
+// The p5 instance's host, or null.
+export const hostOf = (pInst) => (pInst && pInst._tree && pInst._tree.host) || null;
+
+// predraw: the host's view bag from the renderer's projection and camera,
+// its viewport from the sketch's logical size. Returns the host.
+export function syncHostView(pInst) {
+  const h = ensureHost(pInst);
+  if (!h) return null;
+  const r = pInst._renderer;
+  h.view.resize(pInst.width, pInst.height);
+  h.view.set(_projMat4(r), _viewMat4(r));
+  return h;
+}
+
+// postdraw: end the pointer source's frame.
+export function flushHostPointer(pInst) {
+  const h = hostOf(pInst);
+  if (h) h.pointer.flush();
+}
+
+// remove: dispose the host and forget it.
+export function disposeHost(pInst) {
+  const h = hostOf(pInst);
+  if (!h) return;
+  h.dispose();
+  delete pInst._tree.host;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Raw p5 state access — direct Float32Array refs, no copies
