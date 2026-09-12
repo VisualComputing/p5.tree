@@ -52,8 +52,8 @@
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "comment-parser": "^1.4.8",
-    "marked": "^18.0.11",
-    "rollup": "^4.63.1"
+    "comment-parser": "^1.4.9",
+    "marked": "^18.0.12",
+    "rollup": "^4.63.2"
   }
 }
