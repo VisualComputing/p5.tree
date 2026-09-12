@@ -1,8 +1,17 @@
 /**
- * @file HUD (Heads-Up Display) — 2D screen-space overlay mode.
+ * @file Drawing in screen space over the scene.
  * @module p5.tree/hud
  * @license AGPL-3.0-only
  *
+ * Draw 2D overlays — text, cursors, gauges — on top of a WEBGL scene using
+ * plain pixel coordinates. Call `beginHUD()`, draw as in 2D mode with the
+ * origin at the top-left corner of the canvas, then call `endHUD()` to return
+ * to 3D.
+ *
+ * Reach for it whenever a readout or a marker should sit at a fixed spot on
+ * the canvas, whatever the camera does.
+ *
+ * @details
  * Coordinates: (x, y) ∈ [0, width] × [0, height], origin top-left,
  * y increasing downward.
  *
