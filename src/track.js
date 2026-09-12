@@ -6,7 +6,7 @@
  * ### What lives here
  *
  *  ```
- *  Player registry
+ *  Players — the host's registry (host.players), reached through
  *    registerPlayer / unregisterPlayer / tickPlayers / clearPlayers
  *
  *  fn.getCamera          Return the current p5 camera (curCamera).
@@ -44,7 +44,7 @@ import {
   PoseTrack, CameraTrack, qFromAxisAngle,
   createCamera, cameraFromMat4, cameraFromPose,
 } from '@nakednous/tree';
-import { getNdcZ } from './matrix.js';
+import { getNdcZ, ensureHost, hostOf } from './matrix.js';
 
 // Camera-state scratch for the p5.Camera seams: applyPose's TRS branch
 // decomposes into _cam, capturePose reads the eye matrix through _E. Both
@@ -54,41 +54,36 @@ const _cam = createCamera();
 const _E   = new Float32Array(16);
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Player registry
+// Players — the host's registry
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const PATH_PLAYERS = new WeakMap();
+// Frame dt in seconds, clamped to 50 ms so a stalled tab cannot teleport a
+// player on the catch-up frame.
+const _dtOf = (pInst) => Math.min((pInst.deltaTime || 16) / 1000, 0.05);
 
-function _getPlayers(pInst) {
-  let p = PATH_PLAYERS.get(pInst);
-  if (!p) { p = new Set(); PATH_PLAYERS.set(pInst, p); }
-  return p;
-}
-
-// Register a player with a p5 instance.
-// `player.tick()` is called each predraw; removed when it returns false.
+// Register a player with the p5 instance's host: `player.tick(dt)` runs each
+// predraw and the player is removed when it returns false.
 export function registerPlayer(pInst, player) {
-  if (pInst && player) _getPlayers(pInst).add(player);
+  const h = pInst && player ? ensureHost(pInst) : null;
+  if (h) h.players.add(player);
 }
 
-// Unregister a player from a p5 instance.
+// Unregister a player.
 export function unregisterPlayer(pInst, player) {
-  if (pInst && player) _getPlayers(pInst).delete(player);
+  const h = hostOf(pInst);
+  if (h && player) h.players.remove(player);
 }
 
-// Tick all registered players. Called from the predraw lifecycle.
+// Tick the host's players with the frame's dt. Called from the predraw lifecycle.
 export function tickPlayers(pInst) {
-  const players = PATH_PLAYERS.get(pInst);
-  if (!players) return;
-  for (const p of [...players]) {
-    if (!p.tick()) players.delete(p);
-  }
+  const h = hostOf(pInst);
+  if (h) h.tick(_dtOf(pInst));
 }
 
 // Remove all players. Called from the remove lifecycle.
 export function clearPlayers(pInst) {
-  const players = PATH_PLAYERS.get(pInst);
-  if (players) players.clear();
+  const h = hostOf(pInst);
+  if (h) h.players.clear();
 }
 
 // ── Shared player wiring for PoseTrack ───────────────────────────────────────
