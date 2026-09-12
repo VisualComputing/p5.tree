@@ -110,6 +110,12 @@ export function installPicking(p5, fn) {
   // ── colorPick ─────────────────────────────────────────────────────────────
 
   /**
+   * Pick the object under a canvas pixel: `drawFn` renders the scene off-screen
+   * with each object filled by its tag colour, and the id found at that pixel is
+   * returned — 0 when nothing is there (see the example). Needs a WEBGL canvas;
+   * lights, strokes and shaders are switched off for the pick pass.
+   *
+   * @details
    * Render `drawFn` into a cached 1×1 framebuffer aligned to pixel (px, py),
    * then read back and decode the integer id under that pixel.
    *
@@ -253,6 +259,14 @@ export function installPicking(p5, fn) {
   fn.pointerHit = function (...args) { return this._renderer.pointerHit(...args); };
 
   /**
+   * Test whether the pointer is over the current model's origin, within a hit
+   * zone `size` wide in world units at that depth — a cheap proximity test with
+   * no GPU readback (see the hover example). With explicit x, y in the options
+   * the test is made in screen space and the size is in pixels (see the
+   * sweeping-point example). Needs a WEBGL canvas; call it inside push/pop for
+   * each pickable object.
+   *
+   * @details
    * Test whether a pointer position falls within a radius of the current
    * model's screen-space origin. CPU — zero GPU round-trip.
    * Call inside `push()`/`pop()` for each pickable object. `size` is the hit
