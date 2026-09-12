@@ -16,20 +16,20 @@
  * input channel moves which axis when wiring up a new device.
  *
  * @details
- * Wraps the renderer-agnostic `PoseHelm` (`@nakednous/tree/helm`) with the
- * p5-specific wiring a live rate-driven controller needs: the draw-loop player
- * that integrates each frame, the basis resolution against a p5 camera (a pose
- * helm's `from`, or a camera helm's body-fly frame), the seed that aligns the
- * integrated pose with a live camera, and a diagnostic gizmo. Constructed like
- * a track (`createCameraHelm` / `createPoseHelm` → stateful controller); the
- * gizmo (`helmRig`) is consumed like every other gizmo.
+ * The host's helm factories (`@nakednous/host`) do the work: a core
+ * `PoseHelm` stepped by the host's players each predraw, the body-fly basis
+ * of a camera helm (the driven state's own eye matrix) and a pose helm's
+ * `from` (WORLD | EYE, the host's view bag | SELF | a mat4), the bind shapes
+ * for a camera state, an `{ applyPose }` sink, an accessor and a `{ pos,
+ * rot }` object. What p5.tree adds: the `p5.Camera` on either side — a camera
+ * helm flies a camera state captured from the p5 camera and writes its
+ * lookat back each tick; a pose helm's `bind(p5.Camera)` is an accessor over
+ * `capturePose` / `applyPose` — and the `helmRig` gizmo.
  *
  * ### Family placement
  * `PoseHelm : CameraHelm :: PoseTrack : CameraTrack` — ONE core class, TWO
- * bridge factories. As with the track factories, neither factory is a wrapper
- * class: each builds a core `PoseHelm`, registers a draw-loop player (the same
- * registry `createCameraTrack` uses — players tick in predraw, torn down by the
- * remove lifecycle), and attaches the bridge-only `bind` / `dispose` seams.
+ * factories. Neither is a wrapper class: each returns the core `PoseHelm`
+ * with `dispose()` (and `bind()` on the pose helm) attached.
  *
  *    ```
  *   createCameraHelm([cam][, opts])  fly `cam` from the stream (body-relative).
@@ -37,83 +37,47 @@
  *                                     (screen-relative manipulation).
  *    ```
  *
- * ### Layering
- * The numeric core integrates a rate into a `{ pos, rot }` pose in ONE frame
- * and never learns about a camera. This bridge supplies the per-step `basis`
- * (an eye→world mat4): a camera helm's own driven-camera frame (body-fly), or a
- * pose helm's resolved `from` (WORLD | EYE | SELF | mat4). It then feeds the
- * pose to a target via `applyPose`. Nothing here re-implements the integration,
- * the quaternion algebra, or matrix math — it only moves numbers across the
- * boundary.
- *
- * ### `from` → basis resolution (the one camera-aware step)
- * The two factories resolve the integration basis differently — and that IS the
- * difference between the two manipulation conventions:
+ * ### `from` → basis (the one camera-aware step)
  *
  *    ```
- *   createCameraHelm — ALWAYS body-fly, no `from`. The basis is the DRIVEN
- *                      camera's own eye matrix, which equals the pose this helm
- *                      wrote last frame (zero staleness; the lookAt round-trip
- *                      is exact for proper rotations), so a forward push flies
- *                      forward. A camera *is* the frame it flies in.
- *   createPoseHelm   — has `from` (the pose-helm frame). The bridge resolves it
- *                      into the `basis` the core's `step` consumes:
- *
- *                        WORLD   → null             the identity basis.
- *                        EYE     → cam.mat4Eye(_em) the VIEWING camera
- *                                                   (`getCamera()`, re-read each
- *                                                   frame) ⇒ screen-relative.
- *                        SELF    → qToMat4(_em,rot) the helm's OWN current pose
- *                                                   rotation ⇒ body-relative
- *                                                   (the object analogue of
- *                                                   camera body-fly).
- *                        <mat4>  → _rawMat4(from)   an explicit fixed frame
- *                                                   (p5.Matrix | Float32Array).
- *
- *                      `from` is mapDirection's convention, narrowed to frames
- *                      with a rotation basis (SCREEN / NDC / MODEL rejected) and
- *                      never a p5.Camera value — a specific camera enters as
- *                      `cam.mat4Eye(buf)`.
+ *   createCameraHelm — ALWAYS body-fly, no `from`: the basis is the driven
+ *                      camera's own eye matrix, which equals the pose the helm
+ *                      wrote last frame (zero staleness), so a forward push
+ *                      flies forward. A camera *is* the frame it flies in.
+ *   createPoseHelm   — `from` names the frame the rates are read in:
+ *                        WORLD   → the identity basis.
+ *                        EYE     → the VIEWING camera, from the host's view bag
+ *                                  as filled each predraw ⇒ screen-relative.
+ *                        SELF    → the helm's own current rotation ⇒ body-relative
+ *                                  (the object analogue of camera body-fly).
+ *                        <mat4>  → an explicit fixed frame (p5.Matrix | Float32Array).
  *    ```
  *
  * ### Seeding
  * Driving a live camera (or binding one as a target) seeds the integrated pose
- * from the camera's current lookAt so frame 0 doesn't jump: `pos ← eye`,
- * `rot ← qFromLookDir(center − eye, up)`. With EYE, the seeded `rot` then equals
- * the camera's own eye-matrix rotation, which is exactly the body-relative
- * invariant the zero-staleness argument needs.
+ * from the camera's current lookat so frame 0 doesn't jump: `pos ← eye`,
+ * `rot ← qFromLookDir(center − eye, up)` — the core's `cameraToPose`.
  */
 
 'use strict';
 
-import { PoseHelm, qFromLookDir, qToMat4, qFromMat4 } from '@nakednous/tree';
-import { registerPlayer, unregisterPlayer } from './track.js';
+import { PoseHelm, createCamera, cameraToPose, qFromMat4 } from '@nakednous/tree';
+import { helmBasis } from '@nakednous/host';
+import { ensureHost, syncHostView } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level scratch — synchronous, single-threaded, never returned
 // ═══════════════════════════════════════════════════════════════════════════
-//
-// A player's tick() and a gizmo draw run to completion within one frame with no
-// reentrancy across helms, so shared scratch is safe — the same discipline as
-// gizmos.js (_sl/_wl) and handle.js (_pW/_aW).
 
-const _pose  = { pos: [0, 0, 0], rot: [0, 0, 0, 1] };  // step() output → applyPose() input
-const _em    = new Float32Array(16);                   // resolved eye→world basis
-const _cp    = {                                       // capturePose() scratch (camera seed)
-  eye: [0, 0, 0], center: [0, 0, 0], up: [0, 1, 0],
-  fov: null, halfHeight: null, near: 0.1, far: 1000,
-};
-const _qhome = [0, 0, 0, 1];                            // seed orientation
-const _fwd   = [0, 0, 0];                               // center − eye (look direction)
+const _pose  = { pos: [0, 0, 0], rot: [0, 0, 0, 1] };  // a p5.Camera's pose, for the bind accessor
+const _cp    = createCamera();                          // capturePose() scratch
+const _em    = new Float32Array(16);                    // resolved basis (rig orient)
 const _act   = [0, 0, 0, 0, 0, 0];                      // helm.activity() readout (gizmo)
-const _self  = { pos: [0, 0, 0], rot: [0, 0, 0, 1] };  // helm.eval() readout (SELF basis / rig)
 const _rigQ  = [0, 0, 0, 1];                            // resolved-`from` rotation (rig orient)
 
 // Semantic per-axis colours — X / Y / Z, matching gizmos.js _AXIS_COLORS
 // (Red / Lime / DodgerBlue). RGB triples so the idle state can dim via alpha.
 const _HELM_RGB = [[255, 0, 0], [0, 255, 0], [30, 144, 255]];
-
-const _rawMat4 = (m) => (m != null && m.mat4 != null) ? m.mat4 : m;
 
 // HUD-rig viewing angle. The FBO overload frames the rig through its own ortho
 // camera; `tilt` is that camera's elevation above the rig's horizontal, with the
@@ -132,55 +96,18 @@ function _rigAzEl(p, tilt) {
   return [_AZ_ISO, rad(tilt)];
 }
 
-// ── Helpers (camera-aware, but core-agnostic) ───────────────────────────────
-
-// Apply the opts a factory accepts onto a fresh helm. Profile / deadzone are
-// public, mutable fields — opts is sugar for setting them at construction.
-// `from` is NOT here: it is pose-helm-only, applied by createPoseHelm (a camera
-// helm is always body-fly).
-function _applyOpts(helm, opts) {
-  if (!opts) return;
-  if (opts.profile)         helm.profile  = opts.profile;
-  if (opts.deadzone != null) helm.deadzone = opts.deadzone;
+// The sketch's host, or null (with a diagnostic) before createCanvas().
+function _hostOrWarn(pInst, who) {
+  const host = ensureHost(pInst);
+  if (!host) console.error('[p5.tree] ' + who + ': no canvas yet — call after createCanvas().');
+  return host;
 }
 
-// Resolve a pose helm's `from` → the eye→world basis step() consumes. `from` is
-// mapDirection's convention, narrowed to frames with a rotation basis: EYE (the
-// viewing camera), WORLD (the identity basis), SELF (the helm's OWN current pose
-// rotation — body-relative, the object analogue of camera body-fly), or an
-// explicit mat4. SELF reads helm.eval().rot each call and rebuilds it as a
-// rotation matrix — equivalent to a per-frame pose mat4. SCREEN / NDC
-// (projective) and MODEL (the live model matrix, not the helm's frame) carry no
-// such basis and fall back to WORLD with a diagnostic. Returns null (identity)
-// for WORLD, an absent viewing camera, or a singular eye matrix.
-//
-// A camera helm never calls this — it is always body-fly, integrating in the
-// driven camera's own eye matrix.
-function _resolveFrom(helm, viewCam, em) {
-  const from = helm.from;
-  if (from != null && typeof from !== 'string') return _rawMat4(from);   // explicit frame
-  if (from === 'EYE')  return viewCam ? viewCam.mat4Eye(em) : null;       // viewing camera
-  if (from === 'SELF') return qToMat4(em, helm.eval(_self).rot);          // the helm's own pose
-  if (from === 'WORLD' || from == null) return null;                     // identity basis
-  console.error('[p5.tree] createPoseHelm: `from` must be EYE, WORLD, SELF, or a mat4 frame — the mapDirection convention, minus the projective spaces (SCREEN / NDC) and MODEL, which carry no rotation basis. Falling back to WORLD.');
-  return null;                                                           // unknown space
+// Release the rig framebuffer a helmRig HUD overload cached on the helm.
+function _releaseRig(helm) {
+  if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') helm._rigFbo.remove();
+  helm._rigFbo = null;
 }
-
-// Seed the helm's integrated pose from a live camera's lookAt, so frame 0 is
-// continuous with the camera and (under EYE) the seeded rot equals the camera's
-// eye-matrix rotation. Reads through capturePose for the real up hint.
-function _seedHelmFromCamera(helm, cam) {
-  cam.capturePose(_cp);
-  _fwd[0] = _cp.center[0] - _cp.eye[0];
-  _fwd[1] = _cp.center[1] - _cp.eye[1];
-  _fwd[2] = _cp.center[2] - _cp.eye[2];
-  qFromLookDir(_qhome, _fwd, _cp.up);
-  helm.home({ pos: _cp.eye, rot: _qhome });
-}
-
-// Frame dt in seconds, clamped to 50 ms so a stalled tab can't teleport the
-// pose on the catch-up frame (matches the e7 reference integrator).
-const _dtOf = (pInst) => Math.min((pInst.deltaTime || 16) / 1000, 0.05);
 
 // ── Gizmo draw primitives (local-array style, parity with gizmos.js) ────────
 
@@ -244,9 +171,8 @@ function _drawRig(p, helm, size, doT, doR, identify) {
   const head   = size * 0.08;
   const ringR0 = size * 0.5;
   const TREF   = 0.30, RREF = 0.0025;
-  const ACT_FULL = helm.fullScale;   // full-deflection scale, read off the helm — honest
-                                     // across input scales (no hard-coded 500, no HELM_FULL)
-  const ARC_FULL = Math.PI;    // a full push sweeps half the ring
+  const ACT_FULL = helm.fullScale;   // full-deflection scale, read off the helm
+  const ARC_FULL = Math.PI;          // a full push sweeps half the ring
 
   if (doT) {
     const T = [prof.Tx, prof.Ty, prof.Tz];
@@ -313,12 +239,13 @@ export function installHelm(p5, fn) {
    * Create a CameraHelm: fly a p5.Camera from a live 6-DOF rate stream.
    *
    * Returns a stateful controller (like `createCameraTrack`), not a draw call.
-   * The bound camera is seeded from its current lookAt (frame 0 is continuous)
-   * and re-driven every frame from the latest `feed()`. The stream is always
-   * body-relative — a forward push flies forward — because the helm integrates
-   * in the driven camera's own (zero-staleness) eye matrix. There is no `from`:
-   * a camera helm *is* the frame it flies in. (For screen- or world-relative
-   * camera motion, bind the camera to a `createPoseHelm` instead.)
+   * The camera is captured into a camera state the host's helm flies; the
+   * state's lookat is written back to the p5.Camera every predraw (the lens
+   * is untouched). Seeded from the camera's current lookat (frame 0 is
+   * continuous) and re-driven every frame from the latest `feed()`. The
+   * stream is always body-relative — a forward push flies forward. There is
+   * no `from`: a camera helm *is* the frame it flies in. (For screen- or
+   * world-relative camera motion, bind the camera to a `createPoseHelm`.)
    *
    * ```js
    * let helm
@@ -342,7 +269,8 @@ export function installHelm(p5, fn) {
    * ```
    *
    * The returned helm exposes the core surface (`feed`, `profile`, `deadzone`,
-   * `home`, `eval`, `activity`) plus `dispose()` to unregister.
+   * `home`, `eval`, `activity`) plus `dispose()` to unregister. Null before
+   * `createCanvas()`.
    *
    * @function createCameraHelm
    * @memberof p5
@@ -385,42 +313,21 @@ export function installHelm(p5, fn) {
    * }
    */
   fn.createCameraHelm = function (cam, opts) {
-    const pInst = this;
     // Arg juggle: createCameraHelm(opts) / createCameraHelm() — first arg is the
     // opts object (or absent) when it isn't a camera.
     if (cam && !(cam instanceof p5.Camera)) { opts = cam; cam = null; }
     cam = cam ?? this.getCamera() ?? null;
-    if (!cam) {
-      console.error('[p5.tree] createCameraHelm: no camera available — call after createCanvas() or pass a p5.Camera.');
-    }
+    const host = _hostOrWarn(this, 'createCameraHelm');
+    if (!host || !cam) return null;
 
-    if (opts && opts.from != null) {
-      console.error('[p5.tree] createCameraHelm: a camera helm is always body-fly and has no `from` — it integrates in the frame of the driven camera. Ignoring `from`; bind the camera to a createPoseHelm for screen- or world-relative motion.');
-    }
-
-    const helm = new PoseHelm();
-    _applyOpts(helm, opts);
-    if (cam) _seedHelmFromCamera(helm, cam);
-
-    // Continuous player — integrates and re-drives the camera every predraw.
-    // Body-fly: the basis is the driven camera's own eye matrix (which equals
-    // the pose written last frame ⇒ zero staleness), so a body delta composes
-    // body-relative. Always returns true (a helm has no playing/stopped state);
-    // torn down by dispose() or the remove lifecycle (clearPlayers).
-    const player = {
-      tick() {
-        helm.step(_pose, _dtOf(pInst), cam ? cam.mat4Eye(_em) : null);
-        if (cam) cam.applyPose(_pose);   // { pos, rot } → lookAt at constant gaze distance
-        return true;
-      },
-    };
-    registerPlayer(pInst, player);
-
-    helm.dispose = function () {
-      unregisterPlayer(pInst, player);
-      if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') { helm._rigFbo.remove(); helm._rigFbo = null; }
-      return helm;
-    };
+    // The camera state the host flies, captured from the p5 camera once; its
+    // lookat lands back on the camera after every step.
+    const state = cam.capturePose(createCamera());
+    const helm = host.cameraHelm(state, opts);
+    helm._onApply = (s) => cam.camera(
+      s.eye[0], s.eye[1], s.eye[2], s.center[0], s.center[1], s.center[2], s.up[0], s.up[1], s.up[2]);
+    const hostDispose = helm.dispose;
+    helm.dispose = () => { hostDispose(); _releaseRig(helm); return helm; };
     return helm;
   };
 
@@ -474,6 +381,7 @@ export function installHelm(p5, fn) {
    * The returned helm exposes the core surface (`feed`, `profile`, `deadzone`,
    * `from`, `home`, `eval`, `activity`) plus `bind(target)` and `dispose()`.
    * `opts.bind` binds immediately. Chainable: `createPoseHelm().bind(obj)`.
+   * Null before `createCanvas()`.
    *
    * @function createPoseHelm
    * @memberof p5
@@ -540,26 +448,11 @@ export function installHelm(p5, fn) {
    * }
    */
   fn.createPoseHelm = function (opts) {
-    const pInst = this;
-    const helm  = new PoseHelm();
-    _applyOpts(helm, opts);
-    if (opts && opts.from != null) helm.from = opts.from;   // pose-helm frame (EYE | WORLD | SELF | mat4)
-
-    let sink = null;   // (pose) => void — set by bind()
-
-    // Continuous player — idles until bound, then integrates in the resolved
-    // `from` frame (EYE re-reads the VIEWING camera each frame; SELF re-reads
-    // the helm's own pose) and pushes the pose to the sink.
-    const player = {
-      tick() {
-        if (sink) {
-          helm.step(_pose, _dtOf(pInst), _resolveFrom(helm, pInst.getCamera(), _em));
-          sink(_pose);
-        }
-        return true;
-      },
-    };
-    registerPlayer(pInst, player);
+    const host = _hostOrWarn(this, 'createPoseHelm');
+    if (!host) return null;
+    const { bind, ...rest } = opts || {};
+    const helm = host.poseHelm(rest);
+    const hostBind = helm.bind;
 
     /**
      * Choose what the helm drives: a plain pose object, a `p5.Camera`, an
@@ -569,11 +462,11 @@ export function installHelm(p5, fn) {
      * Chainable.
      *
      * @details
-     * Bind a target the helm drives while running. Polymorphic; see the factory
-     * docs for the four accepted shapes. Seeds the integrated pose from the
-     * target's current value where one is readable (camera / accessor / plain
-     * pose) so there's no frame-0 jump. An unrecognised target logs and leaves
-     * the helm unbound (the player keeps idling). Chainable.
+     * A p5.Camera binds as an accessor: get() is the camera's lookat as a pose
+     * (`capturePose` then `cameraToPose`), set(pose) is `applyPose`'s TRS
+     * branch, which keeps the camera's gaze distance. Every other shape is
+     * the host's. An unrecognised target logs and leaves the helm unbound (the
+     * player keeps idling). Chainable.
      *
      * @function bind
      * @memberof PoseHelm
@@ -611,33 +504,18 @@ export function installHelm(p5, fn) {
      */
     helm.bind = function (target) {
       if (target instanceof p5.Camera) {
-        _seedHelmFromCamera(helm, target);
-        sink = (pose) => target.applyPose(pose);
-      } else if (target && typeof target.get === 'function' && typeof target.set === 'function') {
-        helm.home(target.get());
-        sink = (pose) => target.set(pose);
-      } else if (target && typeof target.applyPose === 'function') {
-        sink = (pose) => target.applyPose(pose);   // pose-only sink — nothing to seed from
-      } else if (target && target.pos && target.rot) {
-        helm.home(target);
-        sink = (pose) => {
-          target.pos[0] = pose.pos[0]; target.pos[1] = pose.pos[1]; target.pos[2] = pose.pos[2];
-          target.rot[0] = pose.rot[0]; target.rot[1] = pose.rot[1];
-          target.rot[2] = pose.rot[2]; target.rot[3] = pose.rot[3];
-        };
-      } else {
-        console.error('[p5.tree] createPoseHelm: bind() target must be a p5.Camera, an { applyPose } sink, a { get, set } accessor, or a { pos, rot } object. Leaving unbound.');
+        return hostBind({
+          get: () => cameraToPose(_pose, target.capturePose(_cp)),
+          set: (pose) => target.applyPose(pose),
+        });
       }
-      return helm;
+      return hostBind(target);
     };
 
-    helm.dispose = function () {
-      unregisterPlayer(pInst, player);
-      if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') { helm._rigFbo.remove(); helm._rigFbo = null; }
-      return helm;
-    };
+    const hostDispose = helm.dispose;
+    helm.dispose = () => { hostDispose(); _releaseRig(helm); return helm; };
 
-    if (opts && opts.bind != null) helm.bind(opts.bind);
+    if (bind != null) helm.bind(bind);
     return helm;
   };
 
@@ -782,7 +660,7 @@ export function installHelm(p5, fn) {
       const [_az, _el] = _rigAzEl(p, opts.tilt);
       const tiltKey = `${_az.toFixed(5)}:${_el.toFixed(5)}`;
       if (helm._rigFbo == null || helm._rigFboSize !== size) {
-        if (helm._rigFbo && typeof helm._rigFbo.remove === 'function') helm._rigFbo.remove();
+        _releaseRig(helm);
         helm._rigFbo     = p.createFramebuffer({ width: size, height: size });
         helm._rigFboSize = size;
         helm._rigFbo.begin();
@@ -832,9 +710,10 @@ export function installHelm(p5, fn) {
     }
 
     // In-scene rig — oriented to the resolved `from` so the arrows point where
-    // pushes go (WORLD → world axes; EYE → the viewing camera; SELF → the helm's
-    // own pose). Position is the caller's (translate before); the rig owns the
-    // rotation, so the object is NOT applyPose'd before it.
+    // pushes go (WORLD → world axes; EYE → the viewing camera, read from the
+    // view bag refreshed here, after the orbit; SELF → the helm's own pose).
+    // Position is the caller's (translate before); the rig owns the rotation,
+    // so the object is NOT applyPose'd before it.
     const {
       size     = 100,
       bits     = p5.Tree.TRANSLATE | p5.Tree.ROTATE,
@@ -844,7 +723,8 @@ export function installHelm(p5, fn) {
     const doR = (bits & p5.Tree.ROTATE)    !== 0;
 
     p.push();
-    const basis = _resolveFrom(helm, p.getCamera(), _em);   // null for WORLD
+    const host  = syncHostView(p);
+    const basis = helmBasis(helm, host ? host.view : null, _em);   // null for WORLD
     if (basis) { qFromMat4(_rigQ, basis); this.rotateQuat(_rigQ); }
     _drawRig(p, helm, size, doT, doR, identify);
     p.pop();
