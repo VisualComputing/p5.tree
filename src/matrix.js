@@ -130,6 +130,17 @@ export function flushHostPointer(pInst) {
   if (h) h.pointer.flush();
 }
 
+// postdraw: project the label layer through the camera the frame was drawn
+// with — the bag is re-read from the renderer, since draw() may have moved
+// the camera after predraw's sync. Nothing happens for a sketch that never
+// asked for labels.
+export function tickHostLabels(pInst) {
+  const h = hostOf(pInst);
+  if (!h || !h.hasLabels) return;
+  syncHostView(pInst);
+  h.labels.tick();
+}
+
 // remove: dispose the host and forget it.
 export function disposeHost(pInst) {
   const h = hostOf(pInst);
@@ -190,6 +201,51 @@ export function installMatrix(p5, fn) {
   // point/direction types. Plain opts objects do not match.
   const _isVec = (v) => v != null &&
     (Array.isArray(v) || ArrayBuffer.isView(v) || v instanceof p5.Vector);
+
+  // ── fn.treeHost ────────────────────────────────────────────────────────────
+
+  /**
+   * The sketch's host context — the `@nakednous/host` object behind every
+   * handle, track, helm and stream p5.tree creates, one per canvas. Reach for
+   * it when you want a host construct p5.tree has no verb for: `labels`, the
+   * DOM text layer over the canvas, or `orbit`, the camera gesture that
+   * replaces `orbitControl` on a camera state. Null before `createCanvas()`.
+   *
+   * @details
+   * The host is created on first need and ticked by p5.tree's lifecycle:
+   * predraw ticks its players and fills its view bag from the renderer,
+   * postdraw re-syncs the bag and ticks the label layer if one exists, then
+   * flushes the pointer source; `remove()` disposes it. A construct made
+   * here registers with it, so it is released with the sketch.
+   *
+   * @function treeHost
+   * @memberof p5
+   * @returns {Object} The host, or null.
+   * @example
+   * <caption>Labels through the host: DOM text at a world anchor and in the HUD corner, no font needed</caption>
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   camera(200, -150, 300, 0, 0, 0, 0, 1, 0)
+   * }
+   *
+   * function draw() {
+   *   background('#138D75')
+   *   orbitControl()
+   *   axes()
+   *   const t = millis() / 1000
+   *   const x = 100 * cos(t), z = 100 * sin(t)
+   *   push()
+   *   translate(x, -30, z)
+   *   noStroke()
+   *   fill('#ff4fd8')
+   *   sphere(12)
+   *   pop()
+   *   const labels = treeHost().labels
+   *   labels.set('ball', 'x ' + x.toFixed(0) + '  z ' + z.toFixed(0), x, -30, z, { dy: -20 })
+   *   labels.setScreen('hud', 'orbit with the mouse', 10, 16, { anchor: 'left' })
+   * }
+   */
+  fn.treeHost = function () { return ensureHost(this); };
 
   // Resolve opts.out for mapLocation / mapDirection.
   // Returns opts.out if provided, otherwise allocates a fresh p5.Vector.
