@@ -32,6 +32,7 @@
  */
 
 import * as C from '@nakednous/tree';
+import { VIEW } from '@nakednous/host';
 
 // Install the constants and core re-exports onto p5.Tree.
 export function installConstants(p5) {
@@ -282,7 +283,7 @@ export function installConstants(p5) {
      * frame — screen-parallel drag at constant depth, reported as a world position.
      * @constant {number} VIEW
      * @memberof p5.Tree */
-    VIEW:      CONST(4),
+    VIEW:      CONST(VIEW),
     /** {@link createHandle} `report` mode: a position.
      * @constant {number} POINT
      * @memberof p5.Tree */
