@@ -432,7 +432,7 @@ export function installHandle(p5, fn) {
     // ── Lifecycle ───────────────────────────────────────────────────────────
 
     /**
-     * Turn a press on the handle into a grab and follow the pointer while it is held. Call it first in `draw()` every frame; it returns true while the handle is grabbed, so the orbit gate example uses it to decide whether orbitControl runs. When the handle sits on a router, the router's own update call covers it.
+     * Turn a press on the handle into a grab and follow the pointer while it is held. Call it first in `p5.draw()` every frame; it returns true while the handle is grabbed, so the orbit gate example uses it to decide whether `p5.orbitControl()` runs. When the handle sits on a router, the router's own `PointerRouter.update()` call covers it.
      *
      * @details
      * Resolve the grab and re-solve from the pointer. Call FIRST in `draw()`
@@ -824,7 +824,7 @@ export function installHandle(p5, fn) {
     // ── Value (pull-only) ───────────────────────────────────────────────────
 
     /**
-     * Read the handle's current value as a p5.Vector, a position or a direction depending on what the handle reports. Pass `to` to read it in another space such as EYE or SCREEN (see the to: SCREEN and to: EYE examples). Pass `out` to reuse a vector instead of allocating a new one.
+     * Read the handle's current value as a `p5.Vector`, a position or a direction depending on what the handle reports. Pass `to` to read it in another space such as `EYE` or `SCREEN` (see the to: SCREEN and to: EYE examples). Pass `out` to reuse a vector instead of allocating a new one.
      *
      * @details
      * Read the current value into a `p5.Vector` (fresh when `out` is omitted,
@@ -935,7 +935,7 @@ export function installHandle(p5, fn) {
     // ── Binding (push value to a target; pull stays available via value) ─────
 
     /**
-     * Attach the handle to something it drives while dragged: a p5.Vector moved in place, a camera's eye, center or up, or your own get and set pair. The handle jumps to the target's current value right away (see the p5.Vector and camera lookat examples). Chainable.
+     * Attach the handle to something it drives while dragged: a `p5.Vector` moved in place, a camera's eye, center or up, or your own get and set pair. The handle jumps to the target's current value right away (see the p5.Vector and camera lookat examples). Chainable.
      *
      * @details
      * Bind the handle to a target it drives while dragging. Polymorphic, with
@@ -1118,7 +1118,7 @@ export function installHandle(p5, fn) {
     // ── Draw (SCENE) ──────────────────────────────────────────────────
 
     /**
-     * Draw the handle in the scene: the dot, the aim line from the anchor, the surface it moves on and an optional ring, in the current stroke and fill colours. Pick the parts with the HANDLE, AIM, LOCUS and RING bits and set `size` for the dot radius in pixels (see the bits and colours example). Chainable; needs a WEBGL canvas.
+     * Draw the handle in the scene: the dot, the aim line from the anchor, the surface it moves on and an optional ring, in the current stroke and fill colours. Pick the parts with the `HANDLE`, `AIM`, `LOCUS` and `RING` bits and set `size` for the dot radius in pixels (see the bits and colours example). Chainable; needs a `p5.WEBGL` canvas.
      *
      * @details
      * Render the handle's visuals in the scene. Composes existing gizmo
@@ -1328,7 +1328,7 @@ export function installHandle(p5, fn) {
     }
 
     /**
-     * Read the handle's one-number value: the signed distance along an AXIS rail, or the angle in radians of a DIAL, which keeps counting past a full turn (see the DIAL example). NaN for the other constraints.
+     * Read the handle's one-number value: the signed distance along an `AXIS` rail, or the angle in radians of a `DIAL`, which keeps counting past a full turn (see the DIAL example). NaN for the other constraints.
      *
      * @details
      * Current scalar parameter: AXIS — signed t; DIAL — accumulated θ in
@@ -1365,7 +1365,7 @@ export function installHandle(p5, fn) {
     scalar() { return typeof this._constraint.scalar === 'function' ? this._constraint.scalar() : NaN; }
 
     /**
-     * Read a SPHERE handle's direction as azimuth and elevation angles in a two-element array (see the readout example). Pass `out2` to reuse an array instead of allocating a new one.
+     * Read a `SPHERE` handle's direction as azimuth and elevation angles in a two-element array (see the readout example). Pass `out2` to reuse an array instead of allocating a new one.
      *
      * @details
      * Derive `[az, el]` from the current direction (SPHERE readout). Writes
@@ -1464,7 +1464,7 @@ export function installHandle(p5, fn) {
     hovered() { return this._hovered; }
 
     /**
-     * Move the handle's reference point: the sphere centre, the plane point, the axis anchor, the dial centre, or the dragged point of a VIEW handle. The handle's own point follows, so the dot and its hit area stay together (see the orbiting object example). Chainable.
+     * Move the handle's reference point: the sphere centre, the plane point, the axis anchor, the dial centre, or the dragged point of a `VIEW` handle. The handle's own point follows, so the dot and its hit area stay together (see the orbiting object example). Chainable.
      *
      * @details
      * Move the constraint's reference point — sphere centre / plane point /
@@ -1756,7 +1756,7 @@ export function installHandle(p5, fn) {
     }
 
     /**
-     * Resolve the pending presses across the routed handles, so that only the nearest one grabs where they overlap, refresh hover and update every member. Call it first in `draw()` in place of the members' own updates; it returns true while any member is grabbed, so the cluster example uses it to decide whether orbitControl runs.
+     * Resolve the pending presses across the routed handles, so that only the nearest one grabs where they overlap, refresh hover and update every member. Call it first in `p5.draw()` in place of the members' own updates; it returns true while any member is grabbed, so the cluster example uses it to decide whether `p5.orbitControl()` runs.
      *
      * @details
      * Resolve queued presses with ONE shared pick each, refresh hover with one
@@ -1959,7 +1959,7 @@ export function installHandle(p5, fn) {
   // ── Factories ───────────────────────────────────────────────────────────
 
   /**
-   * Drag a point on a sphere, a plane, an axis or a dial ring, or freely in the view, with the mouse or a finger. Choose the `constraint` and whether it reports a POINT or a DIRECTION, place it with anchor, radius, axis or normal, and add snap, hover, a bound target or the onGrab, onChange and onRelease hooks as needed (see the SPHERE, from: EYE and snap examples). Drive it from draw() with update() and read it with value(); needs a WEBGL canvas.
+   * Drag a point on a sphere, a plane, an axis or a dial ring, or freely in the view, with the mouse or a finger. Choose the `constraint` and whether it reports a `POINT` or a `DIRECTION`, place it with `anchor`, `radius`, `axis` or `normal`, and add `snap`, `hover`, a bound target or the `onGrab`, `onChange` and `onRelease` hooks as needed (see the SPHERE, from: EYE and snap examples). Drive it from `p5.draw()` with `Handle.update()` and read it with `value()`; needs a `p5.WEBGL` canvas.
    *
    * @details
    * Create an interactive manipulator handle bound to the sketch canvas.
@@ -2087,7 +2087,7 @@ export function installHandle(p5, fn) {
   };
 
   /**
-   * Group handles that may overlap on screen, so a press grabs only the nearest one and hover is shared between them. Pass the handles, then an optional options object with `hover` and analytic (both on by default), and drive the router from draw() with update() (see the translate cluster example).
+   * Group handles that may overlap on screen, so a press grabs only the nearest one and hover is shared between them. Pass the handles, then an optional options object with `hover` and `analytic` (both on by default), and drive the router from `p5.draw()` with `PointerRouter.update()` (see the translate cluster example).
    *
    * @details
    * Create a pointer router over a set of (potentially overlapping) handles —
