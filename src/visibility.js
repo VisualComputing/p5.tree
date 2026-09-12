@@ -37,7 +37,7 @@
 'use strict';
 
 import {
-  mat4Invert, mat4MulPoint,
+  mat4Invert,
   projIsOrtho, projNear, projFar,
   projLeft, projRight, projTop, projBottom,
   frustumPlanes,
@@ -248,7 +248,7 @@ export function installVisibility(p5, fn) {
     // If mat4Model supplied, transform bounds before frustum test.
     // AABB: transform all 8 corners, recompute conservative AABB (zero-alloc).
     // Sphere: transform center; scale radius by max column length.
-    // Point: straight mat4MulPoint.
+    // Point: the center transformed, no radius.
     let c1 = corner1, c2 = corner2, ct = center, rt = radius;
     if (mat4Model != null) {
       const m = _rawMat4(mat4Model);
@@ -263,9 +263,7 @@ export function installVisibility(p5, fn) {
             const cx = (i & 4) ? x0 : x1;
             const cy = (i & 2) ? y0 : y1;
             const cz = (i & 1) ? z0 : z1;
-            mat4MulPoint(_tMin, m, [cx, cy, cz]);   // reuse _tMin as temp
-            if (_tMin[0] < _tMax[0] || i === 0) {}  // update min/max below
-            // ── inline to avoid a second scratch ─────────────────────────
+            // The corner through m, inline (no second scratch), then min / max.
             const tx = m[0]*cx + m[4]*cy + m[8]*cz  + m[12];
             const tw = m[3]*cx + m[7]*cy + m[11]*cz + m[15];
             const ty = m[1]*cx + m[5]*cy + m[9]*cz  + m[13];
