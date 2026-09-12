@@ -1,8 +1,21 @@
 /**
- * @file Interactive manipulator handle — p5 bridge controller + pointer router.
+ * @file Draggable 3D handles
  * @module p5.tree/handle
  * @license AGPL-3.0-only
  *
+ * Handles you drag with the mouse or a finger in a `WEBGL` sketch. Each one
+ * moves on a sphere, a plane, an axis or a dial ring, or freely in the view,
+ * and reports a point or a direction you read back as a `p5.Vector`. Create
+ * one with `createHandle`, call `Handle.update()` first in `draw()` (it returns
+ * true while the handle is held, so a grab can win over `orbitControl()`),
+ * read it with `Handle.value()`, drive a vector or a camera with
+ * `Handle.bind()` and show it with `Handle.draw()`.
+ *
+ * Reach for `createPointerRouter` when several handles overlap on screen,
+ * such as the three rails of a translate gizmo: the router grabs only the
+ * nearest handle under a press and shares hover between its members.
+ *
+ * @details
  * Wraps a renderer-agnostic tree Constraint (`@nakednous/tree/handle`) with the
  * transport a draggable 3D control needs: the host's pointer source, a
  * pixel→ray unprojection, and a host-driven
@@ -432,7 +445,7 @@ export function installHandle(p5, fn) {
     // ── Lifecycle ───────────────────────────────────────────────────────────
 
     /**
-     * Turn a press on the handle into a grab and follow the pointer while it is held. Call it first in `p5.draw()` every frame; it returns true while the handle is grabbed, so the orbit gate example uses it to decide whether `p5.orbitControl()` runs. When the handle sits on a router, the router's own `PointerRouter.update()` call covers it.
+     * Turn a press on the handle into a grab and follow the pointer while it is held. Call it first in `p5.draw()` every frame; it returns true while the handle is grabbed, so the orbit gate example uses it to decide whether `p5.orbitControl()` runs. When the handle sits on a `PointerRouter`, the router's own `PointerRouter.update()` call covers it.
      *
      * @details
      * Resolve the grab and re-solve from the pointer. Call FIRST in `draw()`
@@ -824,7 +837,7 @@ export function installHandle(p5, fn) {
     // ── Value (pull-only) ───────────────────────────────────────────────────
 
     /**
-     * Read the handle's current value as a `p5.Vector`, a position or a direction depending on what the handle reports. Pass `to` to read it in another space such as `EYE` or `SCREEN` (see the to: SCREEN and to: EYE examples). Pass `out` to reuse a vector instead of allocating a new one.
+     * Read the handle's current value as a `p5.Vector`, a position or a direction depending on what the handle reports. Pass `to` to read it in another space such as `EYE` or `SCREEN` (see the to: SCREEN and to: EYE examples). Pass `out` to write into a vector you already have instead of getting a fresh one.
      *
      * @details
      * Read the current value into a `p5.Vector` (fresh when `out` is omitted,
@@ -935,7 +948,7 @@ export function installHandle(p5, fn) {
     // ── Binding (push value to a target; pull stays available via value) ─────
 
     /**
-     * Attach the handle to something it drives while dragged: a `p5.Vector` moved in place, a camera's eye, center or up, or your own get and set pair. The handle jumps to the target's current value right away (see the p5.Vector and camera lookat examples). Chainable.
+     * Attach the handle to something it drives while dragged: a `p5.Vector` moved in place, a `p5.Camera`'s eye, center or up, or your own get and set pair. The handle jumps to the target's current value right away (see the p5.Vector and camera lookat examples). Chainable.
      *
      * @details
      * Bind the handle to a target it drives while dragging. Polymorphic, with
@@ -1365,7 +1378,7 @@ export function installHandle(p5, fn) {
     scalar() { return typeof this._constraint.scalar === 'function' ? this._constraint.scalar() : NaN; }
 
     /**
-     * Read a `SPHERE` handle's direction as azimuth and elevation angles in a two-element array (see the readout example). Pass `out2` to reuse an array instead of allocating a new one.
+     * Read a `SPHERE` handle's direction as azimuth and elevation angles in a two-element array (see the readout example). Pass `out2` to write into an array you already have instead of getting a fresh one.
      *
      * @details
      * Derive `[az, el]` from the current direction (SPHERE readout). Writes
@@ -1433,7 +1446,7 @@ export function installHandle(p5, fn) {
     grabbed() { return this._grabbed; }
 
     /**
-     * True while the pointer is over the handle, and while the handle is held. A lone handle needs `hover: true` to track this (see the hover example); a handle on a router gets it for free.
+     * True while the pointer is over the handle, and while the handle is held. A lone handle needs `hover: true` to track this (see the hover example); a handle on a `PointerRouter` gets it for free.
      *
      * @details
      * True while the pointer rests on the proxy (and while grabbed). Lone
@@ -1959,7 +1972,7 @@ export function installHandle(p5, fn) {
   // ── Factories ───────────────────────────────────────────────────────────
 
   /**
-   * Drag a point on a sphere, a plane, an axis or a dial ring, or freely in the view, with the mouse or a finger. Choose the `constraint` and whether it reports a `POINT` or a `DIRECTION`, place it with `anchor`, `radius`, `axis` or `normal`, and add `snap`, `hover`, a bound target or the `onGrab`, `onChange` and `onRelease` hooks as needed (see the SPHERE, from: EYE and snap examples). Drive it from `p5.draw()` with `Handle.update()` and read it with `value()`; needs a `p5.WEBGL` canvas.
+   * Drag a point on a sphere, a plane, an axis or a dial ring, or freely in the view, with the mouse or a finger. Choose the `constraint` and whether it reports a `POINT` or a `DIRECTION`, place it with `anchor`, `radius`, `axis` or `normal`, and add `snap`, `hover`, a bound target or the `onGrab`, `onChange` and `onRelease` callbacks as needed (see the SPHERE, from: EYE and snap examples). Drive it from `p5.draw()` with `Handle.update()` and read it with `value()`; needs a `p5.WEBGL` canvas.
    *
    * @details
    * Create an interactive manipulator handle bound to the sketch canvas.
@@ -2006,7 +2019,7 @@ export function installHandle(p5, fn) {
    *   onRelease?: Function,
    *   onCancel?:  Function,
    * }} opts
-   * @returns {Handle|null} The controller, or null on an invalid constraint.
+   * @returns {Handle|null} The `Handle`, or null on an invalid constraint.
    * @example
    * <caption>A SPHERE handle reporting a DIRECTION: drag it to aim the light</caption>
    * let h
