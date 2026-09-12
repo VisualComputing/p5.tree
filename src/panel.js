@@ -206,6 +206,15 @@ function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
 export function installPanel(p5, fn) {
 
   /**
+   * Create a DOM panel beside the canvas from what you hand it: transport
+   * controls for a PoseTrack or CameraTrack, sliders and inputs for a plain schema
+   * of parameters, or the 6-DOF profile and live meters of a PoseHelm (see the
+   * three examples). Position and colour it through the options; `target` pushes
+   * parameter values into a shader or a setter every frame, camera and reset tune
+   * a track panel's buttons, and frame adds the helm frame selector. Needs a
+   * canvas to mount beside (or a parent element) and the object to control.
+   *
+   * @details
    * Unified panel factory.
    *
    * First argument determines the panel type:
