@@ -67,6 +67,21 @@ const _sc_v3  = new Float32Array(3);   // scratch 3-vector
  * @param {HTMLElement|p5.Element|undefined} parent
  * @returns {HTMLElement}
  */
+// p5 records presses on the whole window, and orbitControl only asks whether
+// the mouse lies inside the canvas rectangle — so a drag on a panel floating
+// over the canvas would orbit the camera too. A panel keeps its pointer
+// presses and wheel to itself: p5 never sees them, its own widgets do.
+function _shield(panel) {
+  const el = panel && panel.el;
+  if (el && !el._p5treeShield) {
+    el._p5treeShield = true;
+    const stop = (e) => e.stopPropagation();
+    el.addEventListener('pointerdown', stop);
+    el.addEventListener('wheel', stop);
+  }
+  return panel;
+}
+
 function _resolveParent(pInst, parent) {
   if (parent) return (parent.elt !== undefined) ? parent.elt : parent;
   return (pInst._renderer && pInst._renderer.canvas)
@@ -222,8 +237,9 @@ export function installPanel(p5, fn) {
    * of parameters, or the 6-DOF profile and live meters of a `PoseHelm` (see the
    * three examples). Position and colour it through the options; `target` pushes
    * parameter values into a shader or a setter every frame, `camera` and `reset` tune
-   * a track panel's buttons, and `frame` adds the helm frame selector. Needs a
-   * canvas to mount beside (or a parent element) and the object to control.
+   * a track panel's buttons, and `frame` adds the helm frame selector. Dragging a
+   * slider never orbits the camera. Needs a canvas to mount beside (or a parent
+   * element) and the object to control.
    *
    * @details
    * Unified panel factory.
@@ -415,7 +431,7 @@ export function installPanel(p5, fn) {
 
       const panel = _createPanel(_wrapTrack(track, cam, isCameraTrack, pInst, showReset), opt);
       registerPlayer(pInst, { tick() { panel.tick(); return true; } });
-      return panel;
+      return _shield(panel);
     }
 
     // ── Helm panel path ────────────────────────────────────────────
@@ -426,7 +442,7 @@ export function installPanel(p5, fn) {
     if (typeof trackOrSchema?.feed === 'function') {
       const panel = _createPanel(trackOrSchema, opt);
       registerPlayer(pInst, { tick() { panel.tick(); return true; } });
-      return panel;
+      return _shield(panel);
     }
 
     // ── Param panel path ──────────────────────────────────────────────────────
@@ -442,6 +458,6 @@ export function installPanel(p5, fn) {
 
     const panel = _createPanel(trackOrSchema, opt);
     registerPlayer(pInst, { tick() { panel.tick(); return true; } });
-    return panel;
+    return _shield(panel);
   };
 }
