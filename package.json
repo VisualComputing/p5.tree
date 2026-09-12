@@ -19,8 +19,8 @@
     "clean": "rm -rf dist site",
     "rebuild": "npm run clean && npm run build",
     "reset": "rm -rf node_modules dist package-lock.json && npm install",
-    "link:core": "npm link @nakednous/tree @nakednous/ui",
-    "unlink:core": "npm unlink --no-save @nakednous/tree @nakednous/ui && npm install @nakednous/tree @nakednous/ui",
+    "link:core": "npm link @nakednous/tree @nakednous/host @nakednous/ui",
+    "unlink:core": "npm unlink --no-save @nakednous/tree @nakednous/host @nakednous/ui && npm install @nakednous/tree @nakednous/host @nakednous/ui",
     "prepublishOnly": "npm run build",
     "postpublish": "npm run link:core"
   },
@@ -46,6 +46,7 @@
     "p5": "^2.3.0"
   },
   "dependencies": {
+    "@nakednous/host": "^0.0.1",
     "@nakednous/tree": "^0.0.27",
     "@nakednous/ui": "^0.0.13"
   },
