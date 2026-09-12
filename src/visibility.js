@@ -139,6 +139,14 @@ export function installVisibility(p5, fn) {
   // ── visibility ────────────────────────────────────────────────────────────
   
   /**
+   * Test whether a point, a sphere or an axis-aligned box is inside, crossing or
+   * outside the current camera's view frustum, returning VISIBLE, SEMIVISIBLE or
+   * INVISIBLE (see the sphere example). Give a point as center, a sphere as
+   * center plus radius, and a box as its two corners; `mat4Model` places
+   * local-space bounds in the world (see the AABB example), and bounds tests
+   * against another camera's planes from bounds(). Needs a WEBGL canvas.
+   *
+   * @details
    * Test visibility of a point, sphere, or AABB against the view frustum.
    *
    * Three query forms:
@@ -381,6 +389,12 @@ export function installVisibility(p5, fn) {
   // ── bounds ────────────────────────────────────────────────────────────────
 
   /**
+   * Compute the six planes of a camera's view frustum as a keyed object — the
+   * current camera, or one given as `mat4Eye` — to pass as the bounds option of
+   * visibility() and distanceToBound() (see the second-camera example). Needs a
+   * WEBGL canvas.
+   *
+   * @details
    * Compute the six view-frustum planes as a keyed object.
    *
    * Returns `{ [LEFT|RIGHT|NEAR|FAR|TOP|BOTTOM]: { a, b, c, d } }`.
