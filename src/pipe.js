@@ -1,8 +1,17 @@
 /**
- * @file Post-processing pipeline (pipe + releasePipe).
+ * @file Post-processing the frame with shaders.
  * @module p5.tree/pipe
  * @license AGPL-3.0-only
  *
+ * Run a drawn layer through one or more filter shaders — blur, pixelate,
+ * vignette, colour grading — and show the result on the canvas, or keep it in
+ * a framebuffer for further use. `pipe()` chains the passes for you;
+ * `releasePipe()` frees the framebuffers it kept for a chain.
+ *
+ * Reach for it when a `baseFilterShader()` effect should apply to a whole
+ * rendered frame rather than to a single shape.
+ *
+ * @details
  * Contains the `fn.pipe()` and `fn.releasePipe()` functions.
  */
 
@@ -13,9 +22,10 @@ export function installPipe(p5, fn) {
   /**
    * Run a source texture through one or more filter shaders in sequence and draw
    * the result on the canvas, or keep it off-screen and use the returned
-   * framebuffer with `display` set to false (see the off-screen example). Buffers
-   * are managed for you; `key` separates independent pipelines, and `ping`/`pong` let
-   * you supply your own. Needs a `p5.WEBGL` canvas, a source, and filter shaders.
+   * framebuffer with `display` set to false (see the off-screen example). The two
+   * working framebuffers are managed for you; `key` separates independent chains,
+   * and `ping`/`pong` let you supply your own. Needs a `p5.WEBGL` canvas, a source,
+   * and filter shaders.
    *
    * @details
    * Pipes a source through one or more post-processing passes (filters), optionally displaying
@@ -32,16 +42,16 @@ export function installPipe(p5, fn) {
    * @param {p5.Shader|p5.Shader[]} passes  A pass or array of passes (e.g. `baseFilterShader().modify(...)`); falsy entries ignored.
    * @param {Object} [opt]  Options.
    * @param {boolean} [opt.display=true] If true, draw the final output to the main canvas.
-   * @param {boolean} [opt.allocate=true] If true, allocate internal ping/pong when missing (cached per key).
-   * @param {string} [opt.key='default'] Cache key for internal ping/pong (advanced; useful for multiple independent pipelines).
-   * @param {p5.Framebuffer} [opt.ping] Optional user-provided ping framebuffer (advanced override; not cached internally).
-   * @param {p5.Framebuffer} [opt.pong] Optional user-provided pong framebuffer (advanced override; not cached internally).
-   * @param {boolean} [opt.clear=true] If true, clear each ping/pong pass target before drawing into it.
-   * @param {boolean} [opt.clearDisplay=true] If true and opt.display is true, clear the main canvas before drawing final output.
-   * @param {function} [opt.clearFn] Clear strategy for ping/pong passes. Defaults to () => this.background(0).
-   * @param {function} [opt.clearDisplayFn] Clear strategy for display stage. Defaults to opt.clearFn.
-   * @param {function} [opt.draw] Draw strategy used to place the current texture on the current render target. Defaults to full-canvas blit.
-   * @returns {p5.Framebuffer|null} The final framebuffer used (ping or pong) when ping/pong are available; otherwise null.
+   * @param {boolean} [opt.allocate=true] If true, create the two working framebuffers when missing (kept per `key`).
+   * @param {string} [opt.key='default'] Name of the working framebuffer pair; give each independent chain its own key.
+   * @param {p5.Framebuffer} [opt.ping] Your own first working framebuffer (advanced; not kept by `pipe()`).
+   * @param {p5.Framebuffer} [opt.pong] Your own second working framebuffer (advanced; not kept by `pipe()`).
+   * @param {boolean} [opt.clear=true] If true, clear each working framebuffer before a pass draws into it.
+   * @param {boolean} [opt.clearDisplay=true] If true and `display` is true, clear the main canvas before drawing the final output.
+   * @param {function} [opt.clearFn] How to clear a working framebuffer before a pass. Defaults to `background(0)`.
+   * @param {function} [opt.clearDisplayFn] How to clear the main canvas before the final output. Defaults to `clearFn`.
+   * @param {function} [opt.draw] How to draw the current texture onto the current target. Defaults to a full-canvas copy.
+   * @returns {p5.Framebuffer|null} The framebuffer holding the final result, or null when no working framebuffers were available.
    * @example
    * <caption>One pass: a pixelate filter, its level driven by the mouse</caption>
    * let layer, pixelate
