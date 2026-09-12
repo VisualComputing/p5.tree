@@ -183,7 +183,7 @@ function shell({ title, active, body, nav, pkg, examples }) {
   const cm = examples ? `
   <link rel="stylesheet" href="${codemirror.css}">
   ${codemirror.js.map((u) => `<script src="${u}"></script>`).join('\n  ')}` : '';
-  const cfg = { p5: p5.url, lib: site.bundle, font: site.font };
+  const cfg = { p5: p5.url, lib: site.bundle, font: site.font, index: site.index };
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -193,13 +193,16 @@ function shell({ title, active, body, nav, pkg, examples }) {
   <link rel="stylesheet" href="${site.style}">${cm}
   <script>window.p5treeDocs = ${JSON.stringify(cfg)};</script>
   <script src="${site.runner}" defer></script>
+  <script src="${site.search}" defer></script>
 </head>
 <body>
   <nav class="sidebar">
     <a class="brand" href="index.html">${esc(pkg.name)}</a>
-    <ul>${nav.map((n) => `
+    <input class="search" type="search" placeholder="Search…" aria-label="Search the API" autocomplete="off">
+    <ul class="modules">${nav.map((n) => `
       <li><a href="${n.href}"${n.href === active ? ' aria-current="page"' : ''}>${esc(n.label)}</a></li>`).join('')}
     </ul>
+    <ul class="results" hidden></ul>
   </nav>
   <main>
 ${body}
@@ -208,6 +211,25 @@ ${body}
 </body>
 </html>
 `;
+}
+
+// ── Search index ────────────────────────────────────────────────────────────
+
+/** The first sentence of a description, markdown stripped to plain text. */
+function firstSentence(text) {
+  const plain = (text || '').replace(/\{@link\s+([^}\s]+)\s*\}/g, '$1').replace(/[`*_]/g, '').replace(/\s+/g, ' ').trim();
+  const m = /^(.+?[.!?])(\s|$)/.exec(plain);
+  return m ? m[1] : plain;
+}
+
+/** One entry per function and constant: name, owner, page#anchor, first sentence. */
+function searchIndex(doclets) {
+  return doclets.map((d) => ({
+    n: d.name,
+    o: d.owner,
+    h: `${pageOf(d.module)}#${anchorOf(d)}`,
+    s: firstSentence(d.description || d.tagDescription),
+  }));
 }
 
 // ── Entry ───────────────────────────────────────────────────────────────────
@@ -230,6 +252,8 @@ export function render(parsed, { pkg, readme }) {
   }
   const modules = parsed.modules.filter((m) => byModule.has(m.name));
   const nav = modules.map((m) => ({ href: pageOf(m.name), label: m.name.slice(m.name.lastIndexOf('/') + 1) }));
+
+  pages.set(site.index, JSON.stringify(searchIndex(parsed.doclets)));
 
   pages.set('index.html', shell({
     title: 'README', active: 'index.html', nav, pkg, examples: false,

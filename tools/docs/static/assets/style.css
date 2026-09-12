@@ -103,6 +103,29 @@ td > :last-child  { margin-bottom: 0; }
 .sidebar li a:hover { background: var(--border); }
 .sidebar li a[aria-current="page"] { background: var(--accent); color: #fff; }
 
+/* Search — the field above the module list; results replace the list while typing. */
+.sidebar .search {
+  width: 100%;
+  margin: 0 0 .75rem;
+  padding: .35rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: .875rem/1.5 var(--sans);
+  color: var(--fg);
+  background: var(--bg);
+}
+.sidebar .results li a { display: grid; grid-template-columns: 1fr auto; gap: 0 .5rem; }
+.sidebar .results .owner { font-size: .75rem; color: var(--muted); }
+.sidebar .results .hint {
+  grid-column: 1 / -1;
+  font: .75rem/1.4 var(--sans);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar .results .none { padding: .3rem .5rem; font: .875rem/1.5 var(--sans); color: var(--muted); }
+
 /* ── Main ───────────────────────────────────────────────────────────────── */
 
 main { min-width: 0; max-width: 76rem; padding: 2rem 2.5rem 3rem; }

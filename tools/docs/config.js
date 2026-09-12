@@ -68,4 +68,6 @@ export const site = {
   font:   'fonts/noto_sans.ttf',
   style:  'assets/style.css',
   runner: 'assets/runner.js',
+  search: 'assets/search.js',
+  index:  'search.json',
 };
