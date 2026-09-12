@@ -1,8 +1,21 @@
 /**
- * @file Source-agnostic 6-DOF pose helm — p5 bridge factories + activity gizmo.
+ * @file Flying the camera or an object from a live 6-DOF device
  * @module p5.tree/helm
  * @license AGPL-3.0-only
  *
+ * Six-degree-of-freedom control for a `p5.WEBGL` sketch: feed translation and
+ * rotation rates each frame from a SpaceMouse, a gamepad, a touch gesture or
+ * any other live source, and something moves. `createCameraHelm` flies a
+ * camera body-relative, a forward push flying forward. `createPoseHelm`
+ * produces a pose and drives whatever you `bind` to it: a plain pose object, a
+ * second `p5.Camera` or your own setter, with `from` choosing whether pushes
+ * are screen-, world- or body-relative.
+ *
+ * `helmRig` draws a control rig of the six channels, in the scene or as a
+ * corner HUD, lighting up the one being driven; add `identify` to see which
+ * input channel moves which axis when wiring up a new device.
+ *
+ * @details
  * Wraps the renderer-agnostic `PoseHelm` (`@nakednous/tree/helm`) with the
  * p5-specific wiring a live rate-driven controller needs: the draw-loop player
  * that integrates each frame, the basis resolution against a p5 camera (a pose
@@ -292,7 +305,7 @@ export function installHelm(p5, fn) {
    * Fly the camera from a 6-DOF device: feed it translation and rotation rates
    * each frame and the camera moves body-relative, a forward push flying
    * forward. Pass a camera to fly a second one, or opts for `deadzone` and a
-   * `profile` that maps device lanes to axes (see the probe example). Needs a
+   * `profile` that maps input channels to axes (see the probe example). Needs a
    * `p5.WEBGL` canvas and a rate source such as a SpaceMouse, a gamepad or a
    * touch gesture.
    *
@@ -416,8 +429,8 @@ export function installHelm(p5, fn) {
   /**
    * Drive an object from a 6-DOF device: feed it translation and rotation
    * rates each frame and the bound target's position and rotation follow.
-   * Bind a plain pose, a camera or any pose sink, and choose with `from`
-   * whether pushes are screen-relative, world-relative or body-relative (see
+   * Bind a plain pose, a `p5.Camera` or any object with an `applyPose` method,
+   * and choose with `from` whether pushes are screen-, world- or body-relative (see
    * the `SELF` example). Needs a `p5.WEBGL` canvas and a rate source such as a
    * SpaceMouse, a gamepad or a touch gesture.
    *
@@ -549,9 +562,10 @@ export function installHelm(p5, fn) {
     registerPlayer(pInst, player);
 
     /**
-     * Choose what the helm drives: a plain pose object, a `p5.Camera`, a pose
-     * sink or a get/set accessor. The target's current value seeds the helm so
-     * there is no jump on the first frame (see the second camera example).
+     * Choose what the helm drives: a plain pose object, a `p5.Camera`, an
+     * object with an `applyPose` method or a get/set accessor. The target's
+     * current value seeds the helm so there is no jump on the first frame (see
+     * the second camera example).
      * Chainable.
      *
      * @details
@@ -635,7 +649,7 @@ export function installHelm(p5, fn) {
    * Draw a control rig showing a helm's six degrees of freedom: translation
    * arrows and rotation rings, with the channel being driven lit up in the
    * direction of the push. Give `x` and `y` for a corner HUD, or draw it in the
-   * scene at the driven object; add `identify` to label each input lane, which
+   * scene at the driven object; add `identify` to label each input channel, which
    * needs a loaded font (see the probe example). Needs a `p5.WEBGL` canvas.
    *
    * @details
