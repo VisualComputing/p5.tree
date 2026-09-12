@@ -9,7 +9,7 @@
 import p5 from 'p5';
 
 import { installConstants } from './constants.js';
-import { installMatrix, detectNDC } from './matrix.js';
+import { installMatrix, detectNDC, syncHostView, flushHostPointer, disposeHost } from './matrix.js';
 import { installHud } from './hud.js';
 import { installVisibility } from './visibility.js';
 import { installGizmos } from './gizmos.js';
@@ -66,8 +66,16 @@ p5.registerAddon((p5, fn, lifecycles) => {
     detectNDC(this._renderer);
   };
 
+  // The host (one per instance, on the sketch canvas, external-tick mode):
+  // predraw fills its view bag from renderer state and ticks its players,
+  // postdraw ends its pointer frame, remove disposes it.
   lifecycles.predraw = function () {
+    syncHostView(this);
     tickPlayers(this);
+  };
+
+  lifecycles.postdraw = function () {
+    flushHostPointer(this);
   };
 
   lifecycles.remove = function () {
@@ -75,5 +83,6 @@ p5.registerAddon((p5, fn, lifecycles) => {
     this.releasePipe(true);
     releasePickFbo(this);
     disposeHandles(this);
+    disposeHost(this);
   };
 });
