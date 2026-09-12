@@ -1,8 +1,22 @@
 /**
- * @file PoseTrack / CameraTrack bridge: player registry, camera pose helpers.
+ * @file Animating objects and the camera along keyframes
  * @module p5.tree/track
  * @license AGPL-3.0-only
  *
+ * Keyframe animation for a `p5.WEBGL` sketch. `createPoseTrack` animates an
+ * object: add position, rotation and scale keyframes, play, and read the
+ * interpolated pose each frame to place whatever you draw. `createCameraTrack`
+ * animates a camera the same way from eye and center keyframes, and the camera
+ * follows on its own with nothing to do in `p5.draw()`. Both tracks play
+ * automatically each frame, and `{ handles: true }` adds draggable keyframe
+ * dots (`TrackHandles`).
+ *
+ * Reach for `p5.Camera.capturePose` and `p5.Camera.applyPose` to read the
+ * current camera into a keyframe or set a camera from one, and for `applyPose`
+ * and `rotateQuat` to place an object from a pose or a quaternion. `getCamera`
+ * returns the current camera.
+ *
+ * @details
  * ### What lives here
  *
  *  ```
@@ -335,7 +349,7 @@ class TrackHandles {
    *
    * @function grabbed
    * @memberof TrackHandles
-   * @returns {boolean} true while any member is grabbed.
+   * @returns {boolean} true while any keyframe handle is grabbed.
    * @example
    * <caption>The path turns magenta while any keyframe is held</caption>
    * let track
@@ -692,7 +706,7 @@ export function installTrack(p5, fn) {
   // ── fn.getCamera ───────────────────────────────────────────────────────────
 
   /**
-   * Return the current p5 camera (curCamera).
+   * Return the current `p5.Camera`, the one drawing the canvas right now.
    *
    * Returns null if called before `p5.createCanvas()`.
    *
@@ -1122,7 +1136,7 @@ export function installTrack(p5, fn) {
    *   orbitControl()
    *   axes()
    *   qFromAxisAngle(dq, 1, 1, 0, 0.02)
-   *   qMul(q, dq, q)   // alias-safe, zero-alloc
+   *   qMul(q, dq, q)   // q is both an input and the output
    *   push()
    *   rotateQuat(q)
    *   axes({ size: 50 })
@@ -1143,7 +1157,8 @@ export function installTrack(p5, fn) {
   };
 
   /**
-   * Apply a TRS pose { pos, rot, scl } to the current transform stack.
+   * Apply a `{ pos, rot, scl }` pose (translate, rotate, scale) to the
+   * current transform.
    * @function applyPose
    * @memberof p5
    * @param {{ pos?:ArrayLike, rot?:ArrayLike, scl?:ArrayLike }} pose
@@ -1190,7 +1205,7 @@ export function installTrack(p5, fn) {
 
   /**
    * Read this camera's eye, center, up and lens into a pose you can add to a
-   * camera track or draw as a frustum. Pass a preallocated `out` to reuse it
+   * camera track or draw as a frustum. Pass your own `out` object to reuse it
    * every frame (see the second camera example). Works on any `p5.Camera`,
    * live or not.
    *
@@ -1285,7 +1300,7 @@ export function installTrack(p5, fn) {
   /**
    * Set this camera from a pose: eye, center and up, plus the lens when a fov
    * or halfHeight is given. Also accepts a `{ pos, rot, scl }` pose from a
-   * pose track, so a camera can ride an object's animation.
+   * `PoseTrack`, so a camera can ride an object's animation.
    *
    * @details
    * Apply a { eye, center, up, fov?, halfHeight?, near?, far? } pose to this
