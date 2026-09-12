@@ -6,6 +6,8 @@
  * Errors fail the build; warnings print and continue.
  */
 
+import { p5RefUrl } from './config.js';
+
 const VOCABULARY = new Set([
   'file', 'module', 'license',
   'function', 'memberof',
@@ -106,18 +108,19 @@ export function validate(parsed) {
     for (const o of d.orphans) warn(d, `dotted @param ${o} has no parent parameter`);
   }
 
-  // Links.
+  // Links — a documented name, or a `p5.`-prefixed name on p5's reference.
   const table = linkTable(parsed);
+  const resolves = (target) => table.has(target) || p5RefUrl(target) !== null;
   for (const d of doclets) {
     for (const t of texts(d)) {
       for (const target of linkTargets(t)) {
-        if (!table.has(target)) fail(d, `unresolved {@link ${target}}`);
+        if (!resolves(target)) fail(d, `unresolved {@link ${target}}`);
       }
     }
   }
   for (const m of modules) {
     for (const target of linkTargets(m.description)) {
-      if (!table.has(target)) fail(m, `unresolved {@link ${target}}`);
+      if (!resolves(target)) fail(m, `unresolved {@link ${target}}`);
     }
   }
 

@@ -11,9 +11,12 @@
 
 import { Marked } from 'marked';
 import { splitFences, linkTable } from './validator.js';
-import { p5, codemirror, site } from './config.js';
+import { p5, codemirror, site, p5RefUrl, p5RefText } from './config.js';
 
 const LINK_RE = /\{@link\s+([^}\s]+)\s*\}/g;
+// A backticked identifier in prose — `createHandle`, `update()`, `p5.Tree.NEAR`,
+// `p5.createCanvas` — that is not already a link's text.
+const CODE_RE = /(^|[^[`\\])`((?:[\w$]+\.)*[\w$]+)(\(\))?`/g;
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -45,12 +48,40 @@ const hrefOf   = (entry) => entry.module
   ? pageOf(entry.module.name)
   : `${pageOf(entry.doclet.module)}#${anchorOf(entry.doclet)}`;
 
-/** `{@link name}` → markdown link, fenced code left untouched. */
+/**
+ * A name as a markdown link: to its page when documented, to p5's reference
+ * when `p5.`-prefixed (shown without the prefix), else plain code.
+ */
+function linkTo(name, call, table) {
+  const entry = table.get(name);
+  const code = `\`${name}${call}\``;
+  if (entry) return `[${code}](${hrefOf(entry)})`;
+  const href = p5RefUrl(name);
+  return href ? `[\`${p5RefText(name)}${call}\`](${href})` : code;
+}
+
+/**
+ * Links in prose, fenced code left untouched: `{@link name}` becomes a link
+ * to the documented name (or to p5's reference for a `p5.`-prefixed one),
+ * and so does any backticked identifier that resolves the same way — with
+ * or without a trailing `()`. A bare name shared by several owners, none of
+ * them `p5`, stays plain code unless written as `Owner.name`.
+ */
 function resolveLinks(text, table) {
-  return splitFences(text).map((seg, i) => i % 2 ? seg : seg.replace(LINK_RE, (_, name) => {
-    const entry = table.get(name);
-    return entry ? `[\`${name}\`](${hrefOf(entry)})` : `\`${name}\``;
-  })).join('');
+  return splitFences(text).map((seg, i) => i % 2 ? seg : seg
+    .replace(LINK_RE, (_, name) => linkTo(name, '', table))
+    .replace(CODE_RE, (all, pre, name, call) =>
+      table.ambiguous.has(name) ? all : pre + linkTo(name, call || '', table))).join('');
+}
+
+/** Bare names several owners share, none of them `p5`: auto-links leave them alone. */
+function ambiguousNames(doclets) {
+  const owners = new Map();
+  for (const d of doclets) {
+    if (!owners.has(d.name)) owners.set(d.name, new Set());
+    owners.get(d.name).add(d.owner);
+  }
+  return new Set([...owners].filter(([, s]) => s.size > 1 && !s.has('p5')).map(([n]) => n));
 }
 
 const md       = (text, table) => text ? marked.parse(resolveLinks(text, table)) : '';
@@ -188,6 +219,7 @@ ${body}
  */
 export function render(parsed, { pkg, readme }) {
   const table = linkTable(parsed);
+  table.ambiguous = ambiguousNames(parsed.doclets);
   const pages = new Map();
 
   // Modules with at least one public doclet, in source order.

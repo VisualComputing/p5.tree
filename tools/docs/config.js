@@ -12,6 +12,24 @@ const CDN = 'https://cdn.jsdelivr.net/npm';
 /** p5 — loaded by every example iframe. */
 export const p5 = { version: '2.3.2' };
 p5.url = `${CDN}/p5@${p5.version}/lib/p5.min.js`;
+p5.reference = 'https://p5js.org/reference/';
+
+/**
+ * The p5 reference page of a `p5.`-prefixed name: `p5.createCanvas` →
+ * reference/p5/createCanvas/, `p5.WEBGL` → reference/p5/WEBGL/, a class
+ * `p5.Vector` → reference/p5/p5.Vector/, a method `p5.Camera.perspective`
+ * → reference/p5.Camera/perspective/. Null for anything else, including the
+ * addon's own `p5.Tree` names.
+ */
+export function p5RefUrl(name) {
+  const m = /^p5\.(?:([A-Z][\w$]*)\.)?([\w$]+)$/.exec(name);
+  if (!m || m[1] === 'Tree' || m[2] === 'Tree') return null;
+  const isClass = !m[1] && /^[A-Z][a-z]/.test(m[2]);
+  return `${p5.reference}${m[1] ? 'p5.' + m[1] : 'p5'}/${isClass ? 'p5.' : ''}${m[2]}/`;
+}
+
+/** The text a `p5.`-prefixed link shows: the name without the prefix (`createCanvas`, `Camera.perspective`). */
+export const p5RefText = (name) => name.replace(/^p5\.(?!Tree\b)/, '');
 
 /** CodeMirror 5 UMD — the example editor. */
 export const codemirror = { version: '5.65.21' };
