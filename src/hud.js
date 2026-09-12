@@ -22,6 +22,12 @@ export function installHud(p5, fn) {
   fn.endHUD   = function (...args) { this._renderer?.endHUD?.(...args);   return this; };
 
   /**
+   * Start drawing in screen space over the 3D scene: pixel coordinates with the
+   * origin at the top-left corner of the canvas, as in 2D mode. Pair every call
+   * with `endHUD()` (see the frame-rate example). Needs a WEBGL canvas; text
+   * needs a loaded font.
+   *
+   * @details
    * Begin drawing in screen space (HUD mode).
    *
    * Clears depth, installs an orthographic camera matching canvas pixel
