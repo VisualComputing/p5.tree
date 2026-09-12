@@ -4,7 +4,7 @@
  * @license AGPL-3.0-only
  *
  * Wraps a renderer-agnostic tree Constraint (`@nakednous/tree/handle`) with the
- * p5-specific transport a draggable 3D control needs: pointer events, a
+ * transport a draggable 3D control needs: the host's pointer source, a
  * pixel→ray unprojection, and a host-driven
  * `update()` lifecycle. Constructed like a track (`createHandle` → stateful
  * controller); consumed like a gizmo.
@@ -46,6 +46,16 @@
  * keeps the rasterized path — the tagged proxy rendered into colorPick's 1×1
  * buffer and read back — for parity experiments, and it is what a custom
  * kind supplying `pickProxy` without `proxy` picks with.
+ *
+ * ### Pointer source
+ * Presses, moves, releases and cancels come from the p5 instance's host
+ * (`host.pointer`, one source per canvas): its listeners only record, in
+ * logical canvas px, and `update()` reads the frame's press queue and the
+ * tracked pointer's entry — `seq` counts its moves, `up` / `cancel` end the
+ * gesture, Esc cancels every claimed pointer. A grab claims the pointer
+ * through the source (which captures it on the canvas); a miss leaves it
+ * unclaimed for the orbit. The frame ends when the adapter flushes the
+ * source from postdraw.
  *
  * ### Constraint kinds
  * Core SPHERE / PLANE / AXIS / DIAL pass straight through. DIAL is the
@@ -118,7 +128,7 @@ import {
   POINT, DIRECTION,
   WORLD,
 } from '@nakednous/tree';
-import { pvBag, viewport, getNdcZ } from './matrix.js';
+import { pvBag, viewport, getNdcZ, ensureHost } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Module-level scratch — synchronous, single-threaded, never returned
@@ -164,21 +174,6 @@ const _basisFromNormal = (n, ub, vb) => {
   ub[0] = ry*n[2] - rz*n[1]; ub[1] = rz*n[0] - rx*n[2]; ub[2] = rx*n[1] - ry*n[0];
   _norm3(ub);
   vb[0] = n[1]*ub[2] - n[2]*ub[1]; vb[1] = n[2]*ub[0] - n[0]*ub[2]; vb[2] = n[0]*ub[1] - n[1]*ub[0];
-};
-
-// Pointer event → logical canvas coords (the [0,width]×[0,height] space
-// colorPick and mapLocation(SCREEN) expect). Goes through the element rect so a
-// CSS-scaled canvas maps correctly, sidestepping the mouseX/mouseY scaling skew
-// (processing/p5.js#8669). Falls back to mouseX/mouseY without a rect. Shared
-// by Handle and PointerRouter.
-const _eventXY = (p, canvas, e, out) => {
-  const r = (canvas && canvas.getBoundingClientRect) ? canvas.getBoundingClientRect() : null;
-  if (r && r.width > 0 && r.height > 0) {
-    out[0] = (e.clientX - r.left) * (p.width  / r.width);
-    out[1] = (e.clientY - r.top)  * (p.height / r.height);
-  } else {
-    out[0] = p.mouseX; out[1] = p.mouseY;
-  }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -362,31 +357,27 @@ export function installHandle(p5, fn) {
       // while idle, read out via hovered(). One proxy test per frame with
       // pointer motion (a 1×1 readback under analytic: false) — prefer the
       // router when handles cluster.
-      this._hover        = opts.hover === true;
-      this._hovered      = false;
-      this._hoverPending = false;
-      this._hxy          = new Float32Array(2);
+      this._hover   = opts.hover === true;
+      this._hovered = false;
+      this._hid     = null;     // the pointer last hover-tested, and its seq then
+      this._hseq    = -1;
 
-      // Transport state. The pointer listeners record the active pointer + its
-      // latest coords and set the *_pending flags; update() consumes them, so
-      // all grab/solve happens inside draw().
+      // Transport state. update() reads the host's pointer source, so all
+      // grab/solve happens inside draw().
       //
-      // _pid keys the gesture to ONE pointer — a candidate while a press is
-      // hit-tested, the captured pointer while grabbed, null when idle. Every
-      // listener filters on it, so on a multitouch surface a handle tracks its
-      // own finger and ignores the others (and the mouse). _ptr is that
+      // _pid keys the gesture to ONE pointer — the claimed pointer while
+      // grabbed, null when idle — so on a multitouch surface a handle tracks
+      // its own finger and ignores the others (and the mouse). _ptr is that
       // pointer's position in logical canvas px, fed to the pick and the solve
       // in place of the global mouseX/mouseY (one global can't say which finger
-      // moved). _routed hands the *down* step to a PointerRouter (shared pick,
-      // injected _adopt); everything from the first move on is identical.
-      this._grabbed       = false;
-      this._downPending   = false;
-      this._movedPending  = false;
-      this._upPending     = false;
-      this._cancelPending = false;
-      this._pid           = null;
-      this._ptr           = new Float32Array(2);
-      this._routed        = false;
+      // moved); _seq is the last move consumed. _routed hands the *down* step
+      // to a PointerRouter (shared pick, injected _adopt); everything from the
+      // first move on is identical.
+      this._grabbed = false;
+      this._pid     = null;
+      this._seq     = -1;
+      this._ptr     = new Float32Array(2);
+      this._routed  = false;
 
       // Pick-proxy prep (constant-px sizing sampled against the LIVE projection,
       // before colorPick installs the pick one) — per instance, because the
@@ -425,66 +416,17 @@ export function installHandle(p5, fn) {
 
     // ── Pointer wiring ──────────────────────────────────────────────────────
 
+    // The host's pointer source of this sketch (one per canvas). Its
+    // listeners record every pointer's press, moves and release in logical
+    // canvas px and capture a claimed pointer on the canvas, so a drag that
+    // leaves the dot or the canvas keeps flowing; update() does the work.
     _attachPointer() {
-      const canvas = _canvasOf(this._p);
-      this._canvas = canvas;
-      if (!canvas) {
+      this._canvas = _canvasOf(this._p);
+      const host = ensureHost(this._p);
+      this._pointer = host ? host.pointer : null;
+      if (!this._pointer) {
         console.error('[p5.tree] handle: no canvas found — pointer input disabled. Create the handle after createCanvas().');
-        return;
       }
-      // Listeners record the pointer + its coords and set flags only (cheap,
-      // ordering-independent); update() does the work. Each filters on _pid so a
-      // handle only ever tracks one finger — the one whose press it adopted —
-      // and ignores every other pointer on the surface.
-      //
-      // A press is a grab candidate only while the handle is idle (_pid null);
-      // once it adopts a pointer it ignores further downs until that pointer
-      // misses (update frees it), releases, or cancels. Pointer capture keeps
-      // move / up / cancel flowing to the canvas while the finger drags off the
-      // dot or off-canvas; the capture is on the (shared) canvas, so co-existing
-      // handles each capture their own pointerId without conflict. A ROUTED
-      // handle never self-adopts — the router's shared pick decides and calls
-      // _adopt.
-      this._onDown = (e) => {
-        if (this._routed) return;                // the router owns the down step
-        if (this._pid !== null) return;          // already tracking a finger
-        this._pid = e.pointerId;
-        _eventXY(this._p, canvas, e, this._ptr);
-        this._downPending = true;
-        if (canvas.setPointerCapture) {
-          try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
-        }
-      };
-      this._onMove = (e) => {
-        if (e.pointerId !== this._pid) {
-          // Idle + hover opted-in: remember the pointer for the hover pick.
-          if (this._pid === null && this._hover && !this._routed) {
-            _eventXY(this._p, canvas, e, this._hxy);
-            this._hoverPending = true;
-          }
-          return;                                // not our finger
-        }
-        _eventXY(this._p, canvas, e, this._ptr);
-        this._movedPending = true;
-      };
-      this._onUp = (e) => {
-        if (e.pointerId !== this._pid) return;   // not our finger
-        _eventXY(this._p, canvas, e, this._ptr);
-        this._upPending = true;
-      };
-      this._onPCancel = (e) => {                  // pointercancel → revert, not commit
-        if (e.pointerId !== this._pid) return;
-        this._cancelPending = true;
-      };
-      // Esc reverts the drag in flight (Blender's modal cancel / three's reset).
-      this._onKey = (e) => {
-        if (e.key === 'Escape' && this._grabbed) this._cancelPending = true;
-      };
-      canvas.addEventListener('pointerdown',   this._onDown);
-      canvas.addEventListener('pointermove',   this._onMove);
-      canvas.addEventListener('pointerup',     this._onUp);
-      canvas.addEventListener('pointercancel', this._onPCancel);
-      window.addEventListener('keydown',       this._onKey);
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -527,12 +469,14 @@ export function installHandle(p5, fn) {
      */
     update() {
       if (!this._enabled) {
-        this._grabbed = this._downPending = this._movedPending = false;
-        this._upPending = this._cancelPending = this._hoverPending = false;
+        if (this._pid !== null && this._pointer) this._pointer.release(this._pid);
+        this._grabbed = false;
         this._hovered = false;
         this._pid = null;
         return false;
       }
+      const src = this._pointer;
+      if (!src) return false;
       // Deferred frame: refresh the basis while idle so the locus / proxy /
       // pick track the FROM space live; a grab freezes it for the gesture
       // (snapshot-at-press — the drag solves a stationary constraint).
@@ -541,51 +485,58 @@ export function installHandle(p5, fn) {
       // hit. A miss frees _pid, so the next press — or, on a multitouch surface,
       // another finger — can be adopted. (Routed handles never get here; the
       // router's shared pick calls _adopt instead.)
-      if (this._downPending) {
-        this._downPending = false;
-        if (this._pickAt(this._ptr[0], this._ptr[1])) {
-          this._beginGrab();
+      if (!this._routed && this._pid === null) {
+        for (const pr of src.presses) {
+          if (src.ownerOf(pr.id) !== null) continue;       // taken by another handle this frame
+          this._ptr[0] = pr.x; this._ptr[1] = pr.y;
+          if (this._pickAt(pr.x, pr.y)) { this._adopt(pr.id, pr.x, pr.y); break; }
+        }
+      }
+
+      if (this._pid !== null) {
+        const e = src.get(this._pid);
+        if (!e) {
+          // The entry left the source before this handle saw its end (a
+          // frame without update()): revert, as a cancel.
+          this._cancelNow();
         } else {
-          this._pid = null;
+          // Drag → re-solve from our pointer's ray at each new move, snap,
+          // then push to the binding and fire onChange.
+          if (this._grabbed && e.seq !== this._seq && !e.cancel) {
+            this._seq = e.seq;
+            this._ptr[0] = e.x; this._ptr[1] = e.y;
+            this._solveFromPointer(e.x, e.y);
+            this._applySnap();
+            this._afterSolve();
+          }
+          // Cancel (Esc / pointercancel / cancel()) — revert to the grab-time
+          // value and go idle. Wins over a same-frame release.
+          if (e.cancel) {
+            this._cancelNow();
+          } else if (e.up) {
+            // Release (pointerup) — fire onRelease, then go idle so the handle
+            // is free for the next press.
+            src.release(this._pid);
+            this._grabbed = false;
+            this._pid = null;
+            this.onRelease  && this.onRelease(this);
+            this._onRelease && this._onRelease(this);
+          }
         }
-      }
-
-      // Drag → re-solve from our pointer's ray, snap, then push to the binding
-      // and fire onChange.
-      if (this._grabbed && this._movedPending) {
-        this._movedPending = false;
-        this._solveFromPointer(this._ptr[0], this._ptr[1]);
-        this._applySnap();
-        this._afterSolve();
-      }
-
-      // Cancel (Esc / pointercancel / cancel()) — revert to the grab-time value
-      // and go idle. Wins over a same-frame release.
-      if (this._cancelPending) {
-        this._cancelPending = this._upPending = this._movedPending = false;
-        if (this._grabbed) this._cancelNow();
-        else this._pid = null;
-      }
-
-      // Release (pointerup) — fire onRelease only if a grab was in progress,
-      // then go idle so the handle is free for the next press.
-      if (this._upPending) {
-        this._upPending = this._movedPending = false;
-        if (this._grabbed) {
-          this._grabbed = false;
-          this.onRelease  && this.onRelease(this);
-          this._onRelease && this._onRelease(this);
-        }
-        this._pid = null;
       }
 
       // Hover (lone-handle opt-in; routed handles get it from the router's
       // shared pick): one proxy test per frame with pointer motion while idle.
       if (this._grabbed) {
         this._hovered = true;
-      } else if (this._hover && !this._routed && this._hoverPending) {
-        this._hoverPending = false;
-        this._hovered = this._pickAt(this._hxy[0], this._hxy[1]);
+      } else if (this._hover && !this._routed) {
+        for (const e of src.pointers.values()) {
+          if (e.owner !== null) continue;                   // a drag is not a hover
+          if (e.id === this._hid && e.seq === this._hseq) continue;
+          this._hid = e.id; this._hseq = e.seq;
+          this._hovered = this._pickAt(e.x, e.y);
+          break;
+        }
       }
 
       return this._grabbed;
@@ -610,12 +561,11 @@ export function installHandle(p5, fn) {
      * @param {number} x,y  Press position in logical canvas px.
      */
     _adopt(pointerId, x, y) {
+      const e = this._pointer.get(pointerId);
       this._pid = pointerId;
+      this._seq = e ? e.seq : -1;
       this._ptr[0] = x; this._ptr[1] = y;
-      this._downPending = false;
-      if (this._canvas && this._canvas.setPointerCapture) {
-        try { this._canvas.setPointerCapture(pointerId); } catch (_) { /* best effort */ }
-      }
+      this._pointer.claim(pointerId, this);       // captures the pointer on the canvas
       this._beginGrab();
     }
 
@@ -671,9 +621,7 @@ export function installHandle(p5, fn) {
         this._binder.set(this.value({ out: this._bindVal }));
       }
       this._grabbed = false;
-      if (this._pid !== null && this._canvas && this._canvas.releasePointerCapture) {
-        try { this._canvas.releasePointerCapture(this._pid); } catch (_) { /* best effort */ }
-      }
+      if (this._pid !== null && this._pointer) this._pointer.release(this._pid);
       this._pid = null;
       this.onCancel  && this.onCancel(this);
       this._onCancel && this._onCancel(this);
@@ -1593,14 +1541,10 @@ export function installHandle(p5, fn) {
      * }
      */
     dispose() {
-      const c = this._canvas;
-      if (c) {
-        c.removeEventListener('pointerdown',   this._onDown);
-        c.removeEventListener('pointermove',   this._onMove);
-        c.removeEventListener('pointerup',     this._onUp);
-        c.removeEventListener('pointercancel', this._onPCancel);
-      }
-      window.removeEventListener('keydown', this._onKey);
+      if (this._pid !== null && this._pointer) this._pointer.release(this._pid);
+      this._pid = null;
+      this._grabbed = false;
+      this._pointer = null;
       this._canvas = null;
       _unregister(this._p, this);
     }
@@ -1640,41 +1584,19 @@ export function installHandle(p5, fn) {
     constructor(p, handles, opts = {}) {
       this._p = p;
       this._handles = [];
-      this._claimed = new Map();          // pointerId → handle
-      this._downs   = [];                 // queued presses: { pid, x, y }
-      this._analytic   = opts.analytic !== false;
-      this._hover      = opts.hover !== false;
-      this._hoverMoved = false;
-      this._hxy        = new Float32Array(2);
-      this._hoveredH   = null;
-      this._xy         = new Float32Array(2);
+      this._analytic = opts.analytic !== false;
+      this._hover    = opts.hover !== false;
+      this._hoveredH = null;
+      this._hid      = null;    // the pointer last hover-tested, and its seq then
+      this._hseq     = -1;
 
-      const canvas = _canvasOf(p);
-      this._canvas = canvas;
-      if (!canvas) {
+      // The host's pointer source (one per canvas): presses and claims go
+      // through it, so a member grabbed here captures its own pointer.
+      this._canvas = _canvasOf(p);
+      const host = ensureHost(p);
+      this._pointer = host ? host.pointer : null;
+      if (!this._pointer) {
         console.error('[p5.tree] createPointerRouter: no canvas found — pointer input disabled. Create the router after createCanvas().');
-      } else {
-        this._onDown = (e) => {
-          if (this._claimed.has(e.pointerId)) return;
-          _eventXY(this._p, canvas, e, this._xy);
-          this._downs.push({ pid: e.pointerId, x: this._xy[0], y: this._xy[1] });
-          if (canvas.setPointerCapture) {
-            try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* best effort */ }
-          }
-        };
-        this._onMove = (e) => {
-          if (this._claimed.has(e.pointerId)) return;   // a drag is not a hover
-          if (!this._hover) return;
-          _eventXY(this._p, canvas, e, this._hxy);
-          this._hoverMoved = true;
-        };
-        this._onUp = (e) => {                            // also pointercancel
-          this._claimed.delete(e.pointerId);             // belt and braces; the
-        };                                               // member seam unclaims too
-        canvas.addEventListener('pointerdown',   this._onDown);
-        canvas.addEventListener('pointermove',   this._onMove);
-        canvas.addEventListener('pointerup',     this._onUp);
-        canvas.addEventListener('pointercancel', this._onUp);
       }
 
       for (const h of handles) this.add(h);
@@ -1824,25 +1746,28 @@ export function installHandle(p5, fn) {
      */
     update() {
       const hs = this._handles;
+      const src = this._pointer;
+      if (!src) return false;
 
-      // Presses — every queued down resolves (several same-frame presses on
-      // different members all land).
-      while (this._downs.length) {
-        const d = this._downs.shift();
-        if (this._claimed.has(d.pid)) continue;
-        const win = this._sharedPick(d.x, d.y);
-        if (win && win._pid === null && win.enabled) {
-          this._claimed.set(d.pid, win);
-          win._adopt(d.pid, d.x, d.y);
-        }
+      // Presses — every unclaimed press this frame resolves (several
+      // same-frame presses on different members all land).
+      for (const pr of src.presses) {
+        if (src.ownerOf(pr.id) !== null) continue;
+        const win = this._sharedPick(pr.x, pr.y);
+        if (win && win._pid === null && win.enabled) win._adopt(pr.id, pr.x, pr.y);
       }
 
       // Hover — one shared pick per frame with (unclaimed) pointer motion.
-      if (this._hover && this._hoverMoved) {
-        this._hoverMoved = false;
-        const win = this._sharedPick(this._hxy[0], this._hxy[1]);
-        this._hoveredH = win;
-        for (const h of hs) h._hovered = (h === win) || h._grabbed;
+      if (this._hover) {
+        for (const e of src.pointers.values()) {
+          if (e.owner !== null) continue;                   // a drag is not a hover
+          if (e.id === this._hid && e.seq === this._hseq) continue;
+          this._hid = e.id; this._hseq = e.seq;
+          const win = this._sharedPick(e.x, e.y);
+          this._hoveredH = win;
+          for (const h of hs) h._hovered = (h === win) || h._grabbed;
+          break;
+        }
       }
 
       let g = false;
@@ -1884,9 +1809,9 @@ export function installHandle(p5, fn) {
     }
 
     _unclaim(h) {
-      for (const [pid, hh] of this._claimed) {
-        if (hh === h) this._claimed.delete(pid);
-      }
+      const src = this._pointer;
+      if (!src) return;
+      for (const e of src.pointers.values()) if (e.owner === h) src.release(e.id);
     }
 
     /**
@@ -1965,16 +1890,9 @@ export function installHandle(p5, fn) {
      * }
      */
     dispose() {
-      const c = this._canvas;
-      if (c) {
-        c.removeEventListener('pointerdown',   this._onDown);
-        c.removeEventListener('pointermove',   this._onMove);
-        c.removeEventListener('pointerup',     this._onUp);
-        c.removeEventListener('pointercancel', this._onUp);
-      }
-      this._canvas = null;
       for (const h of [...this._handles]) this.remove(h);
-      this._claimed.clear();
+      this._pointer = null;
+      this._canvas = null;
       _unregister(this._p, this);
     }
   }
