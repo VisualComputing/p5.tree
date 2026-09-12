@@ -4,7 +4,7 @@ export default [
   // 1) ESM build (npm/bundlers): keep deps external
   {
     input: 'src/index.js',
-    external: ['p5', '@nakednous/tree', '@nakednous/ui'],
+    external: ['p5', '@nakednous/tree', '@nakednous/host', '@nakednous/ui'],
     output: {
       file: 'dist/p5.tree.esm.js',
       format: 'es',
