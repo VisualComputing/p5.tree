@@ -6,7 +6,7 @@
  * Errors fail the build; warnings print and continue.
  */
 
-import { p5RefUrl } from './config.js';
+import { p5RefUrl, aliases } from './config.js';
 
 const VOCABULARY = new Set([
   'file', 'module', 'license',
@@ -61,6 +61,9 @@ export function linkTable({ modules, doclets }) {
   const bare = [...doclets].sort((a, b) => rank(a) - rank(b));
   for (const d of doclets) table.set(`${d.owner}.${d.name}`, { doclet: d });
   for (const d of bare)    if (!table.has(d.name)) table.set(d.name, { doclet: d });
+  for (const [cls, factory] of Object.entries(aliases)) {
+    if (!table.has(cls) && table.has(factory)) table.set(cls, table.get(factory));
+  }
   return table;
 }
 

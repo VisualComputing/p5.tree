@@ -12,9 +12,11 @@
  * module. Dotted `@param` / `@property` names group under their parent.
  *
  * Audience rule. The rendered description is the block's prose before its
- * first tag, written for a p5 user: what it does, the key options, what it
- * needs. Technical prose stays in the source under `@details`, a tag the
- * parser accepts and never renders.
+ * first tag (for a module header, also the prose after `@license`), written
+ * for a p5 user: what it does, the key options, what it needs, in p5's own
+ * words — no stack, package or implementation terms. Technical prose stays
+ * in the source under `@details`, a tag the parser accepts and never
+ * renders; in a module header it must come last.
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -139,7 +141,10 @@ function parseFile(srcDir, file) {
     // Module header — @file / @module / @license, prose before or after.
     const moduleTag = tagOf('module');
     if (moduleTag) {
-      const lastTag = b.tags[b.tags.length - 1];
+      // The rendered prose: text before the first tag, plus the text after the
+      // last tag — unless that tag is @details, whose text stays in the source.
+      const n = b.tags.length;
+      const lastTag = b.tags[n - 1].tag === 'details' ? b.tags[n - 2] : b.tags[n - 1];
       const prose   = [b.description.trim(), continuation(lastTag)].filter(Boolean).join('\n\n');
       block.module = {
         name:        moduleTag.name,

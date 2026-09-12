@@ -28,6 +28,18 @@ export function p5RefUrl(name) {
   return `${p5.reference}${m[1] ? 'p5.' + m[1] : 'p5'}/${isClass ? 'p5.' : ''}${m[2]}/`;
 }
 
+/** Class names in prose link to the factory that makes them. */
+export const aliases = {
+  Handle:        'createHandle',
+  PointerRouter: 'createPointerRouter',
+  PoseTrack:     'createPoseTrack',
+  CameraTrack:   'createCameraTrack',
+  TrackHandles:  'createPoseTrack',
+  PoseHelm:      'createPoseHelm',
+  CameraHelm:    'createCameraHelm',
+  Panel:         'createPanel',
+};
+
 /** The text a `p5.`-prefixed link shows: the name without the prefix (`createCanvas`, `Camera.perspective`). */
 export const p5RefText = (name) => name.replace(/^p5\.(?!Tree\b)/, '');
 
