@@ -1,8 +1,18 @@
 /**
- * @file Visibility — frustum culling bridge: computePlanes, visibility, bounds, distanceToBound.
+ * @file Knowing what the camera can see.
  * @module p5.tree/visibility
  * @license AGPL-3.0-only
  *
+ * Ask whether a point, a sphere or a box is in view before drawing it.
+ * `visibility()` answers `VISIBLE`, `SEMIVISIBLE` or `INVISIBLE` for the
+ * current camera; `bounds()` captures the six planes of another camera's view
+ * so the same question can be asked from its point of view; and
+ * `distanceToBound()` measures how far a point is from one of those planes.
+ *
+ * Reach for it to skip drawing what is off-screen, or to show what a second
+ * camera is looking at.
+ *
+ * @details
  * Delegates all math to @nakednous/tree. Zero allocations in hot paths.
  *
  * ### Usage pattern
@@ -479,7 +489,7 @@ export function installVisibility(p5, fn) {
    * @memberof p5
    * @param {ArrayLike|p5.Vector} point
    * @param {number|string} key  p5.Tree plane constant (`LEFT`, `RIGHT`, `NEAR`, `FAR`, `TOP`, `BOTTOM`).
-   * @param {object} [bounds]    Keyed bounds object. Defaults to current frustum.
+   * @param {object} [bounds]    Planes from `bounds()`. Defaults to the current camera's view.
    * @returns {number}
    * @example
    * <caption>Signed distance to the RIGHT plane: negative inside, positive outside</caption>
