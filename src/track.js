@@ -277,6 +277,12 @@ class TrackHandles {
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   /**
+   * Drive the keyframe handles for this frame and report whether one is being
+   * dragged. Call it first in draw() and orbit only when it returns false, so a
+   * press on a dot grabs it while one that misses orbits (see the orbit gate
+   * example). Needs a WEBGL canvas and a track created with handles.
+   *
+   * @details
    * Rebuild-if-needed, idle-sync, then route. Call FIRST in draw(), after
    * setCamera of the observer camera and before orbitControl():
    *
@@ -323,6 +329,9 @@ class TrackHandles {
   }
 
   /**
+   * Tell whether any keyframe handle is being dragged right now (see the
+   * magenta path example).
+   *
    * @function grabbed
    * @memberof TrackHandles
    * @returns {boolean} true while any member is grabbed.
@@ -354,6 +363,9 @@ class TrackHandles {
   }
 
   /**
+   * Give the index of the keyframe whose handle is under the pointer or being
+   * dragged, or null when there is none (see the bulls-eye example).
+   *
    * @function hovered
    * @memberof TrackHandles
    * @returns {number|null} keyframe index under the pointer (or grabbed).
@@ -394,9 +406,15 @@ class TrackHandles {
   }
 
   /**
+   * Refresh the handle dots after editing keyframes from code in the same
+   * frame, so they draw where the keyframes are (see the bobbing keyframe
+   * example). Chainable.
+   *
+   * @details
    * Re-seed every idle member from its keyframe. update() already does this
    * each frame; call directly only between update() and a same-frame read.
    * Chainable.
+   *
    * @function sync
    * @memberof TrackHandles
    * @returns {TrackHandles} this
@@ -428,7 +446,12 @@ class TrackHandles {
   sync() { this._syncIdle(); return this; }
 
   /**
+   * Remove the keyframe handles from the track: the dots disappear and the
+   * orbit runs unconditionally (see the key-press example).
+   *
+   * @details
    * Dispose members + router and detach from the track.
+   *
    * @function dispose
    * @memberof TrackHandles
    * @example
@@ -467,6 +490,12 @@ class TrackHandles {
   // ── Draw (the trackPath HANDLES bit lands here) ─────────────────────
 
   /**
+   * Draw the keyframe handle dots with the sketch's current fill and stroke; a
+   * hovered or grabbed dot grows. Pass `size` for the dot radius and emphasis
+   * for the hover growth (see the standalone draw example). Normally trackPath
+   * with the HANDLES bit draws them for you.
+   *
+   * @details
    * Render every member at the ambient p5 state: fill() colours the dots,
    * stroke() the rot ring/spoke. Hover/grab emphasis is geometric — the dot
    * grows by `emphasis` — so colour stays the sketch's, per the ambient
@@ -699,6 +728,13 @@ export function installTrack(p5, fn) {
   // ── fn.createPoseTrack ─────────────────────────────────────────────────────
 
   /**
+   * Animate an object along keyframes: add poses, play, and read the
+   * interpolated pose each frame with eval to place whatever you draw.
+   * Position, rotation and scale each have their own interpolation mode, and
+   * `{ handles: true }` adds draggable keyframe dots with an optional rotation
+   * ring (see the keyframe handles example). Needs a WEBGL canvas.
+   *
+   * @details
    * Create a PoseTrack wired to the p5 draw loop.
    *
    * ```js
@@ -834,6 +870,14 @@ export function installTrack(p5, fn) {
   // ── fn.createCameraTrack ───────────────────────────────────────────────────
 
   /**
+   * Animate the camera along keyframes: add lookats, play, and the camera
+   * follows with nothing to do in draw(). Pass a camera to fly a second one
+   * while the default stays free to orbit, and add `{ handles: true }` to drag
+   * keyframe eyes and centers (see the keyframe handles example). Needs a WEBGL
+   * canvas; keyframe handles need a second camera to fly, viewed from the
+   * default one.
+   *
+   * @details
    * Create a CameraTrack bound to a p5.Camera.
    * Playback applies the interpolated lookat + projection automatically each frame.
    *
@@ -1144,6 +1188,12 @@ export function installTrack(p5, fn) {
   // ── p5.Camera — capturePose / applyPose ────────────────────────────────────
 
   /**
+   * Read this camera's eye, center, up and lens into a pose you can add to a
+   * camera track or draw as a frustum. Pass a preallocated `out` to reuse it
+   * every frame (see the second camera example). Works on any p5.Camera,
+   * live or not.
+   *
+   * @details
    * Read the camera into a { eye, center, up, fov, halfHeight, near, far }
    * state — the core's `cameraFromMat4` over the camera's own eye matrix
    * (the inverse of its `cameraMatrix`) and its `projMatrix`, populated by
@@ -1232,6 +1282,11 @@ export function installTrack(p5, fn) {
   };
 
   /**
+   * Set this camera from a pose: eye, center and up, plus the lens when a fov
+   * or halfHeight is given. Also accepts a `{ pos, rot, scl }` pose from a
+   * pose track, so a camera can ride an object's animation.
+   *
+   * @details
    * Apply a { eye, center, up, fov?, halfHeight?, near?, far? } pose to this
    * camera. Calls cam.camera(eye, center, up) directly — no matrix
    * reconstruction, so a captured pose applies back to the same view.
