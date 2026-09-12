@@ -72,7 +72,7 @@ export function installPicking(p5, fn) {
   // ── tag ───────────────────────────────────────────────────────────────────
 
   /**
-   * Encode an integer id as a CSS hex color string for use with `fill()`.
+   * Encode an integer id as a CSS hex color string for use with `p5.fill()`.
    * id `0` is reserved — decodes as background / miss.
    *
    * @function tag
@@ -112,7 +112,7 @@ export function installPicking(p5, fn) {
   /**
    * Pick the object under a canvas pixel: `drawFn` renders the scene off-screen
    * with each object filled by its tag colour, and the id found at that pixel is
-   * returned — 0 when nothing is there (see the example). Needs a WEBGL canvas;
+   * returned — 0 when nothing is there (see the example). Needs a `p5.WEBGL` canvas;
    * lights, strokes and shaders are switched off for the pick pass.
    *
    * @details
@@ -127,7 +127,7 @@ export function installPicking(p5, fn) {
    * @memberof p5
    * @param {number}   px      X coordinate in canvas CSS pixels.
    * @param {number}   py      Y coordinate in canvas CSS pixels.
-   * @param {function} drawFn  Scene draw callback — tag objects with fill(tag(id)).
+   * @param {function} drawFn  Scene draw callback — tag objects with `fill(tag(id))`.
    * @returns {number}         Decoded id (0 = background / miss).
    * @example
    * <caption>Pick at the canvas centre; orbit to bring an object under the cross</caption>
@@ -219,7 +219,7 @@ export function installPicking(p5, fn) {
    * Shorthand for `colorPick(mouseX, mouseY, drawFn)`.
    * @function mousePick
    * @memberof p5
-   * @param {function} drawFn  Scene draw callback — tag objects with fill(tag(id)).
+   * @param {function} drawFn  Scene draw callback — tag objects with `fill(tag(id))`.
    * @returns {number}  Decoded id (0 = background / miss).
    * @example
    * <caption>Hover to highlight</caption>
@@ -261,9 +261,9 @@ export function installPicking(p5, fn) {
   /**
    * Test whether the pointer is over the current model's origin, within a hit
    * zone `size` wide in world units at that depth — a cheap proximity test with
-   * no GPU readback (see the hover example). With explicit x, y in the options
+   * no GPU readback (see the hover example). With explicit `x`, `y` in the options
    * the test is made in screen space and the size is in pixels (see the
-   * sweeping-point example). Needs a WEBGL canvas; call it inside push/pop for
+   * sweeping-point example). Needs a `p5.WEBGL` canvas; call it inside `p5.push()`/`p5.pop()` for
    * each pickable object.
    *
    * @details
@@ -276,8 +276,8 @@ export function installPicking(p5, fn) {
    *
    * @function pointerHit
    * @memberof p5
-   * @param {number}  [pointerX]  Defaults to mouseX.
-   * @param {number}  [pointerY]  Defaults to mouseY.
+   * @param {number}  [pointerX]  Defaults to `p5.mouseX`.
+   * @param {number}  [pointerY]  Defaults to `p5.mouseY`.
    * @param {{
    *   mat4Model?:  Float32Array | ArrayLike | p5.Matrix,
    *   x?, y?,
