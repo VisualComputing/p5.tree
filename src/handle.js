@@ -16,18 +16,20 @@
  * nearest handle under a press and shares hover between its members.
  *
  * @details
- * Wraps a renderer-agnostic tree Constraint (`@nakednous/tree/handle`) with the
- * transport a draggable 3D control needs: the host's pointer source, a
- * pixel→ray unprojection, and a host-driven
- * `update()` lifecycle. Constructed like a track (`createHandle` → stateful
- * controller); consumed like a gizmo.
+ * A thin p5 layer over the host's controller (`@nakednous/host`): the host
+ * handle owns the gesture (presses, moves and claims from the host's pointer
+ * source), the analytic pick (the pointer's ray against the constraint's
+ * `proxy`, the grab size converted through `pixelRatio` at the proxy's
+ * depth), the solve in WORLD, snap, hover, cancel, the deferred `from` frame
+ * and the hooks — all against the host's view bag, which index.js fills from
+ * renderer state each predraw and `update()` refreshes before it reads.
  *
- * ### Layering
- * The numeric core (`Constraint`) solves a ray→value mapping in ONE working
- * space and never learns world vs eye. This bridge converts the world pointer
- * ray into the working frame before `solve()`, and converts the value back out
- * through `mapDirection` / `mapLocation`. Nothing here re-implements geometry,
- * visibility, or matrix math — it only feeds numbers across the boundary.
+ * What p5.tree adds: `value()` allocates a `p5.Vector` when `out` is omitted
+ * and accepts `to: MODEL` plus the mat4 overrides `mapLocation` takes;
+ * `bind()` accepts a `p5.Vector` and a `p5.Camera` lookat field beside the
+ * host's accessor and vec3 shapes; `draw()` renders the dot, aim, locus and
+ * ring at the ambient p5 state; `createPointerRouter` returns the host's
+ * router bound to the sketch canvas; `p5.Tree.VIEW` is the host's `VIEW`.
  *
  * ### update() ordering contract
  * `update()` is host-driven (NOT a predraw hook) because the orbit gate depends
@@ -42,127 +44,32 @@
  * }
  * ```
  *
- * ### Pick ray
- * The pick ray is the core's `unproject` in WORLD — origin on the near plane,
- * unit direction toward the far plane — fed the live P·V bag and the signed
- * viewport matrix.js keeps, with the NDC-z convention from `getNdcZ()`, so
- * nothing is hardcoded. `solve()` runs in WORLD; `value()` converts the
- * result to the requested space.
- *
- * ### Pick proxy
- * A press grabs iff the pointer's ray meets the grab proxy. The default path
- * is analytic: the same unprojected ray, the grab size converted from
- * `grabPx` to world units through `pixelRatio` at the proxy's depth, and the
- * constraint's `proxy(ray, radius) → t` (built-in kinds: a sphere at the
- * reported point, the DIAL's ring at its anchor; a custom kind without one
- * gets the sphere). No render pass, so hover costs nothing. `analytic: false`
- * keeps the rasterized path — the tagged proxy rendered into colorPick's 1×1
- * buffer and read back — for parity experiments, and it is what a custom
- * kind supplying `pickProxy` without `proxy` picks with.
- *
- * ### Pointer source
- * Presses, moves, releases and cancels come from the p5 instance's host
- * (`host.pointer`, one source per canvas): its listeners only record, in
- * logical canvas px, and `update()` reads the frame's press queue and the
- * tracked pointer's entry — `seq` counts its moves, `up` / `cancel` end the
- * gesture, Esc cancels every claimed pointer. A grab claims the pointer
- * through the source (which captures it on the canvas); a miss leaves it
- * unclaimed for the orbit. The frame ends when the adapter flushes the
- * source from postdraw.
- *
- * ### Constraint kinds
- * Core SPHERE / PLANE / AXIS / DIAL pass straight through. DIAL is the
- * rotation handle: a 1-DOF accumulated angle on a circle; its pick proxy is a
- * TORUS along the ring (grab anywhere on the ring, like every DCC rotate
- * gizmo), and its `scalar()` is the multi-turn θ. VIEW is a bridge constraint:
- * a core PLANE whose normal is re-aimed at the camera each solve (a
- * screen-parallel drag plane through the current point), reported as a world
- * position. The core never learns about the camera; the `_view` flag carries
- * the bridge behaviour (plane re-aim, direct-set seed, screen-aligned square
- * locus).
- *
- * A CUSTOM kind passes a contract-conforming constraint object
- * (`kind`/`solve`/`value`/`seed`, optional `scalar`/`azEl`) as
- * `constraint:`, plus a bridge-side `drawLocus(h, opts)` (and optionally
- * `pickProxy(h, pos, rad)`) — the controller drives lifecycle, ray, value
- * conversion, bind, hooks, and pick for it; without a `drawLocus` it draws only
- * dot + aim and warns once.
- *
- * ### Snap / hover / cancel
- * `snap` quantizes at the solve seam (bridge, post-solve, pre-`set()`): an
- * angular step for SPHERE (az/el) and DIAL (θ), a world grid for PLANE / AXIS /
- * VIEW (PLANE re-projects the snapped point, so off-plane grids land on the
- * nearest on-plane point). Settable live (`h.snap = …`) — gate it on a modifier
- * in the sketch for the Blender Ctrl convention. `hover` (lone-handle opt-in;
- * the ROUTER provides it shared) is a pick-on-move read out via `hovered()` —
- * styling stays in the sketch, at the ambient-state philosophy. Cancel reverts
- * the drag to the value captured at grab: Esc or `pointercancel` while held, or
- * `h.cancel()` programmatically; the binding is restored and `onCancel` fires
- * (release does NOT fire). Mirrors three's `reset()` / Blender's modal cancel.
+ * ### Custom kinds
+ * A contract-conforming constraint object (`kind` / `solve` / `value` /
+ * `seed`, optional `scalar` / `azEl` / `aim` / `proxy`) passes as
+ * `constraint:`; its grab shape is its `proxy(ray, radius) → t`, a sphere at
+ * its point when absent. A bridge-side `drawLocus(h, opts)` draws its
+ * surface; without one it draws dot + aim and warns once.
  *
  * ### Deferred constraint frame (`from`)
  * The basis opts (`axis` / `normal` / `zero`) are symbolic — "Y, but whose
- * Y?". `from` names the space they resolve FROM into WORLD: it is literally
- * `mapDirection`'s `from`, deferred. Resolution (one mapDirection per vector +
- * a core `aim()`) re-runs each idle frame — so the locus and pick proxy
- * track a turning frame live — and is implicitly frozen at grab: the basis
- * never changes mid-drag (snapshot-at-press, well-posed under camera motion).
- * Directions only; the anchor stays a world location (anchor() moves it when
- * the frame carries the origin too). WORLD / absent skips it all — identical
- * to a from-less handle. SPHERE has no basis and VIEW re-aims continuously by
- * design (a deliberately DIFFERENT semantics from PLANE + from: EYE, which
- * freezes the plane at press); both reject `from`. A custom kind participates
- * iff it exposes aim() (an optional contract member).
- *
- * ### Multitouch: per-pointer capture (A) and the router (B)
- * The whole gesture keys to one pointerId (see update()), and the pick + solve
- * read that pointer's own coords — so on a shared surface each handle tracks
- * its own finger and ignores the rest. Independent, non-overlapping handles
- * work with a plain loop (one finger each). OVERLAPPING handles (a clustered
- * TRS gizmo; a track's keyframe handles — TrackHandles, track.js) break
- * per-handle self-picking — two proxies under one finger each
- * see only themselves and double-grab — so they share a `createPointerRouter`:
- * ONE shared pick across all member proxies (the nearest analytic hit by ray
- * parameter t, ties to the first member; or one tagged pass, distinct ids,
- * nearest by depth, under `analytic: false`), an id→handle map, and a
- * claimed-pointer set; unclaimed pointers fall through to the camera gesture.
- * Routed handles
- * skip their own pointerdown adoption (`_routed`) and are grabbed via an
- * injected `_adopt` — from the first move on, the per-pointer machinery runs
- * verbatim. The router also amortizes hover (one shared pick per moved frame)
- * and lifts A's same-frame limit: every queued press resolves, not just one.
+ * Y?". `from` names the space they resolve FROM into WORLD each idle frame,
+ * frozen at grab. `draw()` re-resolves after the orbit moved the camera, so
+ * an EYE-framed locus renders against the live state. SPHERE has no basis
+ * and VIEW re-aims continuously by design; both reject `from`.
  */
 
 'use strict';
 
-import {
-  createConstraint, dirFromAzEl, unproject, rayHitSphere,
-  SPHERE, PLANE, AXIS, DIAL,
-  POINT, DIRECTION,
-  WORLD,
-} from '@nakednous/tree';
-import { pvBag, viewport, getNdcZ, ensureHost } from './matrix.js';
+import { SPHERE, PLANE, AXIS, DIAL, POINT, DIRECTION, WORLD } from '@nakednous/tree';
+import { Handle as HostHandle, PointerRouter as HostRouter, validConstraint } from '@nakednous/host';
+import { ensureHost, syncHostView } from './matrix.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Module-level scratch — synchronous, single-threaded, never returned
+// Draw scratch — synchronous, single-threaded, never returned
 // ═══════════════════════════════════════════════════════════════════════════
-//
-// update()/value() run to completion within one draw() call with no reentrancy
-// across handles, so a handle's solve never interleaves with another's. Shared
-// scratch is therefore safe — same discipline as gizmos.js (_sl/_wl). The pick
-// PROXY position/radius are per-instance (`_proxyPos`/`_proxyRad`), NOT module
-// scratch, because the router renders every member's proxy in one shared pass.
 
-const _rayO = new Float32Array(3);   // pick ray origin (near plane), WORLD
-const _rayD = new Float32Array(3);   // pick ray unit direction, WORLD
-const _v3   = new Float32Array(3);   // value() extraction scratch
-const _q2   = [0, 0];                // az/el snap scratch
-
-// Single pick id for a lone handle's self-pick pass. The router assigns each
-// member its own id (index + 1) in the shared pass.
-const PROXY_ID = 1;
-
-// ── Draw scratch + small vec3 helpers (bridge draw only) ────────────────────
+const _v3 = new Float32Array(3);   // value() extraction scratch
 const _pW = new Float32Array(3);   // handle point, WORLD
 const _aW = new Float32Array(3);   // anchor, WORLD
 const _b0 = new Float32Array(3);   // basis u (ring / plane quad)
@@ -189,13 +96,13 @@ const _basisFromNormal = (n, ub, vb) => {
   vb[0] = n[1]*ub[2] - n[2]*ub[1]; vb[1] = n[2]*ub[0] - n[0]*ub[2]; vb[2] = n[0]*ub[1] - n[1]*ub[0];
 };
 
+// A host stand-in for a handle created before createCanvas(): no pointer, no
+// view, so update() is a no-op and nothing else throws.
+const _NO_HOST = { pointer: null, view: null, register(c) { return c; }, unregister() {} };
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Handle registry — per p5 instance, disposed on the remove lifecycle
 // ═══════════════════════════════════════════════════════════════════════════
-//
-// Mirrors track.js's player registry: handles (and routers) attach DOM
-// listeners at construction, so the sketch teardown must release them. See
-// index.js remove.
 
 const HANDLES = new WeakMap();
 
@@ -223,27 +130,6 @@ export function disposeHandles(pInst) {
 
 export function installHandle(p5, fn) {
 
-  // The canvas DOM element backing the sketch (panel.js uses the same idiom).
-  const _canvasOf = (p) => {
-    const r = p._renderer;
-    return (r && (r.canvas || (r.drawingContext && r.drawingContext.canvas))) || null;
-  };
-
-  // Read [x|0, y|1, z|2] off a p5.Vector / array / typed array, falling back
-  // to the supplied defaults (used by anchor()).
-  const _vx = (v, i, d) => {
-    if (v == null) return d;
-    const c = i === 0 ? v.x : i === 1 ? v.y : v.z;
-    return c ?? v[i] ?? d;
-  };
-
-  // Contract check for a custom constraint object.
-  const _isConstraint = (c) =>
-    c && typeof c === 'object' &&
-    typeof c.solve === 'function' &&
-    typeof c.value === 'function' &&
-    typeof c.seed  === 'function';
-
   // Camera-field bind helpers — read / write a p5.Camera's eye | center | up via
   // its lookat scalars, re-applying the lookat on write (a bare eyeX write does
   // not rebuild the view matrix). up falls back to +Y, matching capturePose.
@@ -261,185 +147,31 @@ export function installHandle(p5, fn) {
     else                     cam.camera(x,  y,  z,  cx, cy, cz, ux, uy, uz);
   };
 
+  // The host of a p5 instance, or the stand-in before createCanvas().
+  const _hostOf = (p) => {
+    const host = ensureHost(p);
+    if (!host) console.error('[p5.tree] handle: no canvas found — pointer input disabled. Create the handle after createCanvas().');
+    return host || _NO_HOST;
+  };
+
   /**
-   * Interactive manipulator handle controller.
-   *
-   * Holds a tree `Constraint` plus the p5 transport around it. Stateful and
-   * long-lived (like a `CameraTrack`); not a draw call. Drive it from `draw()`
-   * via `update()`, then read with `value()`.
+   * Interactive manipulator handle controller: the host's handle plus the
+   * p5 conveniences — `p5.Vector` values, camera-field binding, and an
+   * ambient-state draw.
    */
-  class Handle {
+  class Handle extends HostHandle {
     /**
      * @param {p5}     p     The p5 instance the handle is bound to.
      * @param {Object} opts  Validated by `createHandle` (kind already checked).
      */
     constructor(p, opts) {
+      super(_hostOf(p), opts);
       this._p = p;
-
-      const kind = opts.constraint;
-
-      // VIEW is a bridge constraint: a core PLANE whose normal is re-aimed at
-      // the camera each solve (a screen-parallel drag plane). The core stays
-      // camera-oblivious; _view marks the bridge behaviour. A custom constraint
-      // object passes straight through (contract checked in the factory).
-      this._view = (kind === p5.Tree.VIEW);
-
-      if (_isConstraint(kind)) {
-        this._constraint = kind;
-      } else {
-        const coreKind = this._view ? PLANE : kind;
-        // Core constraint owns the canonical state + value mapping. Vector opts
-        // (anchor / normal / axis / zero) pass straight through — the core
-        // duck-types p5.Vector / array / typed array.
-        this._constraint = createConstraint(coreKind, {
-          radius: opts.radius,
-          report: opts.report,
-          anchor: opts.anchor,
-          normal: opts.normal,
-          axis:   opts.axis,
-          zero:   opts.zero,
-          extent: opts.extent,
-        });
-      }
-
-      // Bridge-side seams for a custom kind: locus draw + pick-proxy draw.
-      // Built-in kinds ignore them. drawLocus(h, opts) draws the constraint
-      // surface; pickProxy(h, pos, rad) draws the tagged grab geometry (fill is
-      // already the tag colour; pos/rad are the prepped constant-px values —
-      // pixelRatio is NOT valid inside the pick pass, see _proxyPrep).
+      // The reused value the binding and onChange receive: a p5.Vector.
+      this._bindVal = new p5.Vector(0, 0, 0);
+      // A custom kind's locus draw (its grab shape is the constraint's proxy).
       this._drawLocusFn = typeof opts.drawLocus === 'function' ? opts.drawLocus : null;
-      this._proxyFn     = typeof opts.pickProxy === 'function' ? opts.pickProxy : null;
       this._warnedLocus = false;
-
-      // Deferred constraint frame (see the header).
-      // Symbolic basis copies live here; _resolveFrame() maps them into WORLD
-      // and re-aims the core constraint.
-      this._from     = null;
-      this._fromDir  = null;
-      this._fromZero = null;
-      if (opts.from != null && opts.from !== WORLD) {
-        const custom = _isConstraint(kind);
-        const dirOpt = (kind === PLANE) ? opts.normal : (opts.axis ?? opts.normal);
-        const ok = !this._view &&
-                   (kind === PLANE || kind === AXIS || kind === DIAL ||
-                    (custom && typeof this._constraint.aim === 'function'));
-        if (!ok) {
-          console.error('[p5.tree] createHandle: `from` needs an aimable constraint — PLANE, AXIS, DIAL, or a custom kind exposing aim(); ignoring.');
-        } else if (custom && dirOpt == null) {
-          console.error('[p5.tree] createHandle: `from` on a custom kind needs a symbolic `axis` (or `normal`) to resolve; ignoring.');
-        } else {
-          this._from = opts.from;
-          this._fromDir = [
-            _vx(dirOpt, 0, kind === AXIS ? 1 : 0),
-            _vx(dirOpt, 1, kind === AXIS ? 0 : 1),
-            _vx(dirOpt, 2, 0),
-          ];
-          if (opts.zero != null) {
-            this._fromZero = [_vx(opts.zero, 0, 1), _vx(opts.zero, 1, 0), _vx(opts.zero, 2, 0)];
-          } else if (kind === DIAL) {
-            // Derive the θ=0 reference ONCE, in the FROM space, so axis and
-            // zero co-rotate under the frame — re-deriving per resolve from
-            // the resolved axis alone can flip across the least-aligned-axis
-            // branch (a visible θ jump while the frame turns).
-            _b2[0] = this._fromDir[0]; _b2[1] = this._fromDir[1]; _b2[2] = this._fromDir[2];
-            _norm3(_b2);
-            const r0 = [0, 0, 0], r1 = [0, 0, 0];
-            _basisFromNormal(_b2, r0, r1);
-            this._fromZero = r0;
-          }
-        }
-      }
-
-      // Runtime gate — false suspends grab/solve without disposing listeners.
-      this._enabled = opts.enabled !== false;
-
-      // Pick-proxy radius in screen pixels — the grab hit-test size, drawn at
-      // constant screen size regardless of depth (see _proxyPrep).
-      this._grabPx = Number.isFinite(opts.grabPx) ? opts.grabPx : 12;
-
-      // Pick path: analytic (the constraint's proxy against the pointer's
-      // ray) by default; false keeps the rasterized tagged pass.
-      this._analytic = opts.analytic !== false;
-
-      // Snap step — quantizes at the solve seam (null = off). Angular step
-      // (radians) for SPHERE az/el and DIAL θ; world grid (number | [x,y,z])
-      // for PLANE / AXIS / VIEW. Settable live.
-      this._snap = opts.snap ?? null;
-
-      // Hover (lone-handle opt-in; the router provides it shared): pick-on-move
-      // while idle, read out via hovered(). One proxy test per frame with
-      // pointer motion (a 1×1 readback under analytic: false) — prefer the
-      // router when handles cluster.
-      this._hover   = opts.hover === true;
-      this._hovered = false;
-      this._hid     = null;     // the pointer last hover-tested, and its seq then
-      this._hseq    = -1;
-
-      // Transport state. update() reads the host's pointer source, so all
-      // grab/solve happens inside draw().
-      //
-      // _pid keys the gesture to ONE pointer — the claimed pointer while
-      // grabbed, null when idle — so on a multitouch surface a handle tracks
-      // its own finger and ignores the others (and the mouse). _ptr is that
-      // pointer's position in logical canvas px, fed to the pick and the solve
-      // in place of the global mouseX/mouseY (one global can't say which finger
-      // moved); _seq is the last move consumed. _routed hands the *down* step
-      // to a PointerRouter (shared pick, injected _adopt); everything from the
-      // first move on is identical.
-      this._grabbed = false;
-      this._pid     = null;
-      this._seq     = -1;
-      this._ptr     = new Float32Array(2);
-      this._routed  = false;
-
-      // Pick-proxy prep (constant-px sizing sampled against the LIVE projection,
-      // before colorPick installs the pick one) — per instance, because the
-      // router preps every member before its one shared pass.
-      this._proxyPos = new Float32Array(3);
-      this._proxyRad = 0;
-
-      // Cancel state — the value (and scalar, for winding) captured at grab;
-      // cancel() reverts to it and restores the binding.
-      this._saved  = new Float32Array(3);
-      this._savedS = 0;
-
-      // Interaction hooks (user-facing) + lib-space seams (_on*, for the
-      // bridge / UI / router). Fired user-first, mirroring Track's onPlay/onEnd.
-      this.onGrab     = typeof opts.onGrab    === 'function' ? opts.onGrab    : null;
-      this.onRelease  = typeof opts.onRelease === 'function' ? opts.onRelease : null;
-      this.onChange   = typeof opts.onChange  === 'function' ? opts.onChange  : null;
-      this.onCancel   = typeof opts.onCancel  === 'function' ? opts.onCancel  : null;
-      this._onGrab    = null;
-      this._onRelease = null;
-      this._onChange  = null;
-      this._onCancel  = null;
-
-      // Binding — a normalised { get, set } accessor (null when pull-only).
-      // _bindVal is the reused value vector handed to set() / onChange, lazily
-      // allocated on first solve so pull-only handles allocate nothing.
-      this._binder  = null;
-      this._bindVal = null;
-
-      this._attachPointer();
-
-      // Opt-in bind (single-arg shapes only; camera binding needs the field,
-      // so use the chained h.bind(cam, 'eye') form).
-      if (opts.bind != null) this.bind(opts.bind);
-    }
-
-    // ── Pointer wiring ──────────────────────────────────────────────────────
-
-    // The host's pointer source of this sketch (one per canvas). Its
-    // listeners record every pointer's press, moves and release in logical
-    // canvas px and capture a claimed pointer on the canvas, so a drag that
-    // leaves the dot or the canvas keeps flowing; update() does the work.
-    _attachPointer() {
-      this._canvas = _canvasOf(this._p);
-      const host = ensureHost(this._p);
-      this._pointer = host ? host.pointer : null;
-      if (!this._pointer) {
-        console.error('[p5.tree] handle: no canvas found — pointer input disabled. Create the handle after createCanvas().');
-      }
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -448,19 +180,13 @@ export function installHandle(p5, fn) {
      * Turn a press on the handle into a grab and follow the pointer while it is held. Call it first in `p5.draw()` every frame; it returns true while the handle is grabbed, so the orbit gate example uses it to decide whether `p5.orbitControl()` runs. When the handle sits on a `PointerRouter`, the router's own `PointerRouter.update()` call covers it.
      *
      * @details
-     * Resolve the grab and re-solve from the pointer. Call FIRST in `draw()`
-     * (or call the router's `update()` when routed — it delegates here).
-     *
-     * Returns the post-update grabbed state so the orbit gate can short-circuit
-     * (`if (!h.update()) orbitControl()`). A disabled handle is an immediate
-     * no-op returning `false`.
-     *
-     * A fresh press tests the pointer's ray against the proxy (`_pickAt`); only a hit
-     * grabs, so a miss leaves `grabbed` false and the press falls through to
-     * `orbitControl()`. `onGrab` fires on a successful grab, `onChange` on each
-     * solve while held (after `snap`), `onRelease` on the matching release, and
-     * `onCancel` instead of `onRelease` when the drag is reverted (Esc /
-     * `pointercancel` / `cancel()`).
+     * Refreshes the host's view bag from the renderer (the camera may have
+     * moved since predraw), then runs the host controller's update: the
+     * frame's presses hit-tested against the proxy, a hit claiming the
+     * pointer; moves solved, snapped, pushed to the binding with `onChange`;
+     * `onRelease` on release, `onCancel` on Esc / `pointercancel` / `cancel()`.
+     * Returns the post-update grabbed state so the orbit gate can
+     * short-circuit; a disabled handle returns `false`.
      *
      * @function update
      * @memberof Handle
@@ -484,105 +210,8 @@ export function installHandle(p5, fn) {
      * }
      */
     update() {
-      if (!this._enabled) {
-        if (this._pid !== null && this._pointer) this._pointer.release(this._pid);
-        this._grabbed = false;
-        this._hovered = false;
-        this._pid = null;
-        return false;
-      }
-      const src = this._pointer;
-      if (!src) return false;
-      // Deferred frame: refresh the basis while idle so the locus / proxy /
-      // pick track the FROM space live; a grab freezes it for the gesture
-      // (snapshot-at-press — the drag solves a stationary constraint).
-      if (this._from && !this._grabbed) this._resolveFrame();
-      // Fresh press → proxy hit-test at OUR pointer's pixel; grab only on a
-      // hit. A miss frees _pid, so the next press — or, on a multitouch surface,
-      // another finger — can be adopted. (Routed handles never get here; the
-      // router's shared pick calls _adopt instead.)
-      if (!this._routed && this._pid === null) {
-        for (const pr of src.presses) {
-          if (src.ownerOf(pr.id) !== null) continue;       // taken by another handle this frame
-          this._ptr[0] = pr.x; this._ptr[1] = pr.y;
-          if (this._pickAt(pr.x, pr.y)) { this._adopt(pr.id, pr.x, pr.y); break; }
-        }
-      }
-
-      if (this._pid !== null) {
-        const e = src.get(this._pid);
-        if (!e) {
-          // The entry left the source before this handle saw its end (a
-          // frame without update()): revert, as a cancel.
-          this._cancelNow();
-        } else {
-          // Drag → re-solve from our pointer's ray at each new move, snap,
-          // then push to the binding and fire onChange.
-          if (this._grabbed && e.seq !== this._seq && !e.cancel) {
-            this._seq = e.seq;
-            this._ptr[0] = e.x; this._ptr[1] = e.y;
-            this._solveFromPointer(e.x, e.y);
-            this._applySnap();
-            this._afterSolve();
-          }
-          // Cancel (Esc / pointercancel / cancel()) — revert to the grab-time
-          // value and go idle. Wins over a same-frame release.
-          if (e.cancel) {
-            this._cancelNow();
-          } else if (e.up) {
-            // Release (pointerup) — fire onRelease, then go idle so the handle
-            // is free for the next press.
-            src.release(this._pid);
-            this._grabbed = false;
-            this._pid = null;
-            this.onRelease  && this.onRelease(this);
-            this._onRelease && this._onRelease(this);
-          }
-        }
-      }
-
-      // Hover (lone-handle opt-in; routed handles get it from the router's
-      // shared pick): one proxy test per frame with pointer motion while idle.
-      if (this._grabbed) {
-        this._hovered = true;
-      } else if (this._hover && !this._routed) {
-        for (const e of src.pointers.values()) {
-          if (e.owner !== null) continue;                   // a drag is not a hover
-          if (e.id === this._hid && e.seq === this._hseq) continue;
-          this._hid = e.id; this._hseq = e.seq;
-          this._hovered = this._pickAt(e.x, e.y);
-          break;
-        }
-      }
-
-      return this._grabbed;
-    }
-
-    // Begin a grab: capture the cancel state, mark grabbed, fire onGrab. Used
-    // by both the self-pick path and the router's _adopt.
-    _beginGrab() {
-      const c = this._constraint;
-      c.value(this._saved, POINT);
-      this._savedS = typeof c.scalar === 'function' ? c.scalar() : 0;
-      this._grabbed = true;
-      this.onGrab  && this.onGrab(this);
-      this._onGrab && this._onGrab(this);
-    }
-
-    /**
-     * Router seam: adopt a pointer decided by a shared pick. Sets the gesture
-     * pointer + coords and begins the grab; from the first move on, the
-     * per-pointer machinery (`update()`) runs unchanged.
-     * @param {number} pointerId
-     * @param {number} x,y  Press position in logical canvas px.
-     */
-    _adopt(pointerId, x, y) {
-      const e = this._pointer.get(pointerId);
-      this._pid = pointerId;
-      this._seq = e ? e.seq : -1;
-      this._ptr[0] = x; this._ptr[1] = y;
-      this._pointer.claim(pointerId, this);       // captures the pointer on the canvas
-      this._beginGrab();
+      syncHostView(this._p);
+      return super.update();
     }
 
     /**
@@ -618,221 +247,7 @@ export function installHandle(p5, fn) {
      *   h.draw({ bits: p5.Tree.HANDLE | p5.Tree.AIM })
      * }
      */
-    cancel() {
-      if (this._grabbed) this._cancelNow();
-      return this;
-    }
-
-    _cancelNow() {
-      const c = this._constraint;
-      if (this._view) {
-        // VIEW: the point IS the value; the plane is ephemeral.
-        c.pt[0] = this._saved[0]; c.pt[1] = this._saved[1]; c.pt[2] = this._saved[2];
-      } else if (c.kind === DIAL) {
-        // Restore the exact accumulated θ (seed would pick the nearest winding,
-        // which can be the wrong turn after a multi-turn drag).
-        c.s = this._savedS;
-        c._dialPoint();
-      } else {
-        c.seed(this._saved[0], this._saved[1], this._saved[2]);
-      }
-      if (this._binder) {
-        this._bindVal ||= new p5.Vector(0, 0, 0);
-        this._binder.set(this.value({ out: this._bindVal }));
-      }
-      this._grabbed = false;
-      if (this._pid !== null && this._pointer) this._pointer.release(this._pid);
-      this._pid = null;
-      this.onCancel  && this.onCancel(this);
-      this._onCancel && this._onCancel(this);
-    }
-
-    // ── Grab (the proxy pick) ───────────────────────────────────────────────
-
-    // Resolve the symbolic FROM-space basis into WORLD and re-aim the core
-    // constraint — one mapDirection per vector. Refreshed at every idle
-    // CONSUMPTION site — update() (the self-pick), _proxyPrep (the routed
-    // pick), and _drawScene (the visuals, post-orbit) — and never mid-drag.
-    // The grab needs no extra call: both pick paths resolve before _beginGrab.
-    _resolveFrame() {
-      const p = this._p;
-      p.mapDirection(this._fromDir, { from: this._from, to: WORLD, out: _b2 });
-      if (this._fromZero) {
-        p.mapDirection(this._fromZero, { from: this._from, to: WORLD, out: _b0 });
-        this._constraint.aim(_b2[0], _b2[1], _b2[2], _b0[0], _b0[1], _b0[2]);
-      } else {
-        this._constraint.aim(_b2[0], _b2[1], _b2[2]);
-      }
-    }
-
-    // Prep the pick proxy against the LIVE projection: world position + the
-    // world radius of a constant `grabPx` screen size — the analytic test's
-    // inputs. On the rasterized path it must run BEFORE colorPick, which
-    // installs a narrowed 1×1 pick projection (pixelRatio sampled inside the
-    // pick pass would be wrong). Per-instance outputs so the router can prep
-    // every member, then test or render them all.
-    _proxyPrep() {
-      const p = this._p;
-      const c = this._constraint;
-      // Routed members are prepped before their update() runs — refresh the
-      // deferred frame here too so the shared pick sees a live basis.
-      if (this._from && !this._grabbed) this._resolveFrame();
-      if (c.kind === DIAL && !this._view) {
-        // DIAL grabs anywhere on the ring: the proxy is a torus at the anchor;
-        // the prepped radius is the constant-px TUBE radius.
-        const a = c.anchor;
-        this._proxyPos[0] = a[0]; this._proxyPos[1] = a[1]; this._proxyPos[2] = a[2];
-      } else {
-        this.value({ to: WORLD, report: POINT, out: this._proxyPos });
-      }
-      this._proxyRad = this._grabPx * p.pixelRatio(this._proxyPos);
-    }
-
-    // Render the tagged proxy geometry (fill = tag colour for `id`). Runs
-    // inside a colorPick pass — the pick projection is installed, so all
-    // constant-px sizing comes from _proxyPrep. The router calls this for every
-    // member with its own id; depth testing makes the nearest proxy win.
-    _renderProxy(id) {
-      const p = this._p;
-      const c = this._constraint;
-      p.push();
-      p.noStroke();
-      p.fill(p.tag(id));
-      if (this._proxyFn) {
-        this._proxyFn(this, this._proxyPos, this._proxyRad);
-      } else if (c.kind === DIAL && !this._view) {
-        // Torus along the ring, +Z aligned to the dial axis.
-        p.translate(this._proxyPos[0], this._proxyPos[1], this._proxyPos[2]);
-        const u = c.u, dot = u[2];
-        if (dot < -0.999999) p.rotate(Math.PI, [1, 0, 0]);
-        else if (dot < 0.999999) p.rotate(Math.acos(dot), [-u[1], u[0], 0]);
-        p.torus(c.radius, Math.max(this._proxyRad, 1e-6), 32, 8);
-      } else {
-        p.translate(this._proxyPos[0], this._proxyPos[1], this._proxyPos[2]);
-        p.sphere(this._proxyRad);
-      }
-      p.pop();
-    }
-
-    /** Pick path — true for the analytic proxy test, false for the rasterized pass. Settable live. */
-    get analytic()  { return this._analytic; }
-    set analytic(v) { this._analytic = v !== false; }
-
-    // Whether this handle can be picked analytically: the constraint has a
-    // proxy, or it takes the core default (a sphere at the point). A custom
-    // kind that supplies pickProxy without proxy is picked by its pass.
-    _analyticOk() {
-      return typeof this._constraint.proxy === 'function' || !this._proxyFn;
-    }
-
-    /**
-     * Hit-test this handle's proxy at a canvas pixel: the pointer's ray
-     * against the constraint's proxy (analytic), or the proxy rendered tagged
-     * into colorPick's 1×1 buffer and read back (rasterized).
-     * @returns {boolean} true if the proxy was hit.
-     */
-    _pickAt(x, y) {
-      if (this._analytic && this._analyticOk()) {
-        const r = this._p._renderer;
-        if (!unproject(_rayO, _rayD, x, y, pvBag(r, null, true), viewport(r), getNdcZ())) return false;
-        return this._proxyT(_rayO, _rayD) < Infinity;
-      }
-      this._proxyPrep();
-      const id = this._p.colorPick(x, y, () => this._renderProxy(PROXY_ID));
-      return id === PROXY_ID;
-    }
-
-    // The analytic pick: prep the proxy (position + working-unit radius),
-    // then the constraint's proxy(ray, radius) — or the core default, a
-    // sphere of that radius at the prepped point — as t, or Infinity.
-    _proxyT(o, d) {
-      this._proxyPrep();
-      const c = this._constraint;
-      if (typeof c.proxy === 'function') {
-        return c.proxy(o[0], o[1], o[2], d[0], d[1], d[2], this._proxyRad);
-      }
-      const p = this._proxyPos;
-      return rayHitSphere(o[0], o[1], o[2], d[0], d[1], d[2], p[0], p[1], p[2], this._proxyRad);
-    }
-
-    // ── Pixel → ray → working frame → solve ─────────────────────────────────
-
-    _solveFromPointer(mx, my) {
-      const r = this._p._renderer;
-
-      // WORLD pick ray from the core: origin on the near plane, unit direction
-      // toward the far plane, on the live P·V bag. A singular bag yields no
-      // ray, and the solve is skipped.
-      if (!unproject(_rayO, _rayD, mx, my, pvBag(r, null, true), viewport(r), getNdcZ())) return;
-
-      // VIEW: re-aim the PLANE at the camera (through the current point) so the
-      // drag tracks a screen-parallel plane at the point's depth.
-      if (this._view) this._viewUpdatePlane();
-
-      this._constraint.solve(_rayO[0], _rayO[1], _rayO[2], _rayD[0], _rayD[1], _rayD[2]);
-    }
-
-    // VIEW: re-aim the core PLANE at the camera through the current point. The
-    // plane normal becomes the look direction (screen-parallel), and its anchor
-    // rides the point so the drag stays at the point's view-depth. The core
-    // PLANE solves it; only the bridge knows a camera was ever involved.
-    _viewUpdatePlane() {
-      const cam = this._p.getCamera();
-      if (!cam) return;
-      const c = this._constraint;
-      c.n[0] = cam.centerX - cam.eyeX;
-      c.n[1] = cam.centerY - cam.eyeY;
-      c.n[2] = cam.centerZ - cam.eyeZ;
-      _norm3(c.n);
-      c.anchor[0] = c.pt[0]; c.anchor[1] = c.pt[1]; c.anchor[2] = c.pt[2];
-    }
-
-    // ── Snap (the solve seam: post-solve, pre-set) ──────────────────────────
-
-    /** Snap step — angular (rad) for SPHERE/DIAL, world grid for PLANE/AXIS/VIEW.
-     *  `null` disables. Settable live (gate on a modifier for the Ctrl idiom). */
-    get snap()  { return this._snap; }
-    set snap(v) { this._snap = v ?? null; }
-
-    // Quantize the freshly solved constraint state. Angular kinds quantize the
-    // canonical parameter directly (no winding loss); positional kinds quantize
-    // the value point and re-seed (PLANE re-projects, so an off-plane grid
-    // lands on the nearest on-plane point).
-    _applySnap() {
-      const sn = this._snap;
-      if (sn == null) return;
-      const c = this._constraint;
-      if (this._view || c.kind === PLANE) {
-        const gx = Array.isArray(sn) ? sn[0] : sn;
-        const gy = Array.isArray(sn) ? sn[1] : sn;
-        const gz = Array.isArray(sn) ? sn[2] : sn;
-        _v3[0] = gx > 0 ? Math.round(c.pt[0] / gx) * gx : c.pt[0];
-        _v3[1] = gy > 0 ? Math.round(c.pt[1] / gy) * gy : c.pt[1];
-        _v3[2] = gz > 0 ? Math.round(c.pt[2] / gz) * gz : c.pt[2];
-        if (this._view) { c.pt[0] = _v3[0]; c.pt[1] = _v3[1]; c.pt[2] = _v3[2]; }
-        else c.seed(_v3[0], _v3[1], _v3[2]);
-      } else if (c.kind === AXIS || c.kind === DIAL) {
-        const step = Array.isArray(sn) ? sn[0] : sn;
-        if (!(step > 0)) return;
-        const q = Math.round(c.s / step) * step;
-        c.s = q < c.min ? c.min : (q > c.max ? c.max : q);
-        if (c.kind === DIAL) c._dialPoint();
-        else {
-          c.pt[0] = c.anchor[0] + c.s * c.u[0];
-          c.pt[1] = c.anchor[1] + c.s * c.u[1];
-          c.pt[2] = c.anchor[2] + c.s * c.u[2];
-        }
-      } else if (c.kind === SPHERE) {
-        const step = Array.isArray(sn) ? sn[0] : sn;
-        if (!(step > 0)) return;
-        c.azEl(_q2);
-        dirFromAzEl(c.dir,
-                    Math.round(_q2[0] / step) * step,
-                    Math.round(_q2[1] / step) * step);
-      }
-      // Custom kinds: no generic snap — quantize in the constraint's solve or
-      // in onChange.
-    }
+    cancel() { return super.cancel(); }
 
     // ── Value (pull-only) ───────────────────────────────────────────────────
 
@@ -841,7 +256,8 @@ export function installHandle(p5, fn) {
      *
      * @details
      * Read the current value into a `p5.Vector` (fresh when `out` is omitted,
-     * zero-alloc when supplied).
+     * zero-alloc when supplied). The host's out-first form `value(out, opts)`
+     * is accepted too — the host controller calls it for the binding.
      *
      * DIRECTION routes through `mapDirection`, POINT through `mapLocation`, so
      * `to` accepts the same spaces those do — `p5.Tree.WORLD` / `EYE` /
@@ -914,7 +330,12 @@ export function installHandle(p5, fn) {
      *   endHUD()
      * }
      */
-    value(opts = {}) {
+    value(a, b) {
+      // Two forms: value(opts) with an optional opts.out, or the host's
+      // value(out, opts) — told apart by an array-like or p5.Vector first argument.
+      const outFirst = a != null && (a instanceof p5.Vector || typeof a.length === 'number');
+      const opts = (outFirst ? b : a) || {};
+      const out  = outFirst ? a : opts.out;
       const c = this._constraint;
       const report = (opts.report === POINT || opts.report === DIRECTION) ? opts.report : c.report;
       const from = WORLD;
@@ -923,10 +344,10 @@ export function installHandle(p5, fn) {
       c.value(_v3, report);
 
       if (to === from) {
-        return this._emit(opts.out, _v3[0], _v3[1], _v3[2]);
+        return this._emit(out, _v3[0], _v3[1], _v3[2]);
       }
       const mapOpts = {
-        from, to, out: opts.out,
+        from, to, out,
         mat4Eye:  opts.mat4Eye,
         mat4Proj: opts.mat4Proj,
         mat4View: opts.mat4View,
@@ -956,16 +377,18 @@ export function installHandle(p5, fn) {
      *
      *   bind(vec)                       p5.Vector — mutated in place (zero-alloc)
      *   bind(cam, 'eye'|'center'|'up')  p5.Camera lookat field — re-applies the camera
+     *   bind([x, y, z])                 a vec3 array mutated in place — a camera state's eye or center
      *   bind({ get, set })              accessor floor — get() → value, set(value) writes
      *
      * `get()` seeds the constraint immediately, so the handle starts at the
-     * target's current value. While grabbed, each solve calls `set(value)` and
-     * fires `onChange`. Values cross in WORLD (the `value()` default). An
-     * unrecognised target logs and leaves the handle pull-only. Chainable.
+     * target's current value. While grabbed, each solve calls `set(value)` with
+     * a reused `p5.Vector` and fires `onChange` with the same. Values cross in
+     * WORLD (the `value()` default). An unrecognised target logs and leaves the
+     * handle pull-only. Chainable.
      *
      * @function bind
      * @memberof Handle
-     * @param {p5.Vector | p5.Camera | { get: Function, set: Function }} target
+     * @param {p5.Vector | p5.Camera | number[] | { get: Function, set: Function }} target
      * @param {string} [field]  Camera lookat field: 'eye' | 'center' | 'up'.
      * @returns {Handle} this
      * @example
@@ -1019,33 +442,20 @@ export function installHandle(p5, fn) {
      * }
      */
     bind(target, field) {
-      let binder = null;
       if (target instanceof p5.Vector) {
-        binder = {
-          get: () => target,
-          set: (v) => target.set(v.x, v.y, v.z),
-        };
-      } else if (target instanceof p5.Camera) {
+        return super.bind({ get: () => target, set: (v) => target.set(v.x, v.y, v.z) });
+      }
+      if (target instanceof p5.Camera) {
         if (field !== 'eye' && field !== 'center' && field !== 'up') {
           console.error("[p5.tree] handle.bind: a p5.Camera needs a field — 'eye', 'center', or 'up'. Leaving unbound.");
           return this;
         }
-        binder = {
-          get: () => _camFieldGet(target, field),
-          set: (v) => _camFieldSet(target, field, v.x, v.y, v.z),
-        };
-      } else if (target && typeof target.get === 'function' && typeof target.set === 'function') {
-        binder = target;   // keep the object so get()/set() retain their `this`
-      } else {
-        console.error('[p5.tree] handle.bind: unrecognised target — pass a p5.Vector, a p5.Camera + field, or an { get, set } accessor. Leaving unbound.');
-        return this;
+        return super.bind({ get: () => _camFieldGet(target, field), set: (v) => _camFieldSet(target, field, v.x, v.y, v.z) });
       }
-      this._binder = binder;
-      // Resolve a deferred frame before seeding, so the seed projects onto
-      // the live basis (bind can run before the first update()).
-      if (this._from && !this._grabbed) this._resolveFrame();
-      this._seedFromBinding();
-      return this;
+      if (target && typeof target === 'object' && typeof target.length === 'number' && target.length >= 3) {
+        return super.bind({ get: () => target, set: (v) => { target[0] = v.x; target[1] = v.y; target[2] = v.z; } });
+      }
+      return super.bind(target);   // an accessor, or the host's diagnostic
     }
 
     /**
@@ -1088,45 +498,7 @@ export function installHandle(p5, fn) {
      *   h.draw({ bits: p5.Tree.HANDLE | p5.Tree.AIM })
      * }
      */
-    sync() {
-      if (this._binder) this._seedFromBinding();
-      return this;
-    }
-
-    // Seed the constraint from the bound target's current value, read in WORLD
-    // (the working frame), so it feeds seed() directly. Accepts p5.Vector /
-    // array / {x,y,z}.
-    _seedFromBinding() {
-      const g = this._binder.get();
-      if (g == null) return;
-      const x = g.x ?? g[0] ?? 0;
-      const y = g.y ?? g[1] ?? 0;
-      const z = g.z ?? g[2] ?? 0;
-      if (this._view) {
-        // VIEW: the point IS the value — set it directly. The plane is
-        // ephemeral (re-derived each solve), so there's nothing to project onto.
-        const pt = this._constraint.pt;
-        pt[0] = x; pt[1] = y; pt[2] = z;
-      } else {
-        this._constraint.seed(x, y, z);
-      }
-    }
-
-    // Push the freshly solved value to the binding and fire onChange — once per
-    // solve while grabbed. Reuses _bindVal (lazily allocated) so a bound or
-    // observed drag allocates nothing per frame. set() before onChange.
-    _afterSolve() {
-      const bound  = this._binder !== null;
-      const notify = !!(this.onChange || this._onChange);
-      if (!bound && !notify) return;
-      this._bindVal ||= new p5.Vector(0, 0, 0);
-      const v = this.value({ out: this._bindVal });
-      if (bound) this._binder.set(v);
-      if (notify) {
-        this.onChange  && this.onChange(v, this);
-        this._onChange && this._onChange(v, this);
-      }
-    }
+    sync() { return super.sync(); }
 
     // ── Draw (SCENE) ──────────────────────────────────────────────────
 
@@ -1194,16 +566,17 @@ export function installHandle(p5, fn) {
       const p = this._p;
       const c = this._constraint;
       // Deferred frame: draw runs AFTER orbitControl moved the camera, so
-      // re-resolve here — an EYE / moving-frame basis renders against the live
-      // state, not update()'s pre-orbit snapshot. Idle only; a grab freezes it.
-      if (this._from && !this._grabbed) this._resolveFrame();
+      // refresh the view bag and re-resolve here — an EYE / moving-frame basis
+      // renders against the live state, not update()'s pre-orbit snapshot.
+      // Idle only; a grab freezes it.
+      if (this._from && !this._grabbed && this._view) { syncHostView(p); this._resolveFrame(); }
       const bits = Number.isFinite(opts.bits)
         ? opts.bits
         : (p5.Tree.HANDLE | p5.Tree.AIM | p5.Tree.LOCUS);
       const sizePx = Number.isFinite(opts.size) ? opts.size : this._grabPx;
 
       // Handle point (WORLD) and anchor (WORLD; custom kinds may not have one).
-      this.value({ to: WORLD, report: POINT, out: _pW });
+      this.value(_pW, { report: POINT });
       const a = c.anchor || null;
       if (a) { _aW[0] = a[0]; _aW[1] = a[1]; _aW[2] = a[2]; }
 
@@ -1221,7 +594,7 @@ export function installHandle(p5, fn) {
       if ((bits & p5.Tree.RING) !== 0 && a) {
         p.push();
         p.noFill();
-        if (c.kind === SPHERE && !this._view) {
+        if (c.kind === SPHERE && !this._isView) {
           const cam = p.getCamera();
           if (cam) {
             _b2[0] = _aW[0] - cam.eyeX;
@@ -1231,7 +604,7 @@ export function installHandle(p5, fn) {
             _basisFromNormal(_b2, _b0, _b1);
             this._ring(_aW[0], _aW[1], _aW[2], c.radius, _b0, _b1);
           }
-        } else if (c.kind === PLANE && !this._view) {
+        } else if (c.kind === PLANE && !this._isView) {
           this._planeQuad(_aW, c.n, _PLANE_HALF);
         }
         p.pop();
@@ -1264,7 +637,7 @@ export function installHandle(p5, fn) {
       if (this._drawLocusFn) { this._drawLocusFn(this, opts); return; }
       p.push();
       p.noFill();
-      if (this._view) {
+      if (this._isView) {
         this._viewSquare(_pW);
       } else if (c.kind === SPHERE) {
         p.push();
@@ -1340,6 +713,8 @@ export function installHandle(p5, fn) {
       }
     }
 
+    // ── Readouts and edits ─────────────────────────────────────────────────
+
     /**
      * Read the handle's one-number value: the signed distance along an `AXIS` rail, or the angle in radians of a `DIAL`, which keeps counting past a full turn (see the DIAL example). NaN for the other constraints.
      *
@@ -1375,7 +750,7 @@ export function installHandle(p5, fn) {
      *   pop()
      * }
      */
-    scalar() { return typeof this._constraint.scalar === 'function' ? this._constraint.scalar() : NaN; }
+    scalar() { return super.scalar(); }
 
     /**
      * Read a `SPHERE` handle's direction as azimuth and elevation angles in a two-element array (see the readout example). Pass `out2` to write into an array you already have instead of getting a fresh one.
@@ -1414,11 +789,7 @@ export function installHandle(p5, fn) {
      *   endHUD()
      * }
      */
-    azEl(out2) {
-      return typeof this._constraint.azEl === 'function'
-        ? this._constraint.azEl(out2 || [0, 0])
-        : (out2 || [0, 0]);
-    }
+    azEl(out2) { return super.azEl(out2); }
 
     /**
      * True while the handle is held, from the press that grabs it to the release (see the magenta example).
@@ -1443,7 +814,7 @@ export function installHandle(p5, fn) {
      *   h.draw()
      * }
      */
-    grabbed() { return this._grabbed; }
+    grabbed() { return super.grabbed(); }
 
     /**
      * True while the pointer is over the handle, and while the handle is held. A lone handle needs `hover: true` to track this (see the hover example); a handle on a `PointerRouter` gets it for free.
@@ -1474,7 +845,7 @@ export function installHandle(p5, fn) {
      *   h.draw()
      * }
      */
-    hovered() { return this._hovered; }
+    hovered() { return super.hovered(); }
 
     /**
      * Move the handle's reference point: the sphere centre, the plane point, the axis anchor, the dial centre, or the dragged point of a `VIEW` handle. The handle's own point follows, so the dot and its hit area stay together (see the orbiting object example). Chainable.
@@ -1518,50 +889,16 @@ export function installHandle(p5, fn) {
      *   pop()
      * }
      */
-    anchor(v) {
-      const c = this._constraint;
-      const t = this._view ? c.pt : c.anchor;
-      if (!t) return this;
-      t[0] = _vx(v, 0, t[0]);
-      t[1] = _vx(v, 1, t[1]);
-      t[2] = _vx(v, 2, t[2]);
-      // The stored point must ride the moved reference — pt is canonical state
-      // for AXIS / PLANE / DIAL (SPHERE derives its POINT live from
-      // anchor + dir). Without this, an idle handle's dot AND its pick proxy
-      // stay at the OLD anchor's point until the next solve — visibly detached
-      // when another handle drives the anchor (a PLANE + AXIS "place" pair).
-      // Mirrors aim()'s per-kind maintenance: AXIS keeps its scalar, PLANE
-      // re-projects its point onto the translated plane, DIAL recomputes from θ.
-      if (!this._view) {
-        if (c.kind === DIAL) {
-          c._dialPoint();
-        } else if (c.kind === AXIS) {
-          c.pt[0] = c.anchor[0] + c.s * c.u[0];
-          c.pt[1] = c.anchor[1] + c.s * c.u[1];
-          c.pt[2] = c.anchor[2] + c.s * c.u[2];
-        } else if (c.kind === PLANE) {
-          c.seed(c.pt[0], c.pt[1], c.pt[2]);
-        }
-      }
-      return this;
-    }
-
-    // ── Runtime gates ───────────────────────────────────────────────────────
-
-    /** Runtime gate — `false` suspends grab/solve without disposing. */
-    get enabled() { return this._enabled; }
-    set enabled(v) {
-      this._enabled = !!v;
-      if (!this._enabled) { this._grabbed = false; this._hovered = false; this._pid = null; }
-    }
+    anchor(v) { return super.anchor(v); }
 
     // ── Teardown ────────────────────────────────────────────────────────────
 
     /**
-     * Detach the handle from the canvas: its pointer and key listeners go and it stops reacting to the mouse or touch (see the any-key example).
+     * Detach the handle from the canvas: it lets go of any pointer it holds and stops reacting to the mouse or touch (see the any-key example).
      *
      * @details
-     * Remove pointer + key listeners and unregister.
+     * Release the pointer claim, leave the host, and unregister from the
+     * sketch's teardown list.
      *
      * @function dispose
      * @memberof Handle
@@ -1594,11 +931,7 @@ export function installHandle(p5, fn) {
      * }
      */
     dispose() {
-      if (this._pid !== null && this._pointer) this._pointer.release(this._pid);
-      this._pid = null;
-      this._grabbed = false;
-      this._pointer = null;
-      this._canvas = null;
+      super.dispose();
       _unregister(this._p, this);
     }
   }
@@ -1608,51 +941,22 @@ export function installHandle(p5, fn) {
   // ═════════════════════════════════════════════════════════════════════════
 
   /**
-   * Coordinates a set of (potentially overlapping) handles: one shared pick
-   * across all member proxies per press (and per moved frame, for hover), an
-   * id→handle map, and a claimed-pointer set. Per-handle self-picking
-   * double-grabs on overlap — two proxies under one finger each test only
-   * themselves and both hit; the shared pick tests every proxy against the
-   * one ray and the nearest hit wins (by ray parameter t on the analytic
-   * path; by depth in the tagged pass under `analytic: false`, or whenever a
-   * member can only be picked by its `pickProxy` pass).
-   *
-   * Members keep their own move/up/cancel machinery (per-pointer multitouch,
-   * verbatim); the router replaces only the DOWN step. Presses are
-   * queued and resolved in `update()` (all listener work stays flag-setting),
-   * so several same-frame presses on different members all land — lifting A's
-   * single-candidate limit. Unclaimed pointers fall through to the camera
-   * gesture untouched.
+   * The host's router bound to the sketch canvas: one shared pick across all
+   * member proxies per press (and per moved frame, for hover), the nearest
+   * hit winning, presses and claims through the host's pointer source.
    */
-  class PointerRouter {
+  class PointerRouter extends HostRouter {
     /**
      * @param {p5}       p
      * @param {Handle[]} handles
-     * @param {{ hover?: boolean, analytic?: boolean }} [opts]  hover defaults
-     *        to TRUE — one shared pick per frame with pointer motion sets at
-     *        most one hovered member (the reason to colocate handles on a
-     *        router); pass false to skip the per-move pick. analytic defaults
-     *        to TRUE; false keeps the tagged pass.
+     * @param {{ hover?: boolean }} [opts]  hover defaults to TRUE — one shared
+     *        pick per frame with pointer motion sets at most one hovered member
+     *        (the reason to colocate handles on a router); pass false to skip
+     *        the per-move pick.
      */
     constructor(p, handles, opts = {}) {
+      super(_hostOf(p), handles, opts);
       this._p = p;
-      this._handles = [];
-      this._analytic = opts.analytic !== false;
-      this._hover    = opts.hover !== false;
-      this._hoveredH = null;
-      this._hid      = null;    // the pointer last hover-tested, and its seq then
-      this._hseq     = -1;
-
-      // The host's pointer source (one per canvas): presses and claims go
-      // through it, so a member grabbed here captures its own pointer.
-      this._canvas = _canvasOf(p);
-      const host = ensureHost(p);
-      this._pointer = host ? host.pointer : null;
-      if (!this._pointer) {
-        console.error('[p5.tree] createPointerRouter: no canvas found — pointer input disabled. Create the router after createCanvas().');
-      }
-
-      for (const h of handles) this.add(h);
     }
 
     /**
@@ -1700,19 +1004,7 @@ export function installHandle(p5, fn) {
      *   routed = !routed
      * }
      */
-    add(h) {
-      if (!h || typeof h._renderProxy !== 'function') {
-        console.error('[p5.tree] router.add: not a handle — ignoring.');
-        return this;
-      }
-      if (this._handles.includes(h)) return this;
-      h._routed = true;
-      // Lib-space seams: unclaim the pointer when the member releases or
-      // cancels. (The router owns these seams for its members — documented.)
-      h._onRelease = h._onCancel = () => this._unclaim(h);
-      this._handles.push(h);
-      return this;
-    }
+    add(h) { return super.add(h); }
 
     /**
      * Take a handle out of the router, so it decides its own presses again (see the Z rail example). Chainable.
@@ -1757,23 +1049,15 @@ export function installHandle(p5, fn) {
      *   routed = !routed
      * }
      */
-    remove(h) {
-      const i = this._handles.indexOf(h);
-      if (i < 0) return this;
-      this._handles.splice(i, 1);
-      this._unclaim(h);
-      h._routed = false;
-      h._onRelease = h._onCancel = null;
-      if (this._hoveredH === h) { this._hoveredH = null; h._hovered = false; }
-      return this;
-    }
+    remove(h) { return super.remove(h); }
 
     /**
      * Resolve the pending presses across the routed handles, so that only the nearest one grabs where they overlap, refresh hover and update every member. Call it first in `p5.draw()` in place of the members' own updates; it returns true while any member is grabbed, so the cluster example uses it to decide whether `p5.orbitControl()` runs.
      *
      * @details
-     * Resolve queued presses with ONE shared pick each, refresh hover with one
-     * more when the pointer moved, then delegate to every member's `update()`.
+     * Refreshes the host's view bag from the renderer, then resolves the
+     * frame's presses with ONE shared pick each (nearest t wins), refreshes
+     * hover on pointer motion, and delegates to every member's `update()`.
      * Call FIRST in `draw()`, in place of the members' own updates:
      *
      * ```js
@@ -1809,73 +1093,8 @@ export function installHandle(p5, fn) {
      * }
      */
     update() {
-      const hs = this._handles;
-      const src = this._pointer;
-      if (!src) return false;
-
-      // Presses — every unclaimed press this frame resolves (several
-      // same-frame presses on different members all land).
-      for (const pr of src.presses) {
-        if (src.ownerOf(pr.id) !== null) continue;
-        const win = this._sharedPick(pr.x, pr.y);
-        if (win && win._pid === null && win.enabled) win._adopt(pr.id, pr.x, pr.y);
-      }
-
-      // Hover — one shared pick per frame with (unclaimed) pointer motion.
-      if (this._hover) {
-        for (const e of src.pointers.values()) {
-          if (e.owner !== null) continue;                   // a drag is not a hover
-          if (e.id === this._hid && e.seq === this._hseq) continue;
-          this._hid = e.id; this._hseq = e.seq;
-          const win = this._sharedPick(e.x, e.y);
-          this._hoveredH = win;
-          for (const h of hs) h._hovered = (h === win) || h._grabbed;
-          break;
-        }
-      }
-
-      let g = false;
-      for (const h of hs) g = h.update() || g;
-      return g;
-    }
-
-    /** Pick path — true for the analytic nearest-t pick, false for the tagged pass. Settable live. */
-    get analytic()  { return this._analytic; }
-    set analytic(v) { this._analytic = v !== false; }
-
-    // One shared pick. Analytic: the pointer's ray once, every enabled
-    // member's proxy tested, the nearest t wins (a tie keeps the earlier
-    // member, as draw order did). Otherwise one pass: prep every enabled
-    // member against the live projection, render all proxies tagged
-    // id = index + 1 into the pick buffer (depth resolves overlap), decode
-    // the winner.
-    _sharedPick(x, y) {
-      const hs = this._handles;
-      if (!hs.length) return null;
-      if (this._analytic && hs.every(h => !h.enabled || h._analyticOk())) {
-        const r = this._p._renderer;
-        if (!unproject(_rayO, _rayD, x, y, pvBag(r, null, true), viewport(r), getNdcZ())) return null;
-        let win = null, best = Infinity;
-        for (const h of hs) {
-          if (!h.enabled) continue;
-          const t = h._proxyT(_rayO, _rayD);
-          if (t < best) { best = t; win = h; }
-        }
-        return win;
-      }
-      for (const h of hs) { if (h.enabled) h._proxyPrep(); }
-      const id = this._p.colorPick(x, y, () => {
-        for (let i = 0; i < hs.length; i++) {
-          if (hs[i].enabled) hs[i]._renderProxy(i + 1);
-        }
-      });
-      return (id >= 1 && id <= hs.length) ? hs[id - 1] : null;
-    }
-
-    _unclaim(h) {
-      const src = this._pointer;
-      if (!src) return;
-      for (const e of src.pointers.values()) if (e.owner === h) src.release(e.id);
+      syncHostView(this._p);
+      return super.update();
     }
 
     /**
@@ -1914,13 +1133,14 @@ export function installHandle(p5, fn) {
      *   }
      * }
      */
-    hovered() { return this._hoveredH; }
+    hovered() { return super.hovered(); }
 
     /**
-     * Shut the router down: its listeners go and every member decides its own presses again, updated in a plain loop (see the any-key example).
+     * Shut the router down: every member decides its own presses again, updated in a plain loop (see the any-key example).
      *
      * @details
-     * Remove listeners, un-route every member, and unregister.
+     * Un-route every member, leave the host, and unregister from the sketch's
+     * teardown list.
      *
      * @function dispose
      * @memberof PointerRouter
@@ -1962,9 +1182,7 @@ export function installHandle(p5, fn) {
      * }
      */
     dispose() {
-      for (const h of [...this._handles]) this.remove(h);
-      this._pointer = null;
-      this._canvas = null;
+      super.dispose();
       _unregister(this._p, this);
     }
   }
@@ -2007,13 +1225,11 @@ export function installHandle(p5, fn) {
    *   from?:      *,
    *   extent?:    number[],
    *   grabPx?:    number,
-   *   analytic?:  boolean,
    *   snap?:      number | number[],
    *   hover?:     boolean,
    *   enabled?:   boolean,
-   *   bind?:      p5.Vector | { get: Function, set: Function },
+   *   bind?:      p5.Vector | number[] | { get: Function, set: Function },
    *   drawLocus?: Function,
-   *   pickProxy?: Function,
    *   onGrab?:    Function,
    *   onChange?:  Function,
    *   onRelease?: Function,
@@ -2087,11 +1303,8 @@ export function installHandle(p5, fn) {
    * }
    */
   fn.createHandle = function (opts = {}) {
-    const kind = opts.constraint;
-    const ok = kind === SPHERE || kind === PLANE || kind === AXIS ||
-               kind === DIAL  || kind === p5.Tree.VIEW || _isConstraint(kind);
-    if (!ok) {
-      console.error('[p5.tree] createHandle: `constraint` must be SPHERE, PLANE, AXIS, DIAL, VIEW, or a contract-conforming constraint object; got ' + String(kind) + '.');
+    if (!validConstraint(opts.constraint)) {
+      console.error('[p5.tree] createHandle: `constraint` must be SPHERE, PLANE, AXIS, DIAL, VIEW, or a contract-conforming constraint object; got ' + String(opts.constraint) + '.');
       return null;
     }
     const h = new Handle(this, opts);
@@ -2100,24 +1313,23 @@ export function installHandle(p5, fn) {
   };
 
   /**
-   * Group handles that may overlap on screen, so a press grabs only the nearest one and hover is shared between them. Pass the handles, then an optional options object with `hover` and `analytic` (both on by default), and drive the router from `p5.draw()` with `PointerRouter.update()` (see the translate cluster example).
+   * Group handles that may overlap on screen, so a press grabs only the nearest one and hover is shared between them. Pass the handles, then an optional options object with `hover` (on by default), and drive the router from `p5.draw()` with `PointerRouter.update()` (see the translate cluster example).
    *
    * @details
    * Create a pointer router over a set of (potentially overlapping) handles —
-   * one shared nearest-hit pick, an id→handle map, a claimed-pointer set,
-   * and shared hover. Options last:
+   * one shared nearest-hit pick, a claimed-pointer set through the host's
+   * pointer source, and shared hover. Options last:
    *
    * ```js
-   * const r = createPointerRouter(hx, hy, hz, dial)            // hover on, analytic pick
+   * const r = createPointerRouter(hx, hy, hz, dial)            // hover on
    * const r = createPointerRouter(hx, hy, hz, { hover: false })
-   * const r = createPointerRouter(hx, hy, hz, { analytic: false })   // the tagged pass
    * // draw(): if (!r.update()) orbitControl(); hs.forEach(h => h.draw())
    * ```
    *
    * @function createPointerRouter
    * @memberof p5
-   * @param {...(Handle | { hover?: boolean, analytic?: boolean })} args  Handles,
-   *        then an optional options object last.
+   * @param {...(Handle | { hover?: boolean })} args  Handles, then an optional
+   *        options object last.
    * @returns {PointerRouter}
    * @example
    * <caption>A translate cluster: three rails on one anchor, routed so exactly one grabs</caption>
@@ -2146,9 +1358,7 @@ export function installHandle(p5, fn) {
    */
   fn.createPointerRouter = function (...args) {
     let opts = {};
-    if (args.length && args[args.length - 1] &&
-        typeof args[args.length - 1] === 'object' &&
-        typeof args[args.length - 1]._renderProxy !== 'function') {
+    if (args.length && args[args.length - 1] && !(args[args.length - 1] instanceof HostHandle)) {
       opts = args.pop();
     }
     const r = new PointerRouter(this, args, opts);
