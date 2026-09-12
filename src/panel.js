@@ -1,8 +1,19 @@
 /**
- * @file Unified panel bridge: parameter panels and track transport controls.
+ * @file On-page controls for parameters and playback.
  * @module p5.tree/panel
  * @license AGPL-3.0-only
  *
+ * Put a small control panel next to the canvas with one call. `createPanel()`
+ * builds sliders, checkboxes and colour pickers from a plain object of
+ * parameters and can push their values into a shader every frame; handed a
+ * `PoseTrack` or `CameraTrack` it builds playback controls — play, seek, rate,
+ * loop and a button to add a keyframe; handed a `PoseHelm` it exposes the
+ * helm's per-axis settings and live meters.
+ *
+ * Reach for it when a sketch needs tweakable numbers or a timeline without
+ * writing any page markup.
+ *
+ * @details
  * ### What lives here
  *
  *  ```
@@ -206,9 +217,9 @@ function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
 export function installPanel(p5, fn) {
 
   /**
-   * Create a DOM panel beside the canvas from what you hand it: transport
-   * controls for a PoseTrack or CameraTrack, sliders and inputs for a plain schema
-   * of parameters, or the 6-DOF profile and live meters of a PoseHelm (see the
+   * Create a panel beside the canvas from what you hand it: playback
+   * controls for a `PoseTrack` or `CameraTrack`, sliders and inputs for a plain schema
+   * of parameters, or the 6-DOF profile and live meters of a `PoseHelm` (see the
    * three examples). Position and colour it through the options; `target` pushes
    * parameter values into a shader or a setter every frame, `camera` and `reset` tune
    * a track panel's buttons, and `frame` adds the helm frame selector. Needs a
@@ -266,22 +277,23 @@ export function installPanel(p5, fn) {
    * @function createPanel
    * @memberof p5
    * @param {PoseTrack|CameraTrack|PoseHelm|Object} trackOrSchema
-   *   A track (PoseTrack / CameraTrack), a helm (PoseHelm), or a plain schema object.
+   *   A track (`PoseTrack` / `CameraTrack`), a helm (`PoseHelm`), or a plain schema object.
    * @param {Object} [opt]
    *   Layout and behaviour options.
    * @param {p5.Camera|null} [opt.camera]
-   *   Track panels only. Override camera for + button.
-   *   null suppresses the + button. Defaults to track.camera for CameraTrack,
-   *   curCamera for PoseTrack.
+   *   Track panels only. The `p5.Camera` the + button captures a keyframe from;
+   *   null suppresses the + button. Defaults to the track's camera for a `CameraTrack`,
+   *   the current camera for a `PoseTrack`.
    * @param {boolean} [opt.reset=true]
    *   Track panels only. Set false to suppress the reset button.
    * @param {boolean} [opt.frame=false]
    *   Helm panels only. Show the EYE|WORLD|SELF frame selector.
    * @param {Object|Function} [opt.target]
-   *   Param panels only. Value sink: p5 shader, (name,val)=>..., or {set}.
+   *   Param panels only. Where values go each frame: a `p5.Shader`, a `(name, value) => ...`
+   *   function, or an object with a `set` method.
    * @param {(HTMLElement|p5.Element)} [opt.parent]
-   *   Mount target. Defaults to the canvas parent element.
-   * @returns {Object} Panel handle with .el, .tick(), .dispose().
+   *   Element to place the panel in. Defaults to the canvas parent element.
+   * @returns {Object} The `Panel`, with `.el`, `.tick()` and `.dispose()`.
    * @example
    * <caption>A parameter panel: sliders, a checkbox and a colour driving scene state through target</caption>
    * const params = { speed: 0.02, size: 60, spin: true, tint: '#ff4fd8' }
