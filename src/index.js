@@ -70,8 +70,8 @@ p5.registerAddon((p5, fn, lifecycles) => {
   // predraw fills its view bag from renderer state and ticks its players,
   // postdraw ends its pointer frame, remove disposes it.
   lifecycles.predraw = function () {
-    syncHostView(this);
-    tickPlayers(this);
+    tickPlayers(this);      // a camera track may move the camera
+    syncHostView(this);     // so the bag follows it
   };
 
   lifecycles.postdraw = function () {
