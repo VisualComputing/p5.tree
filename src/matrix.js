@@ -1053,23 +1053,24 @@ export function installMatrix(p5, fn) {
   fn.mat4Location = function (out, from, to) { return this._renderer.mat4Location(out, from, to); };
 
   /**
-   * The 3×3 matrix that carries a direction expressed in one frame into another, ignoring translation, copied into your buffer. Both frames are model matrices such as those captured with `mat4Model`; returns null when the source frame cannot be inverted.
+   * The 3×3 matrix that converts a direction's coordinates from one frame to another, ignoring translation, copied into your buffer. Both frames are model matrices such as those captured with `mat4Model`; the same conversion `mapDirection` does between frames. Returns null when the destination frame cannot be inverted.
    *
    * @details
-   * Direction transform between frames: out = to₃ · inv(from₃).
+   * Direction transform between frames: out = inv(to₃) · from₃, the upper-left
+   * 3×3 blocks only — the direction counterpart of `mat4Location`.
    *
    * @function mat3Direction
    * @memberof p5
    * @param {Float32Array|ArrayLike|p5.Matrix} out  9-element destination.
    * @param {Float32Array|ArrayLike|p5.Matrix} from
    * @param {Float32Array|ArrayLike|p5.Matrix} to
-   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if `from` is singular.
+   * @returns {Float32Array|ArrayLike|p5.Matrix|null} out, or null if `to` is singular.
    * @example
-   * <caption>Carry a world direction from frame A to frame B: the same coordinates in B that it has in A</caption>
+   * <caption>A direction given in frame A, expressed in frame B: drawn inside each frame, the two lines stay parallel</caption>
    * const a = new Float32Array(16)
    * const b = new Float32Array(16)
    * const D = new Float32Array(9)
-   * const d = [0.6, -0.8, 0]   // a fixed world direction
+   * const d = [0.6, -0.8, 0]   // a direction in frame A's coordinates
    *
    * function setup() {
    *   createCanvas(400, 300, WEBGL)
@@ -1080,7 +1081,7 @@ export function installMatrix(p5, fn) {
    *   orbitControl()
    *   axes()
    *   noFill()
-   *   // frame A spins about y
+   *   // frame A spins about y; the direction is drawn in A's own coordinates
    *   push()
    *   translate(-90, 0, 0)
    *   rotateY(frameCount * 0.01)
@@ -1088,8 +1089,10 @@ export function installMatrix(p5, fn) {
    *   stroke('#ff4fd8')
    *   box(30)
    *   axes({ size: 40 })
+   *   stroke('white')
+   *   line(0, 0, 0, 60 * d[0], 60 * d[1], 60 * d[2])
    *   pop()
-   *   // frame B spins about x
+   *   // frame B spins about x; the same direction, converted to B's coordinates
    *   push()
    *   translate(90, 0, 0)
    *   rotateX(frameCount * 0.02)
@@ -1097,12 +1100,11 @@ export function installMatrix(p5, fn) {
    *   stroke('#ffd166')
    *   box(30)
    *   axes({ size: 40 })
-   *   pop()
    *   mat3Direction(D, a, b)
    *   const e = mul3(D, d)
    *   stroke('white')
-   *   line(-90, 0, 0, -90 + 60 * d[0], 60 * d[1], 60 * d[2])
-   *   line(90, 0, 0, 90 + 60 * e[0], 60 * e[1], 60 * e[2])
+   *   line(0, 0, 0, 60 * e[0], 60 * e[1], 60 * e[2])
+   *   pop()
    * }
    *
    * // column-major mat3 times vec3
