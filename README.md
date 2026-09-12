@@ -1493,15 +1493,13 @@ helmRig(helm, { size: 120 })                                   // in-scene at th
 Latest:
 
 * [https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.min.js)
 * [https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree/dist/p5.tree.esm.js)
 * [https://www.npmjs.com/package/p5.tree](https://www.npmjs.com/package/p5.tree)
 
 Tagged:
 
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.min.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.min.js)
-* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.51/dist/p5.tree.esm.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.js)
+* [https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.esm.js](https://cdn.jsdelivr.net/npm/p5.tree@0.0.52/dist/p5.tree.esm.js)
 
 ---
 

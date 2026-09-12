@@ -43,11 +43,11 @@
   "author": "Jean Pierre Charalambos <nakednous@gmail.com>",
   "license": "AGPL-3.0-only",
   "peerDependencies": {
-    "p5": "^2.3.0"
+    "p5": "^2.3.3"
   },
   "dependencies": {
     "@nakednous/host": "^0.0.1",
-    "@nakednous/tree": "^0.0.27",
+    "@nakednous/tree": "^0.0.28",
     "@nakednous/ui": "^0.0.13"
   },
   "devDependencies": {
