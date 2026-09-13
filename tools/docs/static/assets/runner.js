@@ -10,7 +10,10 @@
  *
  * - Editor: CodeMirror 5 over the source textarea; the bare textarea is the
  *   fallback when CodeMirror is absent.
- * - Canvas: a sandboxed `srcdoc` iframe assembled from p5 (CDN, pinned) +
+ * - Canvas: a same-origin `srcdoc` iframe, unsandboxed (the examples are the
+ *   site's own code; the runner reaches into each frame to stop the sketch
+ *   and release its WebGL context, and WebHID and the font fetch need the
+ *   page's origin), assembled from p5 (CDN, pinned) +
  *   the site-local bundle + the box contents. `srcdoc` inherits the page's
  *   base URL, so the bundle and `fonts/` resolve relatively.
  * - Run reassembles the iframe from the box; Reset restores the source text.
@@ -33,11 +36,6 @@
   const NEAR     = '300px 0px';   // mount when the figure is within this margin of the viewport
   const FAR      = '1500px 0px';  // unmount once it is beyond this margin
   const STAGE_BG = '#0a0a0e';     // fixed stage — never the page theme
-
-  // `allow-same-origin` keeps the frame on the page's origin: WebHID
-  // permissions and the font fetch both need a real (non-opaque) origin.
-  // Drop it for a strict sandbox at the cost of both.
-  const SANDBOX  = 'allow-scripts allow-same-origin';
 
   const attr = (s) => String(s).replace(/"/g, '&quot;');
 
@@ -63,7 +61,7 @@ ${code.replace(/<\/(script)/gi, '<\\/$1')}
       if (typeof w.remove === 'function') w.remove();   // p5 global-mode remove()
       const gl = canvas && (canvas.getContext('webgl2') || canvas.getContext('webgl'));
       if (gl) gl.getExtension('WEBGL_lose_context')?.loseContext();
-    } catch (_) { /* opaque origin under a stricter SANDBOX — removal has to do */ }
+    } catch (_) { /* the frame's document is already gone — removal has to do */ }
     frame.remove();
   }
 
@@ -100,7 +98,6 @@ ${code.replace(/<\/(script)/gi, '<\\/$1')}
     const f = document.createElement('iframe');
     f.className = 'sketch';
     f.title     = r.title;
-    f.setAttribute('sandbox', SANDBOX);
     f.setAttribute('allow', 'hid');
     f.srcdoc = srcdoc(code(r));
     r.stage.replaceChildren(f);
