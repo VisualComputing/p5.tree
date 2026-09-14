@@ -46,8 +46,8 @@
     "p5": "^2.3.3"
   },
   "dependencies": {
-    "@nakednous/host": "^0.0.3",
-    "@nakednous/tree": "^0.0.28",
+    "@nakednous/host": "^0.0.4",
+    "@nakednous/tree": "^0.0.29",
     "@nakednous/ui": "^0.0.13"
   },
   "devDependencies": {
