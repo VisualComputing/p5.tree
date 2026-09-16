@@ -2131,13 +2131,16 @@ export function installMatrix(p5, fn) {
    * The size of one texel of an image, framebuffer or graphics, as a fraction of its width and height. Pass it to a shader to step between neighbouring pixels, as the example does.
    *
    * @details
-   * Texel size of an image-like object: [1/width, 1/height].
+   * Texel size of an image-like object over its pixel density: [1/(width×pd), 1/(height×pd)],
+   * the size of one texel of the texture actually sampled — a framebuffer, a graphics or an
+   * image on a dense display holds pd× more texels than its canvas size says. The density is
+   * `img.pixelDensity()` when the object has it, `img.density` else, 1 for a plain `{ width, height }`.
    * Accepts p5.Image, p5.Framebuffer, p5.Graphics, or any `{ width, height }`.
    *
    * @function texelSize
    * @memberof p5
    * @param {{ width:number, height:number }} img
-   * @returns {number[]} [1/w, 1/h]
+   * @returns {number[]} [1/(w×pd), 1/(h×pd)]
    * @example
    * <caption>Neighbour sampling in a custom shader, stepped by one texel</caption>
    * let img, sh
@@ -2194,5 +2197,8 @@ export function installMatrix(p5, fn) {
    *   plane(240, 240)
    * }
    */
-  fn.texelSize = function (img) { return [1/img.width, 1/img.height]; };
+  fn.texelSize = function (img) {
+    const pd = (typeof img.pixelDensity === 'function' ? img.pixelDensity() : img.density) || 1;
+    return [1 / (img.width * pd), 1 / (img.height * pd)];
+  };
 }
