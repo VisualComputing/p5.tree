@@ -776,9 +776,10 @@ shader.setUniform('uMouse', fragCoord())
 
 ```js
 texelSize(img)
-// Returns texel size: [1 / width, 1 / height].
-// Accepts p5.Image, p5.Framebuffer, p5.Graphics,
-// or any object with { width, height }.
+// Returns texel size over the pixel density: [1 / (width * pd), 1 / (height * pd)],
+// one texel of the texture actually sampled.
+// Accepts p5.Image, p5.Framebuffer, p5.Graphics (pd from pixelDensity()),
+// or any object with { width, height } (pd = 1).
 
 shader.setUniform('texOffset', texelSize(myFbo))
 ```
