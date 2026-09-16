@@ -766,6 +766,15 @@ shader.setUniform('u_resolution', screenSize())
 ```
 
 ```js
+fragCoord(x = mouseX, y = mouseY)
+// Returns the gl_FragCoord of a canvas pixel, the mouse by default:
+// [x * pixelDensity, (height - y) * pixelDensity] — device pixels, y up.
+// The value of a pointer uniform beside screenSize(); what a pixel readback takes.
+
+shader.setUniform('uMouse', fragCoord())
+```
+
+```js
 texelSize(img)
 // Returns texel size: [1 / width, 1 / height].
 // Accepts p5.Image, p5.Framebuffer, p5.Graphics,
