@@ -11,8 +11,8 @@
  * `projFar` and `projFov` read the current projection's numbers directly.
  *
  * `mapLocation` and `mapDirection` carry a point or a direction between world,
- * eye, screen and the model transform stack. `pixelRatio`, `screenSize` and
- * `texelSize` answer the pixel-level questions that usually follow.
+ * eye, screen and the model transform stack. `pixelRatio`, `screenSize`,
+ * `fragCoord` and `texelSize` answer the pixel-level questions that usually follow.
  *
  * @details
  * ### Two distinct contracts
@@ -2067,6 +2067,63 @@ export function installMatrix(p5, fn) {
     return [pd * this.width, pd * this.height];
   };
   fn.screenSize = function () { return this._renderer.screenSize(); };
+
+  // ── fragCoord ─────────────────────────────────────────────────────────────
+
+  /**
+   * The `gl_FragCoord` of a canvas pixel, the mouse by default. Pass it to a shader as its pointer uniform beside `screenSize()`, as the example does; needs a `p5.WEBGL` canvas.
+   *
+   * @details
+   * Canvas pixels (top-left, y down, what `mouseX` / `mouseY` count) to the drawing
+   * buffer's device pixels (bottom-left, y up): [x×pixelDensity, (height − y)×pixelDensity].
+   * Also the coordinates a pixel readback takes.
+   *
+   * @function fragCoord
+   * @memberof p5
+   * @param {number} [x=mouseX]  Canvas x.
+   * @param {number} [y=mouseY]  Canvas y, down.
+   * @returns {number[]} [fx, fy]
+   * @example
+   * <caption>Move the mouse over the canvas: an amber disc 40 device pixels in radius follows it — the fragment shader compares its own gl_FragCoord with uMouse, the mouse's.</caption>
+   * let sh
+   *
+   * const vert = `#version 300 es
+   * precision highp float;
+   * in vec4 aPosition;
+   * uniform mat4 uProjectionMatrix;
+   * uniform mat4 uModelViewMatrix;
+   * void main() {
+   *   gl_Position = uProjectionMatrix * uModelViewMatrix * aPosition;
+   * }`
+   *
+   * const frag = `#version 300 es
+   * precision highp float;
+   * uniform vec2 uMouse;
+   * out vec4 outColor;
+   * void main() {
+   *   float d = distance(gl_FragCoord.xy, uMouse);
+   *   outColor = vec4(mix(vec3(1.0, 0.82, 0.4), vec3(0.075, 0.553, 0.459), smoothstep(38.0, 42.0, d)), 1.0);
+   * }`
+   *
+   * function setup() {
+   *   createCanvas(400, 300, WEBGL)
+   *   sh = createShader(vert, frag)
+   * }
+   *
+   * function draw() {
+   *   shader(sh)
+   *   sh.setUniform('uMouse', fragCoord())
+   *   noStroke()
+   *   plane(width, height)
+   * }
+   */
+  p5.Renderer3D.prototype.fragCoord = function (x, y) {
+    const p = this._pInst, pd = p.pixelDensity();
+    if (x == null) x = p.mouseX;
+    if (y == null) y = p.mouseY;
+    return [x * pd, (this.height - y) * pd];
+  };
+  fn.fragCoord = function (x, y) { return this._renderer.fragCoord(x, y); };
 
   // ── texelSize ─────────────────────────────────────────────────────────────
 
