@@ -760,6 +760,12 @@ export function installGizmos(p5, fn) {
    * secondary camera, mapped onto its own near plane to show "what the
    * camera sees" as a projection ONTO the projection surface. Supply
    * `myFbo.color` for a framebuffer's rendered contents.
+   * The image reads upright whichever camera rendered the framebuffer: a
+   * canvas camera made active inside it (`setCamera(cam)` and `resetMatrix()`
+   * after `fbo.begin()`), or one of the framebuffer's own
+   * (`fbo.createCamera()`), which p5 renders with y inverted — `viewFrustum`
+   * tells them apart when `camera` is that `p5.Camera`. With a `CameraTrack`
+   * or a pose spec it assumes the first.
    *
    * Draw order: `viewer` → untextured FAR outline → BODY → untextured NEAR
    * outline → textured FAR → textured NEAR. Textured planes are drawn last
@@ -977,10 +983,13 @@ export function installGizmos(p5, fn) {
     const ratio = isOrtho ? 1 : f/n;
     const _l=ratio*l, _r=ratio*r, _b=ratio*b, _t=ratio*t;
 
+    // Corners by where they sit on screen. The projection reads answer t > 0 > b in eye
+    // space whatever the projection's y sign, and p5's eye space has y running down the
+    // screen, so the visually top edge is y = b. Lines do not care; a textured pane does.
     // Far-plane corners (at z = f, negative)
-    const fTL = [_l, _t, f], fTR = [_r, _t, f], fBR = [_r, _b, f], fBL = [_l, _b, f];
+    const fTL = [_l, _b, f], fTR = [_r, _b, f], fBR = [_r, _t, f], fBL = [_l, _t, f];
     // Near-plane corners (at z = n, negative)
-    const nTL = [ l,  t, n], nTR = [ r,  t, n], nBR = [ r,  b, n], nBL = [ l,  b, n];
+    const nTL = [ l,  b, n], nTR = [ r,  b, n], nBR = [ r,  t, n], nBL = [ l,  t, n];
 
     p.push(); p.resetMatrix();
     const prevView = uView.copy();
@@ -1037,11 +1046,16 @@ export function installGizmos(p5, fn) {
     // ── Textured planes — drawn LAST for correct alpha compositing ───────
     // Far before near: in the typical "external viewer in front of camera"
     // configuration, far sits behind near.
+    // A framebuffer holds its image one way up when a canvas camera rendered it (setCamera
+    // inside fbo.begin(), what pane's framebuffer uvs assume) and the other way up when one of
+    // its own cameras did (fbo.createCamera(), whose projection p5 inverts in y): then the
+    // plain uvs are the upright ones.
+    const fboCamUvs = (_isP5Camera(camera) && camera.yScale < 0) ? _DEFAULT_UVS : null;
     if ((bits & p5.Tree.FAR) !== 0 && farTexture) {
-      this.pane(fTL, fTR, fBR, fBL, { texture: farTexture });
+      this.pane(fTL, fTR, fBR, fBL, { texture: farTexture, uvs: fboCamUvs });
     }
     if ((bits & p5.Tree.NEAR) !== 0 && nearTexture) {
-      this.pane(nTL, nTR, nBR, nBL, { texture: nearTexture });
+      this.pane(nTL, nTR, nBR, nBL, { texture: nearTexture, uvs: fboCamUvs });
     }
 
     uView.set(prevView);
