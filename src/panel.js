@@ -26,36 +26,29 @@
  * ### Bridge responsibilities
  *  1. Resolve opt.parent   → canvas parent element (default) or explicit mount
  *  2. Resolve opt.target   → wrap p5 shader's setUniform as plain (name,val)=>...
- *  3. Resolve opt.camera   → curCamera default for PoseTrack + button
+ *  3. Resolve opt.camera   → whether the + button is offered at all
  *  4. Wrap track           → build duck-typed wrapper for deps/ui (via _wrapTrack)
  *  5. Register player      → auto-tick via predraw loop
  *
- * ### Camera resolution for + button
+ * ### The + button
  *
  *  ```
- *  CameraTrack              → track.camera (set by createCameraTrack)
- *  PoseTrack + opt.camera   → use that camera explicitly
- *  PoseTrack, omitted       → curCamera (covers ~90% of use cases)
- *  Either  + null           → + button suppressed
+ *  CameraTrack              → captures the bound camera (track.camera)
+ *  PoseTrack                → host's add(depth): the pose at the frustum centre
+ *                             of that depth, aimed along the frame's own camera
+ *                             (the view bag the predraw fills from the renderer)
+ *  Either + camera: null    → + button suppressed
  *  ```
+ *
+ *  The placement itself lives in host, not here: the camera the sketch draws
+ *  with is the camera the placement must use, and both bridges fill one bag.
  */
 
 'use strict';
 
 import { createPanel as _createPanel } from '@nakednous/ui';
-import {
-  NDC, WORLD,
-  mapLocation as coreMapLocation,
-  mat4Mul, mat4Invert,
-} from '@nakednous/tree';
-import { registerPlayer } from './track.js';
 import { CameraTrack } from '@nakednous/tree';
-
-// ── Module-level scratch (allocated once at import time) ──────────────────────
-
-const _sc_pv  = new Float32Array(16);  // proj * view
-const _sc_ipv = new Float32Array(16);  // inv(proj * view)
-const _sc_v3  = new Float32Array(3);   // scratch 3-vector
+import { registerPlayer } from './track.js';
 
 // ── Parent resolution ─────────────────────────────────────────────────────────
 
@@ -89,43 +82,6 @@ function _resolveParent(pInst, parent) {
     : document.body;
 }
 
-// ── Depth helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Detect NDC Z minimum from the renderer's drawing context.
- * Returns −1 for WebGL, 0 for WebGPU.
- * @param {Object} renderer
- * @returns {number}
- */
-function _ndcZMin(renderer) {
-  if (renderer.drawingContext &&
-      typeof WebGL2RenderingContext !== 'undefined' &&
-      renderer.drawingContext instanceof WebGL2RenderingContext) return -1;
-  return 0;
-}
-
-/**
- * Unproject the frustum centre at parametric depth d [0..1] into world space.
- * d=0 → near plane centre,  d=1 → far plane centre.
- * Returns [x,y,z] or null if renderer state is unavailable.
- * @param {p5} pInst
- * @param {number} d
- * @returns {number[]|null}
- */
-function _centerAtDepth(pInst, d) {
-  const renderer = pInst._renderer;
-  if (!renderer || !renderer.states) return null;
-  const proj = renderer.states.uPMatrix?.mat4;
-  const view = renderer.states.curCamera?.cameraMatrix?.mat4;
-  if (!proj || !view) return null;
-  const ndcMin = _ndcZMin(renderer);
-  const ndcZ   = ndcMin + d * (1 - ndcMin);
-  mat4Mul(_sc_pv, proj, view);
-  if (!mat4Invert(_sc_ipv, _sc_pv)) return null;
-  coreMapLocation(_sc_v3, 0, 0, ndcZ, NDC, WORLD, { mat4PVInv: _sc_ipv }, [0, 0, 1, 1], ndcMin);
-  return [_sc_v3[0], _sc_v3[1], _sc_v3[2]];
-}
-
 // ── Track wrapper ─────────────────────────────────────────────────────────────
 
 /**
@@ -142,24 +98,25 @@ function _centerAtDepth(pInst, d) {
  *   handles snap (1-kf), seek-while-stopped, and + button capture.
  *   Depth slider is suppressed (not meaningful for camera tracks).
  *
- * For PoseTrack: + button records position = frustum-centre at depth slider
- *   value, rotation = current camera orientation.
+ * For PoseTrack: the + button is the track's own host `add(depth)`, which places
+ *   the pose at the frustum centre of that depth, aimed along the frame's own
+ *   camera — the view bag the predraw fills from the renderer. Nothing of the
+ *   placement lives here: the camera the sketch draws with is the camera the
+ *   placement must use, and host already reads it.
  *
  * @param {PoseTrack|CameraTrack} track
  * @param {p5.Camera|null} cam
  * @param {boolean} isCameraTrack
- * @param {p5} pInst
  * @param {boolean} showReset  When false, w.reset is omitted and _createPanel
  *   suppresses the reset button. Use when keyframes are immutable by design.
  * @returns {Object}
  */
-function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
+function _wrapTrack(track, cam, isCameraTrack, showReset) {
   const _snapOut = isCameraTrack
     ? { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null }
     : { pos:[0,0,0], rot:[0,0,0,1], scl:[1,1,1] };
 
-  const _captureOut = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
-  const _addOut     = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
+  const _addOut = { eye:[0,0,0], center:[0,0,0], up:[0,1,0], fov:null, halfHeight:null };
 
   function _applySnap() {
     const applyCam = isCameraTrack ? track.camera : null;
@@ -213,13 +170,8 @@ function _wrapTrack(track, cam, isCameraTrack, pInst, showReset) {
         track.add(_addOut, { deduplicate: false });
       };
     } else {
-      w.add = (d) => {
-        const pos = _centerAtDepth(pInst, typeof d === 'number' ? d : 0.5) || [0,0,0];
-        cam.capturePose(_captureOut);
-        const e = _captureOut.eye, c = _captureOut.center;
-        const dir = [c[0]-e[0], c[1]-e[1], c[2]-e[2]];
-        track.add({ pos, rot: { dir, up: _captureOut.up } });
-      };
+      // host's own add(depth): the pose in front of the frame's camera.
+      w.add = (d) => track.add(d);
     }
   }
 
@@ -297,9 +249,10 @@ export function installPanel(p5, fn) {
    * @param {Object} [opt]
    *   Layout and behaviour options.
    * @param {p5.Camera|null} [opt.camera]
-   *   Track panels only. The `p5.Camera` the + button captures a keyframe from;
-   *   null suppresses the + button. Defaults to the track's camera for a `CameraTrack`,
-   *   the current camera for a `PoseTrack`.
+   *   Track panels only. The `p5.Camera` a `CameraTrack`'s + button captures a keyframe from;
+   *   null suppresses the + button. Defaults to the track's camera for a `CameraTrack`. A
+   *   `PoseTrack`'s + places against the camera the frame draws with — the renderer's, whose
+   *   projection the placement needs — so any value but null merely offers the button.
    * @param {boolean} [opt.reset=true]
    *   Track panels only. Set false to suppress the reset button.
    * @param {boolean} [opt.frame=false]
@@ -413,7 +366,9 @@ export function installPanel(p5, fn) {
       const showReset = opt.reset !== false;
       delete opt.reset;
 
-      // Resolve camera for + button.
+      // The + button's camera. null suppresses the button for either kind; a
+      // CameraTrack captures this one, a PoseTrack places against the frame's
+      // own (host's add reads the view bag the predraw just filled).
       let cam;
       if ('camera' in opt) {
         cam = opt.camera === null             ? null
@@ -429,7 +384,7 @@ export function installPanel(p5, fn) {
       // Depth slider not meaningful for camera tracks.
       if (isCameraTrack && !('depth' in opt)) opt.depth = false;
 
-      const panel = _createPanel(_wrapTrack(track, cam, isCameraTrack, pInst, showReset), opt);
+      const panel = _createPanel(_wrapTrack(track, cam, isCameraTrack, showReset), opt);
       registerPlayer(pInst, { tick() { panel.tick(); return true; } });
       return _shield(panel);
     }
