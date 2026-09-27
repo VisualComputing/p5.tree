@@ -88,7 +88,7 @@ function _resolveParent(pInst, parent) {
  * Build a duck-typed wrapper around a track for consumption by deps/ui.
  *
  * The wrapper exposes the transport contract (_createTrackUI duck-type):
- *   play, stop, seek, time, playing, reset, info, add (optional)
+ *   play, stop, seek, time, playing, reset, info, add, remove (optional)
  *
  * Lib-space hook slots (_onPlay, _onEnd, _onStop) are forwarded to the
  * underlying track via property getters/setters so that trackUI's assignments
@@ -173,6 +173,10 @@ function _wrapTrack(track, cam, isCameraTrack, showReset) {
       // host's own add(depth): the pose in front of the frame's camera.
       w.add = (d) => track.add(d);
     }
+    // The authoring pair is offered together: `camera: null` names a track the
+    // sketch authors itself, so its panel shows neither + nor −. host's
+    // remove() with no argument retracts the last keyframe.
+    if (typeof track.remove === 'function') w.remove = (i) => track.remove(i);
   }
 
   return w;
@@ -253,6 +257,11 @@ export function installPanel(p5, fn) {
    *   null suppresses the + button. Defaults to the track's camera for a `CameraTrack`. A
    *   `PoseTrack`'s + places against the camera the frame draws with — the renderer's, whose
    *   projection the placement needs — so any value but null merely offers the button.
+   * @param {boolean} [opt.add=true]
+   *   Track panels only. Set false to suppress the + button.
+   * @param {boolean} [opt.remove=true]
+   *   Track panels only. Set false to suppress the − button (remove the last keyframe).
+   *   A panel given `camera: null` — a track the sketch authors itself — has neither + nor −.
    * @param {boolean} [opt.reset=true]
    *   Track panels only. Set false to suppress the reset button.
    * @param {boolean} [opt.frame=false]
