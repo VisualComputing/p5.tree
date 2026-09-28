@@ -479,7 +479,7 @@ Constants: `p5.Tree.ORIGIN`, `p5.Tree.i`, `p5.Tree.j`, `p5.Tree.k`, `p5.Tree._i`
 
 ## Heads Up Display
 
-Draw directly in screen space — independent of the current camera and 3D transforms.
+Draw directly in canvas space — independent of the current camera and 3D transforms.
 
 ```js
 beginHUD()

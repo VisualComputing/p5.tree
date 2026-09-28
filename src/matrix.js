@@ -11,7 +11,7 @@
  * `projFar` and `projFov` read the current projection's numbers directly.
  *
  * `mapLocation` and `mapDirection` carry a point or a direction between world,
- * eye, screen and the model transform stack. `pixelRatio`, `screenSize`,
+ * eye, canvas space and the model transform stack. `pixelRatio`, `screenSize`,
  * `fragCoord` and `texelSize` answer the pixel-level questions that usually follow.
  *
  * @details
@@ -2017,10 +2017,10 @@ export function installMatrix(p5, fn) {
   // ── screenSize ────────────────────────────────────────────────────────────
 
   /**
-   * The canvas size in physical pixels, accounting for pixel density. Pass it to a shader as its resolution uniform, as the example does; needs a `p5.WEBGL` canvas.
+   * The canvas size in window space — the drawing buffer's physical (device) pixels, accounting for pixel density. Pass it to a shader as its resolution uniform, as the example does; needs a `p5.WEBGL` canvas.
    *
    * @details
-   * Physical canvas size in pixels: [pixelDensity×width, pixelDensity×height].
+   * Window space's size in device pixels: [pixelDensity×width, pixelDensity×height].
    * Use as `u_resolution` for shaders that use `gl_FragCoord.xy`.
    *
    * @function screenSize
@@ -2074,8 +2074,9 @@ export function installMatrix(p5, fn) {
    * The `gl_FragCoord` of a canvas pixel, the mouse by default. Pass it to a shader as its pointer uniform beside `screenSize()`, as the example does; needs a `p5.WEBGL` canvas.
    *
    * @details
-   * Canvas pixels (top-left, y down, what `mouseX` / `mouseY` count) to the drawing
-   * buffer's device pixels (bottom-left, y up): [x×pixelDensity, (height − y)×pixelDensity].
+   * Canvas space (logical pixels, top-left, y down, what `mouseX` / `mouseY` count) to
+   * window space (the drawing buffer's device pixels, bottom-left, y up):
+   * [x×pixelDensity, (height − y)×pixelDensity].
    * Also the coordinates a pixel readback takes.
    *
    * @function fragCoord

@@ -31,7 +31,7 @@
  * ### CPU proximity picking
  *
  * The core's pointerHit: is the pointer within a radius of the projected
- * screen-space origin of the current model matrix? Zero GPU round-trip.
+ * canvas-space origin of the current model matrix? Zero GPU round-trip.
  * Call inside push()/pop() for each pickable object. The shape option is
  * p5.Tree.CIRCLE / SQUARE, mapped to the core's constants at the seam (p5
  * owns the SQUARE global).
@@ -273,17 +273,17 @@ export function installPicking(p5, fn) {
    * Test whether the pointer is over the current model's origin, within a hit
    * zone `size` wide in world units at that depth — a cheap proximity test that
    * needs no extra drawing (see the hover example). With explicit `x`, `y` in the options
-   * the test is made in screen space and the size is in pixels (see the
+   * the test is made in canvas space and the size is in pixels (see the
    * sweeping-point example). Needs a `p5.WEBGL` canvas; call it inside `p5.push()`/`p5.pop()` for
    * each pickable object.
    *
    * @details
    * Test whether a pointer position falls within a radius of the current
-   * model's screen-space origin. CPU — zero GPU round-trip.
+   * model's canvas-space origin. CPU — zero GPU round-trip.
    * Call inside `push()`/`pop()` for each pickable object. `size` is the hit
    * diameter in world units at the origin's depth; a point behind the camera
    * or outside the clip range never hits, and the boundary hits. With
-   * explicit `x`, `y` the test is a screen-space one and `size` is in px.
+   * explicit `x`, `y` the test is a canvas-space one and `size` is in px.
    *
    * @function pointerHit
    * @memberof p5

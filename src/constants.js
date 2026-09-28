@@ -68,8 +68,10 @@ export function installConstants(p5) {
      * @constant {string} NDC
      * @memberof p5.Tree */
     NDC:    CONST(C.NDC),
-    /** Screen space: x ∈ [0, width], y ∈ [0, height] with a top-left origin,
-     * z ∈ [0, 1] normalized depth.
+    /** Canvas space — the canvas's logical pixels: x ∈ [0, width], y ∈ [0, height],
+     * origin top-left, z ∈ [0, 1] normalized depth; what p5's `mouseX` / `mouseY`
+     * and `beginHUD` count. `fragCoord` and `screenSize` answer in its counterpart,
+     * window space — the drawing buffer's device pixels, bottom-left, y up.
      * @constant {string} SCREEN
      * @memberof p5.Tree */
     SCREEN: CONST(C.SCREEN),
