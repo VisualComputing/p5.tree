@@ -3,6 +3,10 @@
 # No lockfile is committed (this repo ignores package-lock.json), so the install
 # is `npm install`, and no `cache: npm` — both `npm ci` and the setup-node cache
 # require a committed lockfile.
+# A tag push is rejected until the github-pages environment allows it: Pages
+# defaults that environment's deployment rule to the default branch, so add a
+# Tag rule matching v* (Settings -> Environments -> github-pages), or dispatch
+# this workflow from main for a doc-only redeploy.
 name: pages
 
 on:
