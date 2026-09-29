@@ -10,7 +10,7 @@
 const CDN = 'https://cdn.jsdelivr.net/npm';
 
 /** p5 — loaded by every example iframe. */
-export const p5 = { version: '2.3.3' };
+export const p5 = { version: '2.3.4' };
 p5.url = `${CDN}/p5@${p5.version}/lib/p5.min.js`;
 p5.reference = 'https://p5js.org/reference/';
 
