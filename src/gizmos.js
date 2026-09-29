@@ -5,7 +5,7 @@
  *
  * Helpers that draw the scaffolding of a 3D scene at the current drawing
  * position: `axes()` and `grid()` for a coordinate frame and a ground plane;
- * `cross()` and `bullsEye()` for canvas-space markers that keep their size as
+ * `cross()` and `bullsEye()` for screen-space markers that keep their size as
  * the camera moves; `pane()` for a textured quad; `viewFrustum()` to show what
  * another camera sees; `hermite()` for a single curve segment; and
  * `trackPath()` to draw a `PoseTrack` or `CameraTrack` with its keyframes.
@@ -16,8 +16,8 @@
  * @details
  * - {@link axes} — coordinate frame (X/Y/Z, optional labels), semantic colouring
  * - {@link grid} — ground plane
- * - {@link cross} — canvas-space crosshair centred on the current model origin
- * - {@link bullsEye} — canvas-space bulls-eye centred on the current model origin
+ * - {@link cross} — screen-space crosshair centred on the current model origin
+ * - {@link bullsEye} — screen-space bulls-eye centred on the current model origin
  * - {@link pane} — textured / untextured quad primitive (4 corners, optional UVs)
  * - {@link viewFrustum} — another camera's view frustum drawn in this renderer;
  *   NEAR and FAR planes optionally textured (e.g. the scene rendered from that
@@ -376,13 +376,13 @@ export function installGizmos(p5, fn) {
   fn.cross = function (opts) { this._renderer.cross(opts); return this; };
 
   /**
-   * Draw a canvas-space crosshair centred on the current model origin, or at
+   * Draw a screen-space crosshair centred on the current model origin, or at
    * explicit screen coordinates `x`, `y`. Set its extent with `size` — world units at
    * the origin's depth, or pixels when screen coordinates are given (see both
    * examples). Needs a `p5.WEBGL` canvas.
    *
    * @details
-   * Draw a canvas-space crosshair centred on the current model origin, or at
+   * Draw a screen-space crosshair centred on the current model origin, or at
    * explicit screen coordinates. Drawn in HUD space at the ambient stroke.
    * Centred on the model origin, `size` is in world units at that depth
    * (the cross shrinks with distance); with `x`, `y` given, `size` is pixels.
@@ -460,14 +460,14 @@ export function installGizmos(p5, fn) {
   fn.bullsEye = function (opts) { this._renderer.bullsEye(opts); return this; };
 
   /**
-   * Draw a canvas-space bulls-eye — a circle or a cornered square plus a central
+   * Draw a screen-space bulls-eye — a circle or a cornered square plus a central
    * cross — centred on the current model origin, or at explicit screen
    * coordinates `x`, `y`. Pick the outline with `shape` (`CIRCLE` or `SQUARE`) and its
    * extent with `size`: world units at the origin's depth, or pixels when screen
    * coordinates are given (see both examples). Needs a `p5.WEBGL` canvas.
    *
    * @details
-   * Draw a canvas-space bulls-eye — a circle or a cornered square plus a
+   * Draw a screen-space bulls-eye — a circle or a cornered square plus a
    * central cross — centred on the current model origin, or at explicit screen
    * coordinates. Drawn in HUD space at the ambient stroke. Centred on the model
    * origin, `size` is in world units at that depth; with `x`, `y` given, `size`

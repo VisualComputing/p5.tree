@@ -1,5 +1,5 @@
 /**
- * @file Drawing in canvas space over the scene.
+ * @file Drawing in screen space over the scene.
  * @module p5.tree/hud
  * @license AGPL-3.0-only
  *
@@ -31,15 +31,15 @@ export function installHud(p5, fn) {
   fn.endHUD   = function (...args) { this._renderer?.endHUD?.(...args);   return this; };
 
   /**
-   * Start drawing in canvas space over the 3D scene: pixel coordinates with the
+   * Start drawing in screen space over the 3D scene: pixel coordinates with the
    * origin at the top-left corner of the canvas, as in 2D mode. Pair every call
    * with `endHUD()` (see the frame-rate example). Needs a `p5.WEBGL` canvas; text
    * needs a loaded font.
    *
    * @details
-   * Begin drawing in canvas space (HUD mode).
+   * Begin drawing in screen space (HUD mode).
    *
-   * Clears depth, installs an orthographic camera matching canvas pixel
+   * Clears depth, installs an orthographic camera matching logical pixel
    * dimensions, origin top-left. Pair with `endHUD()`.
    *
    * @function beginHUD

@@ -11,7 +11,7 @@
  * `projFar` and `projFov` read the current projection's numbers directly.
  *
  * `mapLocation` and `mapDirection` carry a point or a direction between world,
- * eye, canvas space and the model transform stack. `pixelRatio`, `screenSize`,
+ * eye, screen space and the model transform stack. `pixelRatio`, `drawingBufferSize`,
  * `fragCoord` and `texelSize` answer the pixel-level questions that usually follow.
  *
  * @details
@@ -2014,7 +2014,7 @@ export function installMatrix(p5, fn) {
   };
   fn.pixelRatio = function (worldPos, opts) { return this._renderer.pixelRatio(worldPos, opts); };
 
-  // ── screenSize ────────────────────────────────────────────────────────────
+  // ── drawingBufferSize ────────────────────────────────────────────────────────────
 
   /**
    * The canvas size in window space — the drawing buffer's physical (device) pixels, accounting for pixel density. Pass it to a shader as its resolution uniform, as the example does; needs a `p5.WEBGL` canvas.
@@ -2023,7 +2023,7 @@ export function installMatrix(p5, fn) {
    * Window space's size in device pixels: [pixelDensity×width, pixelDensity×height].
    * Use as `u_resolution` for shaders that use `gl_FragCoord.xy`.
    *
-   * @function screenSize
+   * @function drawingBufferSize
    * @memberof p5
    * @returns {number[]} [w, h]
    * @example
@@ -2057,24 +2057,24 @@ export function installMatrix(p5, fn) {
    * function draw() {
    *   background('#138D75')
    *   shader(sh)
-   *   sh.setUniform('u_resolution', screenSize())
+   *   sh.setUniform('u_resolution', drawingBufferSize())
    *   noStroke()
    *   plane(width / 2, height / 2)   // canvas coordinates: only the middle of the gradient shows
    * }
    */
-  p5.Renderer3D.prototype.screenSize = function () {
+  p5.Renderer3D.prototype.drawingBufferSize = function () {
     const pd = this._pInst.pixelDensity();
     return [pd * this.width, pd * this.height];
   };
-  fn.screenSize = function () { return this._renderer.screenSize(); };
+  fn.drawingBufferSize = function () { return this._renderer.drawingBufferSize(); };
 
   // ── fragCoord ─────────────────────────────────────────────────────────────
 
   /**
-   * The `gl_FragCoord` of a canvas pixel, the mouse by default. Pass it to a shader as its pointer uniform beside `screenSize()`, as the example does; needs a `p5.WEBGL` canvas.
+   * The `gl_FragCoord` of a screen-space pixel, the mouse by default. Pass it to a shader as its pointer uniform beside `drawingBufferSize()`, as the example does; needs a `p5.WEBGL` canvas.
    *
    * @details
-   * Canvas space (logical pixels, top-left, y down, what `mouseX` / `mouseY` count) to
+   * Screen space (logical pixels, top-left, y down, what `mouseX` / `mouseY` count) to
    * window space (the drawing buffer's device pixels, bottom-left, y up):
    * [x×pixelDensity, (height − y)×pixelDensity].
    * Also the coordinates a pixel readback takes.

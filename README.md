@@ -479,7 +479,7 @@ Constants: `p5.Tree.ORIGIN`, `p5.Tree.i`, `p5.Tree.j`, `p5.Tree.k`, `p5.Tree._i`
 
 ## Heads Up Display
 
-Draw directly in canvas space — independent of the current camera and 3D transforms.
+Draw directly in screen space — independent of the current camera and 3D transforms.
 
 ```js
 beginHUD()
@@ -756,20 +756,20 @@ p5.Tree.VERSION   // '0.0.51'
 ## Shader helpers
 
 ```js
-screenSize()
+drawingBufferSize()
 // Returns physical canvas size in pixels:
 // [pixelDensity * width, pixelDensity * height].
 // Use as `u_resolution` when working with gl_FragCoord.xy.
 // Not required for createFilterShader() — filter shaders receive `canvasSize` automatically.
 
-shader.setUniform('u_resolution', screenSize())
+shader.setUniform('u_resolution', drawingBufferSize())
 ```
 
 ```js
 fragCoord(x = mouseX, y = mouseY)
-// Returns the gl_FragCoord of a canvas pixel, the mouse by default:
+// Returns the gl_FragCoord of a screen-space pixel, the mouse by default:
 // [x * pixelDensity, (height - y) * pixelDensity] — device pixels, y up.
-// The value of a pointer uniform beside screenSize(); what a pixel readback takes.
+// The value of a pointer uniform beside drawingBufferSize(); what a pixel readback takes.
 
 shader.setUniform('uMouse', fragCoord())
 ```
