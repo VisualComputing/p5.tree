@@ -1,0 +1,41 @@
+# The API site: built from the tagged commit and deployed to GitHub Pages, so
+# the site and the published package never skew. Pages source: GitHub Actions.
+# No lockfile is committed (this repo ignores package-lock.json), so the install
+# is `npm install`, and no `cache: npm` — both `npm ci` and the setup-node cache
+# require a committed lockfile.
+name: pages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm run docs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
