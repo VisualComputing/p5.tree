@@ -44,7 +44,7 @@ export function installConstants(p5) {
     /** Library version string.
      * @constant {string} VERSION
      * @memberof p5.Tree */
-    VERSION: CONST('0.0.51'),
+    VERSION: CONST('0.0.62'),
     /** The empty bit set — pass as a gizmo's `bits` to draw nothing.
      * @constant {number} NONE
      * @memberof p5.Tree */
