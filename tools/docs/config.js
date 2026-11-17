@@ -69,5 +69,6 @@ export const site = {
   style:  'assets/style.css',
   runner: 'assets/runner.js',
   search: 'assets/search.js',
+  chrome: 'assets/chrome.js',    // theme picker and collapsible navigation
   index:  'search.json',
 };
