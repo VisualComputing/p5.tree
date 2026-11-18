@@ -2,8 +2,8 @@
  * @file Site chrome — the theme picker and the collapsible navigation.
  * @license AGPL-3.0-only
  *
- * Both preferences are per site and both are applied before the first paint by
- * the inline script in the page head: `docs-theme` (light, dark or system) and
+ * ES module on every page. Both preferences are per site and both are applied
+ * before the first paint by the inline script in the page head: `docs-theme` (light, dark or system) and
  * `docs-rail` (expanded or collapsed). This file owns the controls only.
  *
  * `<html data-theme>` is the resolved theme, and `light-dark()` reads it
@@ -14,9 +14,7 @@
  * The picker appears twice in the markup — the rail's foot and, on a narrow
  * screen, the header — so both copies are driven from the same state.
  */
-(function () {
-  'use strict';
-
+function start() {
   var root = document.documentElement;
   var THEME_KEY = 'docs-theme';
   var dark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -168,4 +166,6 @@
     else delete root.dataset.rail;
     syncRail();
   });
-})();
+}
+
+start();

@@ -1,6 +1,8 @@
 # Node dependencies
 node_modules/
 package-lock.json
+# The docs project's own lock is part of the build: its dependency is not the release's.
+!tools/docs/package-lock.json
 
 # Build output (already covered by dist/ but explicit)
 dist/
