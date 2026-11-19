@@ -155,6 +155,12 @@ export default {
   mode: 'esm',
 
   shell: {
+    // The rail's badge in place of the version line: on every page, and the
+    // landing page keeps its space.
+    badge: {
+      src: 'https://img.shields.io/badge/dynamic/json?url=https://registry.npmjs.org/p5.tree&query=$.dist-tags.latest&label=npm&color=007e69',
+      href: 'https://www.npmjs.com/package/p5.tree',
+    },
     stylesheet: 'assets/style.css',
     favicon: [],                    // no icon of its own
   },

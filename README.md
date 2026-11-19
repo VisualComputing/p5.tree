@@ -1,7 +1,5 @@
 # p5.tree
 
-[![npm](https://img.shields.io/badge/dynamic/json?url=https://registry.npmjs.org/p5.tree&query=$.dist-tags.latest&label=npm&color=007e69)](https://www.npmjs.com/package/p5.tree)
-
 Render pipeline for [p5.js v2](https://beta.p5js.org/) — [pose and camera interpolation](https://en.wikipedia.org/wiki/Key_frame), [space transforms](https://wikis.khronos.org/opengl/Rendering_Pipeline_Overview), [frustum visibility](https://en.wikipedia.org/wiki/Hidden-surface_determination), [HUD](https://en.wikipedia.org/wiki/Head-up_display), [post-processing pipe](https://en.wikipedia.org/wiki/Video_post-processing#Uses_in_3D_rendering), [picking](https://webglfundamentals.org/webgl/lessons/webgl-picking.html), [interactive 3D handles](https://en.wikipedia.org/wiki/3D_user_interaction), [6-DOF helms](https://en.wikipedia.org/wiki/Six_degrees_of_freedom), and [declarative control panels](https://github.com/dataarts/dat.gui).
 
 ![A non-Euclidean geometry cube with faces showcasing teapot, bunny, and Buddha models.](p5.tree.png)
