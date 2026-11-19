@@ -7,6 +7,10 @@
 # defaults that environment's deployment rule to the default branch, so add a
 # Tag rule matching v* (Settings -> Environments -> github-pages), or dispatch
 # this workflow from main for a doc-only redeploy.
+#
+# The docs toolchain is the published package, `@nakednous/scholion`, installed
+# by the nested project under `tools/docs`; its lock is committed, so the step is
+# `npm ci --prefix tools/docs`.
 name: pages
 
 on:
@@ -35,6 +39,7 @@ jobs:
         with:
           node-version: 26
       - run: npm install --no-audit --no-fund
+      - run: npm ci --prefix tools/docs
       - run: npm run build
       - run: npm run docs
       - uses: actions/configure-pages@v6
