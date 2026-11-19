@@ -1510,7 +1510,7 @@ helmRig(helm, { size: 120 })                                   // in-scene at th
 
 # The host — treeHost
 
-Every handle, track, helm and stream above is a construct of one `@nakednous/host` context on the sketch canvas, which p5.tree creates on first need and drives from its lifecycle (predraw ticks the players and fills the view bag from the renderer; postdraw projects the label layer and ends the pointer frame; `remove()` disposes it). `treeHost()` returns it, for the two host constructs p5.tree has no verb of its own for:
+Every handle, track, helm and stream above is a construct of one `@nakednous/host` context on the sketch canvas, which p5.tree creates on first need and drives from its lifecycle (predraw ticks the players and fills the view bag from the renderer; postdraw projects the label layer and ends the pointer frame; `remove()` disposes it). `treeHost()` returns it, for the two host constructs p5.tree has no call of its own for:
 
 ```js
 const labels = treeHost().labels                               // DOM text over the canvas, no font
