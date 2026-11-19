@@ -166,6 +166,14 @@ export default {
   },
 
   /**
+   * Every site-local asset URL carries the build stamp: a rebuild has to
+   * invalidate what the browser cached, or the new pages run the old client —
+   * the sheet, the scripts and the index the page fetches, and the builds the
+   * frames import. A CDN pin is someone else's file and carries none.
+   */
+  stamp: true,
+
+  /**
    * The runner's contract: the page's config block, its `{tokens}` resolved by
    * the build — `{bundle}`, `{index}`, `{editor}`, `{pin:<name>:<field>}`.
    * `font` is the file every sketch's `loadFont` reads, served beside the page.
@@ -176,9 +184,9 @@ export default {
     chrome: 'assets/chrome.js',    // theme picker and collapsible navigation
     config: {
       p5: '{pin:p5:script}',
-      lib: '{bundle}',
+      lib: '{bundle}?v={stamp}',
       font: 'fonts/noto_sans.ttf',
-      index: '{index}',
+      index: '{index}?v={stamp}',
       editor: '{editor}',
     },
   },
