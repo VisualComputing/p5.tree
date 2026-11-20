@@ -13,6 +13,12 @@
 # admits main, so every run that deploys here starts from a branch push; the tag
 # rule the tag-only version needed is no longer required.
 #
+# When the tag's tree is the one published, the documentation is still the
+# pushed commit's: `tools/docs` and `README.md` are taken from it. The site then
+# documents the release — this repository's tag trails main by the release's own
+# version bump, and the docs toolchain that builds the pages is not the release's
+# code but the site's.
+#
 # The docs toolchain is the published package, `@nakednous/scholion`, installed
 # by the nested project under `tools/docs`; its lock is committed, so the step is
 # `npm ci --prefix tools/docs`.
@@ -69,6 +75,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0            # the pushed commit, for the docs step below
+      - name: The docs come from the push, the code from the release
+        if: needs.resolve.outputs.ref != github.sha
+        run: git checkout "$GITHUB_SHA" -- tools/docs README.md
       - uses: actions/setup-node@v7
         with:
           node-version: 26
