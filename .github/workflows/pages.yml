@@ -1,23 +1,15 @@
-# The API site: built from the release's code and deployed to GitHub Pages, so
-# the site and the published package never skew. Pages source: GitHub Actions.
-# No lockfile is committed (this repo ignores package-lock.json), so the install
-# is `npm install`, and no `cache: npm` — both `npm ci` and the setup-node cache
-# require a committed lockfile.
+# The API site: built from main and deployed to GitHub Pages. Pages source:
+# GitHub Actions. No lockfile is committed (this repo ignores package-lock.json),
+# so the install is `npm install`, and no `cache: npm` — both `npm ci` and the
+# setup-node cache require a committed lockfile.
 #
-# Publishing is from main, as on the twins. The resolve job names the release tag
-# (v<package.json version>) and publishes its code; when the tree since that tag
-# has touched nothing but documentation it publishes main instead, so a doc
-# change ships without waiting for a release while the served bundle stays the
-# release's. A tag pushed alone does not deploy — the release's own push to main
-# does — and a dispatch resolves the same way. The github-pages environment
-# admits main, so every run that deploys here starts from a branch push; the tag
-# rule the tag-only version needed is no longer required.
-#
-# When the tag's tree is the one published, the documentation is still the
-# pushed commit's: `tools/docs` and `README.md` are taken from it. The site then
-# documents the release — this repository's tag trails main by the release's own
-# version bump, and the docs toolchain that builds the pages is not the release's
-# code but the site's.
+# No tag guard, unlike its twins. Theirs publishes the release tag's code and
+# falls back to main for a documentation-only push; here the tag cannot build:
+# `v0.0.68` was cut before the release's own version bump, so its
+# `src/constants.js` says 0.0.67 while its `package.json` says 0.0.68, and the
+# repository's `version-agrees` rollup plugin fails the build on exactly that.
+# Until a tag is cut that builds, main is the tree this site publishes — and main
+# is where the fix lands. A tag pushed alone does not deploy.
 #
 # The docs toolchain is the published package, `@nakednous/scholion`, installed
 # by the nested project under `tools/docs`; its lock is committed, so the step is
@@ -39,46 +31,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  resolve:
-    runs-on: ubuntu-latest
-    outputs:
-      ref: ${{ steps.resolve.outputs.ref }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - id: resolve
-        name: Resolve the tree to publish
-        run: |
-          tag="v$(node -p "require('./package.json').version")"
-          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "No $tag in this clone — a push without a release tag publishes nothing."
-            exit 0
-          fi
-          ref="$tag"
-          if [ "$GITHUB_SHA" != "$(git rev-parse "$tag")" ] &&
-             git diff --quiet "$tag" HEAD -- src package.json rollup.config.js; then
-            ref="$GITHUB_SHA"
-          fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "publishing $ref ($tag is the release)"
-
   deploy:
-    needs: resolve
-    if: needs.resolve.outputs.ref != ''
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.resolve.outputs.ref }}
-          fetch-depth: 0            # the pushed commit, for the docs step below
-      - name: The docs come from the push, the code from the release
-        if: needs.resolve.outputs.ref != github.sha
-        run: git checkout "$GITHUB_SHA" -- tools/docs README.md
       - uses: actions/setup-node@v7
         with:
           node-version: 26
