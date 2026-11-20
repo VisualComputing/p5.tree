@@ -162,7 +162,10 @@ export default {
       href: 'https://www.npmjs.com/package/p5.tree',
     },
     stylesheet: 'assets/style.css',
-    favicon: [],                    // no icon of its own
+    favicon: [
+      { sizes: '32x32', href: 'favicon-32.png' },      // the family's cube, on this site's green
+      { sizes: '128x128', href: 'favicon-128.png' },
+    ],
   },
 
   /**
